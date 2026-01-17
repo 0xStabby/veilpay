@@ -55,9 +55,10 @@ export function useAdminChecklist(params: {
             });
 
             let fundedOk = false;
-            if (veilpayProgram) {
+            const wallet = veilpayProgram?.provider?.wallet;
+            if (veilpayProgram && wallet) {
                 try {
-                    const balance = await connection.getBalance(veilpayProgram.provider.wallet.publicKey);
+                    const balance = await connection.getBalance(wallet.publicKey);
                     fundedOk = balance >= 0.5 * 1e9;
                 } catch {
                     fundedOk = false;
@@ -118,9 +119,9 @@ export function useAdminChecklist(params: {
             });
 
             let registeredOk = false;
-            if (mintKey && veilpayProgram) {
+            if (mintKey && veilpayProgram && configPda) {
                 try {
-                    const config = await veilpayProgram.account.config.fetch(configPda);
+                    const config = await (veilpayProgram.account as any).config.fetch(configPda);
                     registeredOk = config.mintAllowlist.some((entry: PublicKey) => entry.equals(mintKey));
                 } catch {
                     registeredOk = false;
@@ -148,9 +149,9 @@ export function useAdminChecklist(params: {
             });
 
             let mintedOk = false;
-            if (mintKey && veilpayProgram) {
+            if (mintKey && veilpayProgram && wallet) {
                 try {
-                    const ata = await getAssociatedTokenAddress(mintKey, veilpayProgram.provider.wallet.publicKey);
+                    const ata = await getAssociatedTokenAddress(mintKey, wallet.publicKey);
                     const account = await getAccount(connection, ata);
                     mintedOk = account.amount > 0n;
                 } catch {

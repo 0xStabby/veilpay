@@ -1,7 +1,9 @@
-import React, { FC, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import type { FC } from 'react';
 import { Buffer } from 'buffer';
 import { PublicKey, Transaction } from '@solana/web3.js';
 import { BN, Program } from '@coral-xyz/anchor';
+import type { AnchorProvider } from '@coral-xyz/anchor';
 import {
     TOKEN_PROGRAM_ID,
     createAssociatedTokenAccountInstruction,
@@ -161,18 +163,23 @@ export const TransferCard: FC<TransferCardProps> = ({
             const relayerFeeAta = parsedRelayer
                 ? await getAssociatedTokenAddress(parsedMint, parsedRelayer)
                 : null;
+            const provider = veilpayProgram.provider as AnchorProvider;
+            const wallet = provider.wallet;
+            if (!wallet) {
+                throw new Error('Connect a wallet to transfer.');
+            }
 
             const ensureAta = async (ata: PublicKey, owner: PublicKey) => {
                 try {
-                    await getAccount(veilpayProgram.provider.connection, ata);
+                    await getAccount(provider.connection, ata);
                 } catch {
                     const ix = createAssociatedTokenAccountInstruction(
-                        veilpayProgram.provider.wallet.publicKey,
+                        wallet.publicKey,
                         ata,
                         owner,
                         parsedMint
                     );
-                    await veilpayProgram.provider.sendAndConfirm(new Transaction().add(ix));
+                    await provider.sendAndConfirm(new Transaction().add(ix));
                 }
             };
 
@@ -209,6 +216,20 @@ export const TransferCard: FC<TransferCardProps> = ({
                 throw new Error(`Preflight verify failed. ${formatPublicSignals(publicSignals)}`);
             }
 
+            const accounts = {
+                config,
+                vault,
+                vaultAta,
+                shieldedState,
+                nullifierSet,
+                destinationAta,
+                verifierProgram: VERIFIER_PROGRAM_ID,
+                verifierKey,
+                mint: parsedMint,
+                tokenProgram: TOKEN_PROGRAM_ID,
+                ...(relayerFeeAta ? { relayerFeeAta } : {}),
+            };
+
             const ix = await veilpayProgram.methods
                 .externalTransfer({
                     amount: new BN(externalAmount),
@@ -218,22 +239,10 @@ export const TransferCard: FC<TransferCardProps> = ({
                     root: Buffer.from(root),
                     relayerFeeBps: Number(relayerFeeBps),
                 })
-                .accounts({
-                    config,
-                    vault,
-                    vaultAta,
-                    shieldedState,
-                    nullifierSet,
-                    destinationAta,
-                    relayerFeeAta: relayerFeeAta ?? null,
-                    verifierProgram: VERIFIER_PROGRAM_ID,
-                    verifierKey,
-                    mint: parsedMint,
-                    tokenProgram: TOKEN_PROGRAM_ID,
-                })
+                .accounts(accounts)
                 .instruction();
 
-            await submitViaRelayer(veilpayProgram.provider, new Transaction().add(ix));
+            await submitViaRelayer(provider, new Transaction().add(ix));
 
             onStatus('External transfer complete.');
         } catch (error) {

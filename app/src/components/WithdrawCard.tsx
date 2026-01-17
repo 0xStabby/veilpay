@@ -1,7 +1,9 @@
-import React, { FC, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import type { FC } from 'react';
 import { Buffer } from 'buffer';
 import { PublicKey, Transaction } from '@solana/web3.js';
 import { BN, Program } from '@coral-xyz/anchor';
+import type { AnchorProvider } from '@coral-xyz/anchor';
 import {
     TOKEN_PROGRAM_ID,
     createAssociatedTokenAccountInstruction,
@@ -67,6 +69,11 @@ export const WithdrawCard: FC<WithdrawCardProps> = ({ veilpayProgram, mintAddres
                 throw new Error('Relayer pubkey required when relayer fee > 0.');
             }
             onStatus('Submitting withdraw...');
+            const provider = veilpayProgram.provider as AnchorProvider;
+            const wallet = provider.wallet;
+            if (!wallet) {
+                throw new Error('Connect a wallet to withdraw.');
+            }
             const config = deriveConfig(veilpayProgram.programId);
             const vault = deriveVault(veilpayProgram.programId, parsedMint);
             const shieldedState = deriveShielded(veilpayProgram.programId, parsedMint);
@@ -81,15 +88,15 @@ export const WithdrawCard: FC<WithdrawCardProps> = ({ veilpayProgram, mintAddres
 
             const ensureAta = async (ata: PublicKey, owner: PublicKey) => {
                 try {
-                    await getAccount(veilpayProgram.provider.connection, ata);
+                    await getAccount(provider.connection, ata);
                 } catch {
                     const ix = createAssociatedTokenAccountInstruction(
-                        veilpayProgram.provider.wallet.publicKey,
+                        wallet.publicKey,
                         ata,
                         owner,
                         parsedMint
                     );
-                    await veilpayProgram.provider.sendAndConfirm(new Transaction().add(ix));
+                    await provider.sendAndConfirm(new Transaction().add(ix));
                 }
             };
 
@@ -126,6 +133,20 @@ export const WithdrawCard: FC<WithdrawCardProps> = ({ veilpayProgram, mintAddres
                 throw new Error(`Preflight verify failed. ${formatPublicSignals(publicSignals)}`);
             }
 
+            const accounts = {
+                config,
+                vault,
+                vaultAta,
+                shieldedState,
+                nullifierSet,
+                recipientAta,
+                verifierProgram: VERIFIER_PROGRAM_ID,
+                verifierKey,
+                mint: parsedMint,
+                tokenProgram: TOKEN_PROGRAM_ID,
+                ...(relayerFeeAta ? { relayerFeeAta } : {}),
+            };
+
             const ix = await veilpayProgram.methods
                 .withdraw({
                     amount: new BN(amount),
@@ -135,22 +156,10 @@ export const WithdrawCard: FC<WithdrawCardProps> = ({ veilpayProgram, mintAddres
                     root: Buffer.from(root),
                     relayerFeeBps: Number(relayerFeeBps),
                 })
-                .accounts({
-                    config,
-                    vault,
-                    vaultAta,
-                    shieldedState,
-                    nullifierSet,
-                    recipientAta,
-                    relayerFeeAta: relayerFeeAta ?? null,
-                    verifierProgram: VERIFIER_PROGRAM_ID,
-                    verifierKey,
-                    mint: parsedMint,
-                    tokenProgram: TOKEN_PROGRAM_ID,
-                })
+                .accounts(accounts)
                 .instruction();
 
-            await submitViaRelayer(veilpayProgram.provider, new Transaction().add(ix));
+            await submitViaRelayer(provider, new Transaction().add(ix));
 
             onStatus(`Withdraw complete. Nullifier ${toHex(bigIntToBytes32(nullifierValue)).slice(0, 12)}...`);
         } catch (error) {

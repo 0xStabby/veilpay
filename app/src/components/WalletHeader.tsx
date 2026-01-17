@@ -1,4 +1,4 @@
-import React, { FC } from 'react';
+import type { FC } from 'react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import styles from './WalletHeader.module.css';
 

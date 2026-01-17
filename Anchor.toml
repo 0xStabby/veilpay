@@ -6,15 +6,15 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-veilpay = "B5M7aRq3PXTNBzbrzxdgyN7hR2K6EsqE9L2hGid5EHst"
-verifier = "ApgL98o4JA6ZJSR3G9X8HTymPCssztpKMYFZWohraotk"
+veilpay = "5UZKEwp4Mqkzxk6wxriy1ejK3bJsuKRVfkRxg37SG2tq"
+verifier = "HKDjg9uodQ8qDi9YJA82bYHRdYDxUm7ii59k5ua5UHxe"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
 cluster = "localnet"
-wallet = "/root/.config/solana/id.json"
+wallet = "~/.config/solana/id.json"
 
 [scripts]
 test = "pnpm exec ts-mocha -p ./tsconfig.json -t 1000000 \"tests/**/*.ts\""

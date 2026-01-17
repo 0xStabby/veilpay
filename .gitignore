@@ -19,3 +19,5 @@ app/public/prover
 **/.turbo
 **/dist
 **/build
+.vercel
+.env*.local

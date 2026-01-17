@@ -3,8 +3,6 @@ import { AnchorProvider, Program } from '@coral-xyz/anchor';
 import { useAnchorWallet, useConnection } from '@solana/wallet-adapter-react';
 import veilpayIdl from '../idl/veilpay.json';
 import verifierIdl from '../idl/verifier.json';
-import { VEILPAY_PROGRAM_ID, VERIFIER_PROGRAM_ID } from '../lib/config';
-
 const normalizeIdl = (idl: any) => {
     if (!idl || !Array.isArray(idl.accounts) || !Array.isArray(idl.types)) {
         return idl;

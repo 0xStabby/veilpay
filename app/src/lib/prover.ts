@@ -112,6 +112,7 @@ export async function generateProof(input: Record<string, string | number>): Pro
         '/prover/veilpay.wasm',
         '/prover/veilpay.zkey'
     );
+    const publicSignalsArray = publicSignals as string[];
 
     const proofAny = proof as any;
     const a = [toBigInt(proofAny.pi_a[0]), toBigInt(proofAny.pi_a[1])];
@@ -133,12 +134,14 @@ export async function generateProof(input: Record<string, string | number>): Pro
         bigIntToBytes32(c[1]),
     ]);
 
-    const publicInputsBytes = concatBytes(publicSignals.map((value) => bigIntToBytes32(toBigInt(value))));
+    const publicInputsBytes = concatBytes(
+        publicSignalsArray.map((value: string) => bigIntToBytes32(toBigInt(value)))
+    );
 
     return {
         proofBytes,
         publicInputsBytes,
-        publicSignals,
+        publicSignals: publicSignalsArray,
         proof,
     };
 }

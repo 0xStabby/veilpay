@@ -1,7 +1,9 @@
-import React, { FC, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import type { FC } from 'react';
 import { Buffer } from 'buffer';
 import { PublicKey } from '@solana/web3.js';
 import { BN, Program } from '@coral-xyz/anchor';
+import type { AnchorProvider } from '@coral-xyz/anchor';
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from '@solana/spl-token';
 import styles from './DepositCard.module.css';
 import { deriveConfig, deriveShielded, deriveVault } from '../lib/pda';
@@ -43,11 +45,16 @@ export const DepositCard: FC<DepositCardProps> = ({
         setBusy(true);
         try {
             onStatus('Submitting deposit...');
+            const provider = veilpayProgram.provider as AnchorProvider;
+            const wallet = provider.wallet;
+            if (!wallet) {
+                throw new Error('Connect a wallet to deposit.');
+            }
             const config = deriveConfig(veilpayProgram.programId);
             const vault = deriveVault(veilpayProgram.programId, parsedMint);
             const shieldedState = deriveShielded(veilpayProgram.programId, parsedMint);
             const vaultAta = await getAssociatedTokenAddress(parsedMint, vault, true);
-            const userAta = await getAssociatedTokenAddress(parsedMint, veilpayProgram.provider.wallet.publicKey);
+            const userAta = await getAssociatedTokenAddress(parsedMint, wallet.publicKey);
 
             const ciphertext = randomBytes(64);
             const newRootValue = modField(bytesToBigIntBE(randomBytes(32)));
@@ -60,7 +67,7 @@ export const DepositCard: FC<DepositCardProps> = ({
                     ? Uint8Array.from(
                           cleanedTag.match(/.{1,2}/g)?.map((byte) => parseInt(byte, 16)) ?? []
                       )
-                    : await sha256(veilpayProgram.provider.wallet.publicKey.toBytes());
+                    : await sha256(wallet.publicKey.toBytes());
             const recipientTagHash = modField(bytesToBigIntBE(recipientTagBytes));
             const commitmentValue = await computeCommitment(amountValue, randomness, recipientTagHash);
             const commitment = bigIntToBytes32(commitmentValue);
@@ -77,7 +84,7 @@ export const DepositCard: FC<DepositCardProps> = ({
                     vault,
                     vaultAta,
                     shieldedState,
-                    user: veilpayProgram.provider.wallet.publicKey,
+                    user: wallet.publicKey,
                     userAta,
                     mint: parsedMint,
                     tokenProgram: TOKEN_PROGRAM_ID,

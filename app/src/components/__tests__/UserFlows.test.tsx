@@ -1,4 +1,3 @@
-import React from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { UserDepositCard } from '../UserDepositCard';
@@ -40,6 +39,7 @@ describe('User flow cards', () => {
         render(
             <UserWithdrawCard
                 veilpayProgram={null}
+                verifierProgram={null}
                 mintAddress="So11111111111111111111111111111111111111112"
                 onStatus={() => undefined}
                 root={new Uint8Array(32)}

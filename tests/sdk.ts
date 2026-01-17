@@ -11,7 +11,7 @@ import {
 } from "../sdk/src/pda";
 
 describe("sdk pda helpers", () => {
-  const programId = new PublicKey("B5M7aRq3PXTNBzbrzxdgyN7hR2K6EsqE9L2hGid5EHst");
+  const programId = new PublicKey("5UZKEwp4Mqkzxk6wxriy1ejK3bJsuKRVfkRxg37SG2tq");
   const mint = new PublicKey("So11111111111111111111111111111111111111112");
 
   it("derives config/vk registry", () => {
@@ -36,7 +36,7 @@ describe("sdk pda helpers", () => {
   });
 
   it("derives verifier key", () => {
-    const verifierProgramId = new PublicKey("ApgL98o4JA6ZJSR3G9X8HTymPCssztpKMYFZWohraotk");
+    const verifierProgramId = new PublicKey("HKDjg9uodQ8qDi9YJA82bYHRdYDxUm7ii59k5ua5UHxe");
     const key = deriveVerifierKey(verifierProgramId, 0);
     assert.isTrue(PublicKey.isOnCurve(key.toBytes()) || true);
   });

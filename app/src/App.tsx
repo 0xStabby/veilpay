@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { WalletHeader } from './components/WalletHeader';
 import { StatusBanner } from './components/StatusBanner';
 import { SetupCard } from './components/SetupCard';
@@ -15,7 +15,7 @@ import { useShieldedBalance } from './hooks/useShieldedBalance';
 import { randomBytes } from './lib/crypto';
 import styles from './App.module.css';
 
-const App: React.FC = () => {
+const App = () => {
     const { connection, veilpayProgram, verifierProgram, wallet } = usePrograms();
     const [status, setStatus] = useState('');
     const [mintAddress, setMintAddress] = useState('');

@@ -1,5 +1,5 @@
 {
-  "address": "B5M7aRq3PXTNBzbrzxdgyN7hR2K6EsqE9L2hGid5EHst",
+  "address": "5UZKEwp4Mqkzxk6wxriy1ejK3bJsuKRVfkRxg37SG2tq",
   "metadata": {
     "name": "veilpay",
     "version": "0.1.0",
@@ -481,7 +481,7 @@
         },
         {
           "name": "verifier_program",
-          "address": "ApgL98o4JA6ZJSR3G9X8HTymPCssztpKMYFZWohraotk"
+          "address": "HKDjg9uodQ8qDi9YJA82bYHRdYDxUm7ii59k5ua5UHxe"
         },
         {
           "name": "verifier_key"
@@ -916,7 +916,7 @@
         },
         {
           "name": "verifier_program",
-          "address": "ApgL98o4JA6ZJSR3G9X8HTymPCssztpKMYFZWohraotk"
+          "address": "HKDjg9uodQ8qDi9YJA82bYHRdYDxUm7ii59k5ua5UHxe"
         },
         {
           "name": "verifier_key"
@@ -1154,7 +1154,7 @@
         },
         {
           "name": "verifier_program",
-          "address": "ApgL98o4JA6ZJSR3G9X8HTymPCssztpKMYFZWohraotk"
+          "address": "HKDjg9uodQ8qDi9YJA82bYHRdYDxUm7ii59k5ua5UHxe"
         },
         {
           "name": "verifier_key"
@@ -1311,7 +1311,7 @@
         },
         {
           "name": "verifier_program",
-          "address": "ApgL98o4JA6ZJSR3G9X8HTymPCssztpKMYFZWohraotk"
+          "address": "HKDjg9uodQ8qDi9YJA82bYHRdYDxUm7ii59k5ua5UHxe"
         },
         {
           "name": "verifier_key"

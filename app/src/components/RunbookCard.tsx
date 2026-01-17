@@ -1,4 +1,4 @@
-import React, { FC } from 'react';
+import type { FC } from 'react';
 import styles from './RunbookCard.module.css';
 import { useAdminChecklist } from '../hooks/useAdminChecklist';
 import { Program } from '@coral-xyz/anchor';

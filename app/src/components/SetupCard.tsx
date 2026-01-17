@@ -1,5 +1,6 @@
-import React, { FC, useMemo, useState } from 'react';
-import { Connection, PublicKey, SystemProgram, Transaction, Keypair } from '@solana/web3.js';
+import { useMemo, useState } from 'react';
+import type { FC } from 'react';
+import { Connection, PublicKey, SystemProgram, Transaction, Keypair, TransactionInstruction } from '@solana/web3.js';
 import { Buffer } from 'buffer';
 import {
     MINT_SIZE,
@@ -183,7 +184,7 @@ export const SetupCard: FC<SetupCardProps> = ({
                     null
                 )
             );
-            const { context, value } = await connection.getLatestBlockhashAndContext();
+            const { value } = await connection.getLatestBlockhashAndContext();
             tx.feePayer = publicKey;
             tx.recentBlockhash = value.blockhash;
             tx.partialSign(mintKeypair);
@@ -240,8 +241,8 @@ export const SetupCard: FC<SetupCardProps> = ({
             const vaultAta = await getAssociatedTokenAddress(parsedMint, vault, true);
             const userAta = await getAssociatedTokenAddress(parsedMint, publicKey);
 
-            const instructions = [];
-            const maybeCreateAta = async (ata: PublicKey, owner: PublicKey, allowOwnerOffCurve = false) => {
+            const instructions: TransactionInstruction[] = [];
+            const maybeCreateAta = async (ata: PublicKey, owner: PublicKey) => {
                 try {
                     await getAccount(connection, ata);
                 } catch {
@@ -252,7 +253,7 @@ export const SetupCard: FC<SetupCardProps> = ({
             };
 
             await maybeCreateAta(userAta, publicKey);
-            await maybeCreateAta(vaultAta, vault, true);
+            await maybeCreateAta(vaultAta, vault);
 
             if (instructions.length > 0) {
                 const tx = new Transaction().add(...instructions);

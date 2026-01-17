@@ -1,7 +1,9 @@
-import React, { FC, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import type { FC } from 'react';
 import { Buffer } from 'buffer';
 import { PublicKey, Transaction } from '@solana/web3.js';
 import { BN, Program } from '@coral-xyz/anchor';
+import type { AnchorProvider } from '@coral-xyz/anchor';
 import {
     TOKEN_PROGRAM_ID,
     createAssociatedTokenAccountInstruction,
@@ -144,16 +146,21 @@ export const AuthorizationCard: FC<AuthorizationCardProps> = ({ veilpayProgram, 
             const recipientAta = await getAssociatedTokenAddress(parsedMint, parsedRecipient);
             const verifierKey = deriveVerifierKey(VERIFIER_PROGRAM_ID, 0);
 
+            const provider = veilpayProgram.provider as AnchorProvider;
+            const wallet = provider.wallet;
+            if (!wallet) {
+                throw new Error('Connect a wallet to settle.');
+            }
             try {
-                await getAccount(veilpayProgram.provider.connection, recipientAta);
+                await getAccount(provider.connection, recipientAta);
             } catch {
                 const ix = createAssociatedTokenAccountInstruction(
-                    veilpayProgram.provider.wallet.publicKey,
+                    wallet.publicKey,
                     recipientAta,
                     parsedRecipient,
                     parsedMint
                 );
-                await veilpayProgram.provider.sendAndConfirm(new Transaction().add(ix));
+                await provider.sendAndConfirm(new Transaction().add(ix));
             }
 
             const senderSecret = modField(bytesToBigIntBE(randomBytes(32)));
@@ -203,7 +210,6 @@ export const AuthorizationCard: FC<AuthorizationCardProps> = ({ veilpayProgram, 
                     shieldedState,
                     nullifierSet,
                     recipientAta,
-                    relayerFeeAta: null,
                     verifierProgram: VERIFIER_PROGRAM_ID,
                     verifierKey,
                     mint: parsedMint,
@@ -211,7 +217,7 @@ export const AuthorizationCard: FC<AuthorizationCardProps> = ({ veilpayProgram, 
                 })
                 .instruction();
 
-            await submitViaRelayer(veilpayProgram.provider, new Transaction().add(ix));
+            await submitViaRelayer(provider, new Transaction().add(ix));
 
             onStatus('Authorization settled.');
         } catch (error) {

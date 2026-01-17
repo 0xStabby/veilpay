@@ -16,7 +16,7 @@ const bytesEqual = (a: Uint8Array | number[], b: Uint8Array) => {
 
 export async function checkVerifierKeyMatch(program: Program, keyId = 0): Promise<{ ok: boolean; mismatch?: string }> {
     const verifierKey = deriveVerifierKey(VERIFIER_PROGRAM_ID, keyId);
-    const account = await program.account.verifierKey.fetch(verifierKey);
+    const account = await (program.account as any).verifierKey.fetch(verifierKey);
 
     const mismatches: string[] = [];
     if (!bytesEqual(account.alphaG1 as number[], verifierKeyFixture.alphaG1)) mismatches.push('alpha_g1');
