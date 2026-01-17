@@ -9,6 +9,7 @@ import {
     getAccount,
     getAssociatedTokenAddress,
 } from '@solana/spl-token';
+import { AIRDROP_URL } from './config';
 import { deriveConfig, deriveNullifierSet, deriveShielded, deriveVault, deriveVkRegistry, deriveVerifierKey } from './pda';
 import { verifierKeyFixture } from './fixtures';
 import { parseTokenAmount } from './amount';
@@ -46,6 +47,11 @@ export async function airdropSol(params: {
 }): Promise<boolean> {
     const { connection, publicKey, onStatus } = params;
     try {
+        if (AIRDROP_URL) {
+            onStatus('Open the faucet to fund your wallet.');
+            window.open(AIRDROP_URL, '_blank', 'noopener,noreferrer');
+            return true;
+        }
         onStatus('Requesting airdrop...');
         const signature = await connection.requestAirdrop(publicKey, 2 * 1e9);
         await connection.confirmTransaction(signature, 'confirmed');
