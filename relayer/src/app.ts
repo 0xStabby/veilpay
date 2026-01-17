@@ -10,7 +10,16 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 
 export const app: Express = express();
-app.use(cors({ origin: "http://localhost:5173" }));
+const allowedOrigins = (process.env.RELAYER_ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
+const allowAllOrigins = allowedOrigins.includes("*");
+app.use(
+  cors({
+    origin: allowAllOrigins || allowedOrigins.length === 0 ? true : allowedOrigins,
+  })
+);
 app.use(express.json());
 
 const execFileAsync = promisify(execFile);

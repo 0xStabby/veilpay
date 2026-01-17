@@ -1,0 +1,55 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+packages:
+  - nginx
+  - curl
+
+runcmd:
+  - curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+  - apt-get install -y nodejs
+  - npm install -g pnpm
+  - useradd -m -s /bin/bash relayer || true
+  - mkdir -p /opt/veilpay-relayer
+  - chown -R relayer:relayer /opt/veilpay-relayer
+  - |
+    cat >/etc/systemd/system/veilpay-relayer.service <<'EOF'
+    [Unit]
+    Description=Veilpay Relayer
+    After=network.target
+
+    [Service]
+    Type=simple
+    User=relayer
+    WorkingDirectory=/opt/veilpay-relayer
+    Environment=PORT=${relayer_port}
+    Environment=RELAYER_RPC_URL=${relayer_rpc_url}
+    Environment=RELAYER_ALLOWED_ORIGINS=${relayer_allowed_origins}
+    ExecStart=/usr/bin/node /opt/veilpay-relayer/dist/index.js
+    Restart=always
+    RestartSec=5
+
+    [Install]
+    WantedBy=multi-user.target
+    EOF
+  - systemctl daemon-reload
+  - systemctl enable veilpay-relayer
+  - |
+    cat >/etc/nginx/sites-available/veilpay-relayer <<'EOF'
+    server {
+      listen 80 default_server;
+      listen [::]:80 default_server;
+
+      location / {
+        proxy_pass http://127.0.0.1:${relayer_port};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+      }
+    }
+    EOF
+  - rm -f /etc/nginx/sites-enabled/default
+  - ln -sf /etc/nginx/sites-available/veilpay-relayer /etc/nginx/sites-enabled/veilpay-relayer
+  - nginx -t
+  - systemctl restart nginx
