@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FC } from 'react';
 import { AnchorProvider, Program } from '@coral-xyz/anchor';
-import { Keypair, PublicKey, Transaction } from '@solana/web3.js';
+import { Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
 import {
     TOKEN_PROGRAM_ID,
     createAssociatedTokenAccountInstruction,
+    createCloseAccountInstruction,
     createTransferInstruction,
     getAccount,
     getAssociatedTokenAddress,
@@ -14,6 +15,7 @@ import styles from './MultiWalletTesterCard.module.css';
 import veilpayIdl from '../idl/veilpay.json';
 import verifierIdl from '../idl/verifier.json';
 import { formatTokenAmount, parseTokenAmount } from '../lib/amount';
+import { AIRDROP_URL } from '../lib/config';
 import { PubkeyBadge } from './PubkeyBadge';
 import {
     runCreateAuthorizationFlow,
@@ -91,12 +93,15 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
     const [busy, setBusy] = useState(false);
     const [stepStatus, setStepStatus] = useState<Record<string, 'idle' | 'running' | 'success' | 'error'>>({});
     const rootRef = useRef(root);
+    const isDevMode = import.meta.env.MODE === 'dev';
     const [selected, setSelected] = useState({
         deposit: true,
         withdraw: true,
         internal: true,
         external: true,
         authorization: true,
+        fundWallets: true,
+        cleanupWallets: true,
     });
 
     useEffect(() => {
@@ -187,6 +192,11 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
         if (!connection || !walletA || !walletB || !walletC) return;
         setBusy(true);
         try {
+            if (AIRDROP_URL) {
+                onStatus('Open the faucet to fund your wallets.');
+                window.open(AIRDROP_URL, '_blank', 'noopener,noreferrer');
+                return;
+            }
             onStatus('Airdropping SOL to Wallet A/B/C...');
             const sigA = await connection.requestAirdrop(walletA.publicKey, 1e9);
             const sigB = await connection.requestAirdrop(walletB.publicKey, 1e9);
@@ -200,7 +210,7 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
         }
     };
 
-    const handleFundTokens = async () => {
+    const fundGeneratedWalletTokens = async () => {
         if (
             !connection ||
             !publicKey ||
@@ -211,40 +221,154 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
             !walletC ||
             mintDecimals === null
         ) {
-            return;
+            throw new Error('Provide a mint and connect a wallet before funding tokens.');
         }
+        onStatus('Funding tokens to Wallet A/B/C...');
+        const adminAta = await getAssociatedTokenAddress(parsedMint, publicKey);
+        const ataA = await getAssociatedTokenAddress(parsedMint, walletA.publicKey);
+        const ataB = await getAssociatedTokenAddress(parsedMint, walletB.publicKey);
+        const ataC = await getAssociatedTokenAddress(parsedMint, walletC.publicKey);
+
+        const instructions = [];
+        const ensureAta = async (owner: PublicKey, ata: PublicKey, payer: PublicKey) => {
+            try {
+                await getAccount(connection, ata);
+            } catch {
+                instructions.push(createAssociatedTokenAccountInstruction(payer, ata, owner, parsedMint));
+            }
+        };
+
+        await ensureAta(publicKey, adminAta, publicKey);
+        await ensureAta(walletA.publicKey, ataA, publicKey);
+        await ensureAta(walletB.publicKey, ataB, publicKey);
+        await ensureAta(walletC.publicKey, ataC, publicKey);
+
+        const baseUnits = parseTokenAmount(fundAmount, mintDecimals);
+        instructions.push(createTransferInstruction(adminAta, ataA, publicKey, baseUnits, [], TOKEN_PROGRAM_ID));
+        instructions.push(createTransferInstruction(adminAta, ataB, publicKey, baseUnits, [], TOKEN_PROGRAM_ID));
+        instructions.push(createTransferInstruction(adminAta, ataC, publicKey, baseUnits, [], TOKEN_PROGRAM_ID));
+
+        await sendTransaction(new Transaction().add(...instructions), connection);
+        onStatus('Funded tokens to Wallet A/B/C.');
+    };
+
+    const handleFundTokens = async () => {
         setBusy(true);
         try {
-            onStatus('Funding tokens to Wallet A/B/C...');
-            const adminAta = await getAssociatedTokenAddress(parsedMint, publicKey);
-            const ataA = await getAssociatedTokenAddress(parsedMint, walletA.publicKey);
-            const ataB = await getAssociatedTokenAddress(parsedMint, walletB.publicKey);
-            const ataC = await getAssociatedTokenAddress(parsedMint, walletC.publicKey);
-
-            const instructions = [];
-            const ensureAta = async (owner: PublicKey, ata: PublicKey) => {
-                try {
-                    await getAccount(connection, ata);
-                } catch {
-                    instructions.push(createAssociatedTokenAccountInstruction(publicKey, ata, owner, parsedMint));
-                }
-            };
-
-            await ensureAta(publicKey, adminAta);
-            await ensureAta(walletA.publicKey, ataA);
-            await ensureAta(walletB.publicKey, ataB);
-            await ensureAta(walletC.publicKey, ataC);
-
-            const baseUnits = parseTokenAmount(fundAmount, mintDecimals);
-            instructions.push(createTransferInstruction(adminAta, ataA, publicKey, baseUnits, [], TOKEN_PROGRAM_ID));
-            instructions.push(createTransferInstruction(adminAta, ataB, publicKey, baseUnits, [], TOKEN_PROGRAM_ID));
-            instructions.push(createTransferInstruction(adminAta, ataC, publicKey, baseUnits, [], TOKEN_PROGRAM_ID));
-
-            await sendTransaction(new Transaction().add(...instructions), connection);
-            onStatus('Funded tokens to Wallet A/B/C.');
+            await fundGeneratedWalletTokens();
         } finally {
             setBusy(false);
         }
+    };
+
+    const fundGeneratedWallets = async () => {
+        if (!connection || !publicKey || !sendTransaction || !walletA || !walletB || !walletC) {
+            throw new Error('Connect a wallet and generate test wallets first.');
+        }
+        onStatus('Funding wallets A/B/C from connected wallet...');
+        const lamportsPerWallet = 200_000_000;
+        const tx = new Transaction().add(
+            SystemProgram.transfer({
+                fromPubkey: publicKey,
+                toPubkey: walletA.publicKey,
+                lamports: lamportsPerWallet,
+            }),
+            SystemProgram.transfer({
+                fromPubkey: publicKey,
+                toPubkey: walletB.publicKey,
+                lamports: lamportsPerWallet,
+            }),
+            SystemProgram.transfer({
+                fromPubkey: publicKey,
+                toPubkey: walletC.publicKey,
+                lamports: lamportsPerWallet,
+            })
+        );
+        await sendTransaction(tx, connection);
+        onStatus('Funded wallets A/B/C.');
+        if (parsedMint && mintDecimals !== null) {
+            await fundGeneratedWalletTokens();
+        }
+    };
+
+    const cleanupWallet = async (keypair: Keypair) => {
+        if (!connection || !publicKey) {
+            throw new Error('Connect a wallet before cleanup.');
+        }
+        const sendWithKeypair = async (instructions: TransactionInstruction[]) => {
+            const tx = new Transaction().add(...instructions);
+            const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+            tx.feePayer = keypair.publicKey;
+            tx.recentBlockhash = blockhash;
+            tx.sign(keypair);
+            const signature = await connection.sendRawTransaction(tx.serialize());
+            await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+        };
+
+        if (parsedMint) {
+            const walletAta = await getAssociatedTokenAddress(parsedMint, keypair.publicKey);
+            const adminAta = await getAssociatedTokenAddress(parsedMint, publicKey);
+            try {
+                const walletAccount = await getAccount(connection, walletAta);
+                const instructions = [];
+                try {
+                    await getAccount(connection, adminAta);
+                } catch {
+                    instructions.push(
+                        createAssociatedTokenAccountInstruction(keypair.publicKey, adminAta, publicKey, parsedMint)
+                    );
+                }
+                if (walletAccount.amount > 0n) {
+                    instructions.push(
+                        createTransferInstruction(walletAta, adminAta, keypair.publicKey, walletAccount.amount, [], TOKEN_PROGRAM_ID)
+                    );
+                }
+                instructions.push(createCloseAccountInstruction(walletAta, publicKey, keypair.publicKey));
+                if (instructions.length > 0) {
+                    await sendWithKeypair(instructions);
+                }
+            } catch {
+                // No token account to clean up.
+            }
+        }
+
+        const balance = await connection.getBalance(keypair.publicKey, 'confirmed');
+        if (balance > 0) {
+            const tx = new Transaction().add(
+                SystemProgram.transfer({
+                    fromPubkey: keypair.publicKey,
+                    toPubkey: publicKey,
+                    lamports: 0,
+                })
+            );
+            const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+            tx.feePayer = keypair.publicKey;
+            tx.recentBlockhash = blockhash;
+            const fee = await connection.getFeeForMessage(tx.compileMessage());
+            const feeLamports = fee.value ?? 0;
+            const lamports = balance - feeLamports;
+            if (lamports > 0) {
+                tx.instructions[0] = SystemProgram.transfer({
+                    fromPubkey: keypair.publicKey,
+                    toPubkey: publicKey,
+                    lamports,
+                });
+                tx.sign(keypair);
+                const signature = await connection.sendRawTransaction(tx.serialize());
+                await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+            }
+        }
+    };
+
+    const cleanupGeneratedWallets = async () => {
+        if (!connection || !walletA || !walletB || !walletC || !publicKey) {
+            throw new Error('Connect a wallet and generate test wallets first.');
+        }
+        onStatus('Returning tokens + SOL to connected wallet...');
+        await cleanupWallet(walletA);
+        await cleanupWallet(walletB);
+        await cleanupWallet(walletC);
+        onStatus('Cleanup complete.');
     };
 
     const recordTx = async (label: string, signature: string, relayer: boolean, details: Record<string, unknown>) => {
@@ -278,6 +402,16 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
         setBusy(true);
         try {
             onStatus('Running multi-wallet flow...');
+            if (isDevMode && selected.fundWallets) {
+                setStatus('fund-wallets', 'running');
+                try {
+                    await fundGeneratedWallets();
+                    setStatus('fund-wallets', 'success');
+                } catch {
+                    setStatus('fund-wallets', 'error');
+                    throw new Error('Funding wallets failed.');
+                }
+            }
             const baseUnits = parseTokenAmount(amount, mintDecimals);
             const spendSteps = ['withdraw', 'external', 'authorization'].filter(
                 (key) => selected[key as keyof typeof selected]
@@ -446,6 +580,17 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                 setStatus('external', 'success');
             }
 
+            if (isDevMode && selected.cleanupWallets) {
+                setStatus('cleanup-wallets', 'running');
+                try {
+                    await cleanupGeneratedWallets();
+                    setStatus('cleanup-wallets', 'success');
+                } catch {
+                    setStatus('cleanup-wallets', 'error');
+                    throw new Error('Cleanup wallets failed.');
+                }
+            }
+
             onStatus('Completed multi-wallet flow.');
         } catch (error) {
             onStatus(`Multi-wallet flow failed: ${error instanceof Error ? error.message : 'unknown error'}`);
@@ -499,12 +644,22 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
 
             <div className={styles.flowList}>
                 {[
+                    ...(isDevMode
+                        ? [
+                              { id: 'fund-wallets', label: 'Fund wallets from connected', toggle: 'fundWallets' },
+                          ]
+                        : []),
                     { id: 'deposit', label: 'Deposit A' },
                     { id: 'internal-a-b', label: 'Internal A→B', toggle: 'internal' },
                     { id: 'authorization', label: 'Auth A→B', toggle: 'authorization' },
                     { id: 'internal-b-c', label: 'Internal B→C', toggle: 'internal' },
                     { id: 'withdraw', label: 'Withdraw C' },
                     { id: 'external', label: 'External B→C', toggle: 'external' },
+                    ...(isDevMode
+                        ? [
+                              { id: 'cleanup-wallets', label: 'Return tokens + SOL to connected', toggle: 'cleanupWallets' },
+                          ]
+                        : []),
                 ].map((step) => {
                     const toggleKey = step.toggle as keyof typeof selected | undefined;
                     const isChecked = toggleKey ? selected[toggleKey] : selected[step.id as keyof typeof selected] ?? true;
