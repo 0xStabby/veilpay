@@ -6,8 +6,8 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-veilpay = "5UZKEwp4Mqkzxk6wxriy1ejK3bJsuKRVfkRxg37SG2tq"
-verifier = "HKDjg9uodQ8qDi9YJA82bYHRdYDxUm7ii59k5ua5UHxe"
+veilpay = "J8VaR7WLv4JSG7D9ig67wiQLZX7jYZr9UUoqH9JUtuTb"
+verifier = "CRZejShyrDfr86ZnBZbGG2hyfD9jz82cX3XhoFEtFWCm"
 
 [registry]
 url = "https://api.apr.dev"
