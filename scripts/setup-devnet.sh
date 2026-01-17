@@ -58,6 +58,8 @@ ensure_keypair() {
 ensure_keypair "veilpay"
 ensure_keypair "verifier"
 
+anchor keys sync
+
 anchor build
 anchor deploy --provider.cluster "$RPC_URL"
 
