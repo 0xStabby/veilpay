@@ -7,6 +7,7 @@ import { UserDepositCard } from './components/UserDepositCard';
 import { UserWithdrawCard } from './components/UserWithdrawCard';
 import { UserAuthorizationCard } from './components/UserAuthorizationCard';
 import { UserTransferCard } from './components/UserTransferCard';
+import { FlowTesterCard } from './components/FlowTesterCard';
 import { usePrograms } from './hooks/usePrograms';
 import { useNullifierCounter } from './hooks/useNullifierCounter';
 import { useMintInfo } from './hooks/useMintInfo';
@@ -79,6 +80,9 @@ const App: React.FC = () => {
                             veilpayProgram={veilpayProgram}
                             verifierProgram={verifierProgram}
                             mintAddress={mintAddress}
+                            onMintChange={setMintAddress}
+                            mintDecimals={decimals}
+                            onStatus={setStatus}
                         />
                     </section>
                 ) : (
@@ -93,6 +97,20 @@ const App: React.FC = () => {
                             onCredit={credit}
                         />
                         <RunbookCard mode="user" />
+                        <FlowTesterCard
+                            veilpayProgram={veilpayProgram}
+                            verifierProgram={verifierProgram}
+                            mintAddress={mintAddress}
+                            root={root}
+                            onRootChange={setRoot}
+                            nextNullifier={next}
+                            mintDecimals={decimals}
+                            walletBalance={walletBalance}
+                            shieldedBalance={shieldedBalance}
+                            onCredit={credit}
+                            onDebit={debit}
+                            onStatus={setStatus}
+                        />
                         <UserWithdrawCard
                             veilpayProgram={veilpayProgram}
                             verifierProgram={verifierProgram}

@@ -61,3 +61,79 @@
     color: var(--text-dim);
     font-size: 0.9rem;
 }
+
+.flowPanel {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-tight);
+    padding: 1rem;
+    display: grid;
+    gap: 0.75rem;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.flowPanel h3 {
+    margin: 0;
+    color: var(--text);
+}
+
+.flowPanel p {
+    margin: 0.35rem 0 0;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+.flowChecklist {
+    display: grid;
+    gap: 0.45rem;
+}
+
+.flowRow {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 0.6rem;
+    align-items: center;
+    font-size: 0.85rem;
+    color: var(--text);
+}
+
+.flowDot {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 999px;
+    border: 1px solid var(--border-strong);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.flowStatus {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+}
+
+.flowRow[data-status='running'] .flowDot {
+    background: var(--accent);
+}
+
+.flowRow[data-status='success'] .flowDot {
+    background: var(--success);
+}
+
+.flowRow[data-status='error'] .flowDot {
+    background: var(--danger);
+}
+
+.button {
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-tight);
+    padding: 0.55rem 1.25rem;
+    background: var(--accent);
+    color: var(--text);
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}

@@ -1,13 +1,9 @@
 import React, { FC, useMemo, useState } from 'react';
-import { Buffer } from 'buffer';
-import { BN, Program } from '@coral-xyz/anchor';
+import { Program } from '@coral-xyz/anchor';
 import { PublicKey } from '@solana/web3.js';
-import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from '@solana/spl-token';
 import styles from './UserDepositCard.module.css';
-import { deriveConfig, deriveShielded, deriveVault } from '../lib/pda';
-import { bytesToBigIntBE, modField, randomBytes, sha256 } from '../lib/crypto';
-import { computeCommitment, bigIntToBytes32 } from '../lib/prover';
-import { formatTokenAmount, parseTokenAmount } from '../lib/amount';
+import { formatTokenAmount } from '../lib/amount';
+import { runDepositFlow } from '../lib/flows';
 
 const DEFAULT_AMOUNT = '50000';
 
@@ -46,46 +42,15 @@ export const UserDepositCard: FC<UserDepositCardProps> = ({
         if (!veilpayProgram || !parsedMint || mintDecimals === null) return;
         setBusy(true);
         try {
-            onStatus('Depositing into VeilPay vault...');
-            const config = deriveConfig(veilpayProgram.programId);
-            const vault = deriveVault(veilpayProgram.programId, parsedMint);
-            const shieldedState = deriveShielded(veilpayProgram.programId, parsedMint);
-            const vaultAta = await getAssociatedTokenAddress(parsedMint, vault, true);
-            const userAta = await getAssociatedTokenAddress(parsedMint, veilpayProgram.provider.wallet.publicKey);
-
-            const ciphertext = randomBytes(64);
-            const newRootValue = modField(bytesToBigIntBE(randomBytes(32)));
-            const newRoot = bigIntToBytes32(newRootValue);
-            const randomness = modField(bytesToBigIntBE(randomBytes(32)));
-            const baseUnits = parseTokenAmount(amount, mintDecimals);
-            const amountValue = baseUnits;
-            const recipientTagBytes = await sha256(veilpayProgram.provider.wallet.publicKey.toBytes());
-            const recipientTagHash = modField(bytesToBigIntBE(recipientTagBytes));
-            const commitmentValue = await computeCommitment(amountValue, randomness, recipientTagHash);
-            const commitment = bigIntToBytes32(commitmentValue);
-
-            await veilpayProgram.methods
-                .deposit({
-                    amount: new BN(baseUnits.toString()),
-                    ciphertext: Buffer.from(ciphertext),
-                    commitment: Buffer.from(commitment),
-                    newRoot: Buffer.from(newRoot),
-                })
-                .accounts({
-                    config,
-                    vault,
-                    vaultAta,
-                    shieldedState,
-                    user: veilpayProgram.provider.wallet.publicKey,
-                    userAta,
-                    mint: parsedMint,
-                    tokenProgram: TOKEN_PROGRAM_ID,
-                })
-                .rpc();
-
-            onRootChange(newRoot);
-            onCredit(baseUnits);
-            onStatus('Deposit complete.');
+            await runDepositFlow({
+                program: veilpayProgram,
+                mint: parsedMint,
+                amount,
+                mintDecimals,
+                onStatus,
+                onRootChange,
+                onCredit,
+            });
         } catch (error) {
             onStatus(`Deposit failed: ${error instanceof Error ? error.message : 'unknown error'}`);
         } finally {
