@@ -211,43 +211,37 @@ export const RunbookCard: FC<RunbookCardProps> = ({
                         <h2>Admin Runbook</h2>
                         <p>Localnet bootstrap steps (auto-checking).</p>
                     </header>
-                    <div className={styles.flowPanel}>
-                        <div>
-                            <h3>Run full admin setup</h3>
-                            <p>Executes all steps in order. Checklist updates from on-chain state.</p>
-                        </div>
-                        <div className={styles.flowChecklist}>
-                            {items.map((item) => {
-                                const status = stepStatus[item.id] ?? (item.done ? 'success' : 'idle');
-                                return (
-                                    <div key={item.id} className={styles.flowRow} data-status={status}>
-                                        <span className={styles.flowDot} />
-                                        <span>{item.label}</span>
-                                        <span className={styles.flowStatus}>
-                                            {status === 'running' ? 'running' : item.done ? 'done' : status}
-                                        </span>
-                                    </div>
-                                );
-                            })}
-                            {loading && (
-                                <div className={styles.flowRow}>
+                    <div className={styles.flowChecklist}>
+                        {items.map((item) => {
+                            const status = stepStatus[item.id] ?? (item.done ? 'success' : 'idle');
+                            return (
+                                <div key={item.id} className={styles.flowRow} data-status={status}>
                                     <span className={styles.flowDot} />
-                                    <span>Checking status...</span>
-                                    <span className={styles.flowStatus}>running</span>
+                                    <span>{item.label}</span>
+                                    <span className={styles.flowStatus}>
+                                        {status === 'running' ? 'running' : item.done ? 'done' : status}
+                                    </span>
                                 </div>
-                            )}
-                            {!loading && items.length === 0 && (
-                                <div className={styles.flowRow}>
-                                    <span className={styles.flowDot} />
-                                    <span>Connect a wallet to begin.</span>
-                                    <span className={styles.flowStatus}>idle</span>
-                                </div>
-                            )}
-                        </div>
-                        <button className={styles.button} onClick={runAdminSetup} disabled={!publicKey || busy}>
-                            {busy ? 'Running setup...' : 'Run full admin setup'}
-                        </button>
+                            );
+                        })}
+                        {loading && (
+                            <div className={styles.flowRow}>
+                                <span className={styles.flowDot} />
+                                <span>Checking status...</span>
+                                <span className={styles.flowStatus}>running</span>
+                            </div>
+                        )}
+                        {!loading && items.length === 0 && (
+                            <div className={styles.flowRow}>
+                                <span className={styles.flowDot} />
+                                <span>Connect a wallet to begin.</span>
+                                <span className={styles.flowStatus}>idle</span>
+                            </div>
+                        )}
                     </div>
+                    <button className={styles.button} onClick={runAdminSetup} disabled={!publicKey || busy}>
+                        {busy ? 'Running setup...' : 'Run full admin setup'}
+                    </button>
                 </>
             )}
         </section>

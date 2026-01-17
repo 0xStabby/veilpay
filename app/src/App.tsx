@@ -8,12 +8,14 @@ import { UserWithdrawCard } from './components/UserWithdrawCard';
 import { UserAuthorizationCard } from './components/UserAuthorizationCard';
 import { UserTransferCard } from './components/UserTransferCard';
 import { FlowTesterCard } from './components/FlowTesterCard';
+import { TransactionLogCard } from './components/TransactionLogCard';
 import { usePrograms } from './hooks/usePrograms';
 import { useNullifierCounter } from './hooks/useNullifierCounter';
 import { useMintInfo } from './hooks/useMintInfo';
 import { useTokenBalance } from './hooks/useTokenBalance';
 import { useShieldedBalance } from './hooks/useShieldedBalance';
 import { randomBytes } from './lib/crypto';
+import type { TransactionRecord } from './lib/transactions';
 import styles from './App.module.css';
 
 const App: React.FC = () => {
@@ -21,7 +23,16 @@ const App: React.FC = () => {
     const [status, setStatus] = useState('');
     const [mintAddress, setMintAddress] = useState('');
     const [root, setRoot] = useState(() => randomBytes(32));
-    const [view, setView] = useState<'user' | 'admin'>('user');
+    const [view, setView] = useState<'user' | 'admin' | 'tx'>('user');
+    const [txLog, setTxLog] = useState<TransactionRecord[]>(() => {
+        try {
+            const stored = localStorage.getItem('veilpay.txlog');
+            return stored ? (JSON.parse(stored) as TransactionRecord[]) : [];
+        } catch {
+            return [];
+        }
+    });
+    const [selectedTxId, setSelectedTxId] = useState<string | null>(null);
     const { next } = useNullifierCounter(1);
     const { decimals, loading: mintLoading } = useMintInfo(connection ?? null, mintAddress);
     const walletPubkey = wallet?.publicKey ?? null;
@@ -41,6 +52,33 @@ const App: React.FC = () => {
         }
     }, [mintAddress]);
 
+    useEffect(() => {
+        localStorage.setItem('veilpay.txlog', JSON.stringify(txLog));
+    }, [txLog]);
+
+    const handleRecord = (record: TransactionRecord) => {
+        setTxLog((prev) => [record, ...prev]);
+        setSelectedTxId(record.id);
+        return record.id;
+    };
+
+    const handleRecordUpdate = (id: string, patch: import('./lib/transactions').TransactionRecordPatch) => {
+        setTxLog((prev) =>
+            prev.map((record) => {
+                if (record.id !== id) return record;
+                const mergedDetails = patch.details
+                    ? { ...record.details, ...patch.details }
+                    : record.details;
+                return { ...record, ...patch, details: mergedDetails };
+            })
+        );
+    };
+
+    const clearLog = () => {
+        setTxLog([]);
+        setSelectedTxId(null);
+    };
+
     return (
         <div className={styles.app}>
             <div className={styles.background} />
@@ -58,6 +96,12 @@ const App: React.FC = () => {
                         onClick={() => setView('admin')}
                     >
                         Admin
+                    </button>
+                    <button
+                        className={view === 'tx' ? styles.toggleActive : styles.toggleButton}
+                        onClick={() => setView('tx')}
+                    >
+                        Tx Logs
                     </button>
                 </div>
                 <StatusBanner status={mintLoading ? 'Loading mint info...' : status} />
@@ -85,6 +129,15 @@ const App: React.FC = () => {
                             onStatus={setStatus}
                         />
                     </section>
+                ) : view === 'tx' ? (
+                    <section className={styles.grid}>
+                        <TransactionLogCard
+                            records={txLog}
+                            selectedId={selectedTxId}
+                            onSelect={setSelectedTxId}
+                            onClear={clearLog}
+                        />
+                    </section>
                 ) : (
                     <section className={styles.grid}>
                         <UserDepositCard
@@ -95,6 +148,8 @@ const App: React.FC = () => {
                             mintDecimals={decimals}
                             walletBalance={walletBalance}
                             onCredit={credit}
+                            onRecord={handleRecord}
+                            onRecordUpdate={handleRecordUpdate}
                         />
                         <RunbookCard mode="user" />
                         <FlowTesterCard
@@ -110,6 +165,8 @@ const App: React.FC = () => {
                             onCredit={credit}
                             onDebit={debit}
                             onStatus={setStatus}
+                            onRecord={handleRecord}
+                            onRecordUpdate={handleRecordUpdate}
                         />
                         <UserWithdrawCard
                             veilpayProgram={veilpayProgram}
@@ -121,6 +178,8 @@ const App: React.FC = () => {
                             mintDecimals={decimals}
                             shieldedBalance={shieldedBalance}
                             onDebit={debit}
+                            onRecord={handleRecord}
+                            onRecordUpdate={handleRecordUpdate}
                         />
                         <UserAuthorizationCard
                             veilpayProgram={veilpayProgram}
@@ -132,6 +191,8 @@ const App: React.FC = () => {
                             mintDecimals={decimals}
                             shieldedBalance={shieldedBalance}
                             onDebit={debit}
+                            onRecord={handleRecord}
+                            onRecordUpdate={handleRecordUpdate}
                         />
                         <UserTransferCard
                             veilpayProgram={veilpayProgram}
@@ -144,6 +205,8 @@ const App: React.FC = () => {
                             mintDecimals={decimals}
                             shieldedBalance={shieldedBalance}
                             onDebit={debit}
+                            onRecord={handleRecord}
+                            onRecordUpdate={handleRecordUpdate}
                         />
                     </section>
                 )}

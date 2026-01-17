@@ -1,4 +1,5 @@
 import React, { FC, useMemo, useState } from 'react';
+import { Buffer } from 'buffer';
 import { Program } from '@coral-xyz/anchor';
 import { PublicKey } from '@solana/web3.js';
 import styles from './UserAuthorizationCard.module.css';
@@ -18,6 +19,8 @@ export type UserAuthorizationCardProps = {
     mintDecimals: number | null;
     shieldedBalance: bigint;
     onDebit: (amount: bigint) => void;
+    onRecord?: (record: import('../lib/transactions').TransactionRecord) => string;
+    onRecordUpdate?: (id: string, patch: import('../lib/transactions').TransactionRecordPatch) => void;
 };
 
 export const UserAuthorizationCard: FC<UserAuthorizationCardProps> = ({
@@ -30,6 +33,8 @@ export const UserAuthorizationCard: FC<UserAuthorizationCardProps> = ({
     mintDecimals,
     shieldedBalance,
     onDebit,
+    onRecord,
+    onRecordUpdate,
 }) => {
     const { publicKey, signMessage } = useWallet();
     const [amount, setAmount] = useState(DEFAULT_AMOUNT);
@@ -60,7 +65,7 @@ export const UserAuthorizationCard: FC<UserAuthorizationCardProps> = ({
         if (!veilpayProgram || !parsedMint || !publicKey || !signMessage || !parsedPayee || mintDecimals === null) return;
         setBusy(true);
         try {
-            const intent = await runCreateAuthorizationFlow({
+            const result = await runCreateAuthorizationFlow({
                 program: veilpayProgram,
                 mint: parsedMint,
                 payer: publicKey,
@@ -70,7 +75,35 @@ export const UserAuthorizationCard: FC<UserAuthorizationCardProps> = ({
                 expirySlots,
                 onStatus,
             });
-            setIntentHash(intent);
+            setIntentHash(result.intentHash);
+            if (onRecord) {
+                const { createTransactionRecord } = await import('../lib/transactions');
+                const recordId = onRecord(
+                    createTransactionRecord('authorization:create', {
+                        signature: result.signature,
+                        relayer: false,
+                        status: 'confirmed',
+                        details: {
+                            mint: parsedMint.toBase58(),
+                            payee: parsedPayee.toBase58(),
+                            amount,
+                            expirySlot: result.expirySlot.toString(),
+                            intentHash: Buffer.from(result.intentHash).toString('hex'),
+                            amountCiphertext: Buffer.from(result.amountCiphertext).toString('base64'),
+                        },
+                    })
+                );
+                if (onRecordUpdate) {
+                    const { fetchTransactionDetails } = await import('../lib/transactions');
+                    const txDetails = await fetchTransactionDetails(
+                        veilpayProgram.provider.connection,
+                        result.signature
+                    );
+                    if (txDetails) {
+                        onRecordUpdate(recordId, { details: { tx: txDetails } });
+                    }
+                }
+            }
         } catch (error) {
             onStatus(`Authorization failed: ${error instanceof Error ? error.message : 'unknown error'}`);
         } finally {
@@ -82,7 +115,7 @@ export const UserAuthorizationCard: FC<UserAuthorizationCardProps> = ({
         if (!veilpayProgram || !parsedMint || !publicKey || !parsedPayee || !intentHash || mintDecimals === null) return;
         setBusy(true);
         try {
-            await runSettleAuthorizationFlow({
+            const result = await runSettleAuthorizationFlow({
                 program: veilpayProgram,
                 verifierProgram,
                 mint: parsedMint,
@@ -95,6 +128,34 @@ export const UserAuthorizationCard: FC<UserAuthorizationCardProps> = ({
                 onStatus,
                 onDebit,
             });
+            if (onRecord) {
+                const { createTransactionRecord } = await import('../lib/transactions');
+                const recordId = onRecord(
+                    createTransactionRecord('authorization:settle', {
+                        signature: result.signature,
+                        relayer: true,
+                        status: 'confirmed',
+                        details: {
+                            mint: parsedMint.toBase58(),
+                            payee: parsedPayee.toBase58(),
+                            amount,
+                            amountBaseUnits: result.amountBaseUnits.toString(),
+                            nullifier: result.nullifier.toString(),
+                            intentHash: Buffer.from(intentHash).toString('hex'),
+                        },
+                    })
+                );
+                if (onRecordUpdate) {
+                    const { fetchTransactionDetails } = await import('../lib/transactions');
+                    const txDetails = await fetchTransactionDetails(
+                        veilpayProgram.provider.connection,
+                        result.signature
+                    );
+                    if (txDetails) {
+                        onRecordUpdate(recordId, { details: { tx: txDetails } });
+                    }
+                }
+            }
         } catch (error) {
             onStatus(`Settle failed: ${error instanceof Error ? error.message : 'unknown error'}`);
         } finally {

@@ -1,0 +1,38 @@
+.badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    padding: 0.2rem 0.65rem;
+    background: rgba(0, 0, 0, 0.3);
+    color: var(--text);
+    font-size: 0.75rem;
+    cursor: pointer;
+    max-width: 100%;
+    min-width: 0;
+}
+
+.text,
+.hover {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+.hover {
+    display: none;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+}
+
+.badge:hover .text {
+    display: none;
+}
+
+.badge:hover .hover {
+    display: inline;
+}

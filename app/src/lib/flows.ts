@@ -54,7 +54,7 @@ export async function runDepositFlow(params: {
     onStatus: StatusHandler;
     onRootChange: (next: Uint8Array) => void;
     onCredit: (amount: bigint) => void;
-}) {
+}): Promise<{ signature: string; amountBaseUnits: bigint; newRoot: Uint8Array }> {
     const { program, mint, amount, mintDecimals, onStatus, onRootChange, onCredit } = params;
     onStatus('Depositing into VeilPay vault...');
     const config = deriveConfig(program.programId);
@@ -73,7 +73,7 @@ export async function runDepositFlow(params: {
     const commitmentValue = await computeCommitment(baseUnits, randomness, recipientTagHash);
     const commitment = bigIntToBytes32(commitmentValue);
 
-    await program.methods
+    const signature = await program.methods
         .deposit({
             amount: new BN(baseUnits.toString()),
             ciphertext: Buffer.from(ciphertext),
@@ -95,6 +95,7 @@ export async function runDepositFlow(params: {
     onRootChange(newRoot);
     onCredit(baseUnits);
     onStatus('Deposit complete.');
+    return { signature, amountBaseUnits: baseUnits, newRoot };
 }
 
 export async function runWithdrawFlow(params: {
@@ -108,7 +109,7 @@ export async function runWithdrawFlow(params: {
     nextNullifier: () => number;
     onStatus: StatusHandler;
     onDebit: (amount: bigint) => void;
-}) {
+}): Promise<{ signature: string; amountBaseUnits: bigint; nullifier: bigint }> {
     const { program, verifierProgram, mint, recipient, amount, mintDecimals, root, nextNullifier, onStatus, onDebit } = params;
     onStatus('Generating proof...');
     const config = deriveConfig(program.programId);
@@ -180,9 +181,14 @@ export async function runWithdrawFlow(params: {
         })
         .instruction();
 
-    await submitViaRelayer(program.provider, new Transaction().add(ix));
+    const relayerResult = await submitViaRelayer(program.provider, new Transaction().add(ix));
     onDebit(baseUnits);
     onStatus('Withdraw complete.');
+    return {
+        signature: relayerResult.signature,
+        amountBaseUnits: baseUnits,
+        nullifier: nullifierValue,
+    };
 }
 
 export async function runCreateAuthorizationFlow(params: {
@@ -194,7 +200,12 @@ export async function runCreateAuthorizationFlow(params: {
     amount: string;
     expirySlots: string;
     onStatus: StatusHandler;
-}): Promise<Uint8Array> {
+}): Promise<{
+    intentHash: Uint8Array;
+    signature: string;
+    expirySlot: bigint;
+    amountCiphertext: Uint8Array;
+}> {
     const { program, mint, payer, signMessage, payee, amount, expirySlots, onStatus } = params;
     const amountCiphertext = randomBytes(64);
     const expirySlot = BigInt(Date.now()) + BigInt(expirySlots);
@@ -209,7 +220,7 @@ export async function runCreateAuthorizationFlow(params: {
     );
 
     const domain = `VeilPay:v1:${program.programId.toBase58()}:localnet`;
-    const signature = await signMessage(concatBytes([new TextEncoder().encode(domain), intentHashBytes]));
+    const intentSignature = await signMessage(concatBytes([new TextEncoder().encode(domain), intentHashBytes]));
 
     await fetch(`${RELAYER_URL}/intent`, {
         method: 'POST',
@@ -223,7 +234,7 @@ export async function runCreateAuthorizationFlow(params: {
             circuitId: 0,
             proofHash: Buffer.from(randomBytes(32)).toString('base64'),
             payer: payer.toBase58(),
-            signature: Buffer.from(signature).toString('base64'),
+            signature: Buffer.from(intentSignature).toString('base64'),
             domain,
         }),
     });
@@ -231,7 +242,7 @@ export async function runCreateAuthorizationFlow(params: {
     const config = deriveConfig(program.programId);
     const authorization = deriveAuthorization(program.programId, intentHashBytes);
 
-    await program.methods
+    const signature = await program.methods
         .createAuthorization({
             intentHash: Buffer.from(intentHashBytes),
             payeeTagHash: Buffer.from(payeeTagHash),
@@ -250,7 +261,12 @@ export async function runCreateAuthorizationFlow(params: {
         .rpc();
 
     onStatus('Authorization created.');
-    return intentHashBytes;
+    return {
+        intentHash: intentHashBytes,
+        signature,
+        expirySlot,
+        amountCiphertext,
+    };
 }
 
 export async function runSettleAuthorizationFlow(params: {
@@ -265,7 +281,7 @@ export async function runSettleAuthorizationFlow(params: {
     intentHash: Uint8Array;
     onStatus: StatusHandler;
     onDebit: (amount: bigint) => void;
-}) {
+}): Promise<{ signature: string; amountBaseUnits: bigint; nullifier: bigint }> {
     const {
         program,
         verifierProgram,
@@ -350,9 +366,14 @@ export async function runSettleAuthorizationFlow(params: {
         })
         .instruction();
 
-    await submitViaRelayer(program.provider, new Transaction().add(ix));
+    const relayerResult = await submitViaRelayer(program.provider, new Transaction().add(ix));
     onDebit(baseUnits);
     onStatus('Authorization settled.');
+    return {
+        signature: relayerResult.signature,
+        amountBaseUnits: baseUnits,
+        nullifier: nullifierValue,
+    };
 }
 
 export async function runInternalTransferFlow(params: {
@@ -364,7 +385,7 @@ export async function runInternalTransferFlow(params: {
     nextNullifier: () => number;
     onStatus: StatusHandler;
     onRootChange: (next: Uint8Array) => void;
-}) {
+}): Promise<{ signature: string; nullifier: bigint; newRoot: Uint8Array }> {
     const { program, verifierProgram, mint, recipient, root, nextNullifier, onStatus, onRootChange } = params;
     onStatus('Generating proof...');
     const config = deriveConfig(program.programId);
@@ -411,7 +432,7 @@ export async function runInternalTransferFlow(params: {
     }
     onStatus('Verifier key matches. Submitting transaction...');
 
-    await program.methods
+    const signature = await program.methods
         .internalTransfer({
             proof: Buffer.from(proofBytes),
             publicInputs: Buffer.from(publicInputsBytes),
@@ -433,6 +454,7 @@ export async function runInternalTransferFlow(params: {
 
     onRootChange(newRoot);
     onStatus('Internal transfer complete.');
+    return { signature, nullifier: nullifierValue, newRoot };
 }
 
 export async function runExternalTransferFlow(params: {
@@ -446,7 +468,7 @@ export async function runExternalTransferFlow(params: {
     nextNullifier: () => number;
     onStatus: StatusHandler;
     onDebit: (amount: bigint) => void;
-}) {
+}): Promise<{ signature: string; amountBaseUnits: bigint; nullifier: bigint }> {
     const {
         program,
         verifierProgram,
@@ -528,7 +550,12 @@ export async function runExternalTransferFlow(params: {
         })
         .instruction();
 
-    await submitViaRelayer(program.provider, new Transaction().add(ix));
+    const relayerResult = await submitViaRelayer(program.provider, new Transaction().add(ix));
     onDebit(baseUnits);
     onStatus('External transfer complete.');
+    return {
+        signature: relayerResult.signature,
+        amountBaseUnits: baseUnits,
+        nullifier: nullifierValue,
+    };
 }

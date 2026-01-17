@@ -1,0 +1,312 @@
+.card {
+    background: var(--bg-panel);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    border: 1px solid var(--border);
+    box-shadow: 0 18px 38px var(--shadow);
+    display: grid;
+    gap: 1rem;
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+}
+
+.header h2 {
+    margin: 0;
+    color: var(--text);
+}
+
+.header p {
+    margin: 0.35rem 0 0;
+    color: var(--text-muted);
+}
+
+.clearButton {
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-tight);
+    padding: 0.45rem 0.9rem;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.clearButton:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.body {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+}
+
+.list {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.listItem {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-tight);
+    padding: 0.75rem;
+    background: transparent;
+    text-align: left;
+    display: grid;
+    gap: 0.35rem;
+    color: var(--text);
+    cursor: pointer;
+}
+
+.listItemActive {
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-tight);
+    padding: 0.75rem;
+    background: rgba(78, 255, 167, 0.08);
+    text-align: left;
+    display: grid;
+    gap: 0.35rem;
+    color: var(--text);
+    cursor: pointer;
+}
+
+.itemTitle {
+    font-weight: 600;
+}
+
+.itemMeta {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.itemSig {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+        'Courier New', monospace;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+}
+
+.detail {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-tight);
+    padding: 0.9rem;
+    background: rgba(0, 0, 0, 0.2);
+    display: grid;
+    gap: 0.75rem;
+    color: var(--text);
+}
+
+.summaryGrid {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    border: 1px solid var(--border);
+    border-radius: var(--radius-tight);
+    padding: 0.75rem;
+    background: rgba(0, 0, 0, 0.25);
+}
+
+.summaryGrid span {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.summaryGrid strong {
+    color: var(--text);
+    font-weight: 600;
+    word-break: break-word;
+}
+
+.detailHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.detailHeader h3 {
+    margin: 0;
+}
+
+.detailStatus {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent-strong);
+}
+
+.detailRow {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.detailRow code {
+    color: var(--text-muted);
+    word-break: break-all;
+}
+
+.detailBlock {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.tabBar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.tab,
+.tabActive {
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-tight);
+    padding: 0.35rem 0.75rem;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.8rem;
+}
+
+.tabActive {
+    background: rgba(78, 255, 167, 0.12);
+    color: var(--text);
+    border-color: var(--accent);
+}
+
+.detailBlock pre {
+    margin: 0;
+    padding: 0.6rem;
+    border-radius: var(--radius-tight);
+    background: rgba(0, 0, 0, 0.45);
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    overflow-x: auto;
+}
+
+.logBlock {
+    max-height: 220px;
+    overflow: auto;
+}
+
+.table {
+    display: grid;
+    gap: 0.25rem;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.tableHeader,
+.tableRow {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: minmax(180px, 1.6fr) repeat(3, minmax(80px, 1fr));
+    align-items: center;
+}
+
+.tableHeader {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+}
+
+.tableRow {
+    font-size: 0.85rem;
+    color: var(--text);
+    border-top: 1px solid var(--border);
+    padding-top: 0.35rem;
+}
+
+.tableRow code {
+    font-size: 0.75rem;
+}
+
+.deltaPos {
+    color: var(--success);
+}
+
+.deltaNeg {
+    color: var(--danger);
+}
+
+.instructionList {
+    display: grid;
+    gap: 0.6rem;
+}
+
+.instructionItem {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-tight);
+    padding: 0.6rem;
+    background: rgba(0, 0, 0, 0.35);
+    display: grid;
+    gap: 0.5rem;
+}
+
+.instructionHeader {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.instructionAccounts {
+    display: grid;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+}
+
+@media (max-width: 900px) {
+    .tableHeader,
+    .tableRow {
+        grid-template-columns: 1fr;
+    }
+}
+
+.empty {
+    color: var(--text-muted);
+    margin: 0;
+}
+
+@media (max-width: 900px) {
+    .body {
+        grid-template-columns: 1fr;
+    }
+}
+.tokenTableHeader,
+.tokenTableRow {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: minmax(60px, 0.5fr) minmax(120px, 1.2fr) minmax(120px, 1.2fr) repeat(2, minmax(70px, 0.7fr));
+    align-items: center;
+}
+
+.tokenTableHeader {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+}
+
+.tokenTableRow {
+    font-size: 0.85rem;
+    color: var(--text);
+    border-top: 1px solid var(--border);
+    padding-top: 0.35rem;
+    min-width: 0;
+}
+
+@media (max-width: 900px) {
+    .tokenTableHeader,
+    .tokenTableRow {
+        grid-template-columns: 1fr;
+    }
+}

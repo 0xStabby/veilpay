@@ -17,6 +17,8 @@ type UserWithdrawCardProps = {
     mintDecimals: number | null;
     shieldedBalance: bigint;
     onDebit: (amount: bigint) => void;
+    onRecord?: (record: import('../lib/transactions').TransactionRecord) => string;
+    onRecordUpdate?: (id: string, patch: import('../lib/transactions').TransactionRecordPatch) => void;
 };
 
 export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
@@ -29,6 +31,8 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
     mintDecimals,
     shieldedBalance,
     onDebit,
+    onRecord,
+    onRecordUpdate,
 }) => {
     const [amount, setAmount] = useState(DEFAULT_AMOUNT);
     const [recipient, setRecipient] = useState('');
@@ -56,7 +60,7 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
         if (!veilpayProgram || !parsedMint || !parsedRecipient || mintDecimals === null) return;
         setBusy(true);
         try {
-            await runWithdrawFlow({
+            const result = await runWithdrawFlow({
                 program: veilpayProgram,
                 verifierProgram,
                 mint: parsedMint,
@@ -68,6 +72,33 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
                 onStatus,
                 onDebit,
             });
+            if (onRecord) {
+                const { createTransactionRecord } = await import('../lib/transactions');
+                const recordId = onRecord(
+                    createTransactionRecord('withdraw', {
+                        signature: result.signature,
+                        relayer: true,
+                        status: 'confirmed',
+                        details: {
+                            mint: parsedMint.toBase58(),
+                            recipient: parsedRecipient.toBase58(),
+                            amount,
+                            amountBaseUnits: result.amountBaseUnits.toString(),
+                            nullifier: result.nullifier.toString(),
+                        },
+                    })
+                );
+                if (onRecordUpdate) {
+                    const { fetchTransactionDetails } = await import('../lib/transactions');
+                    const txDetails = await fetchTransactionDetails(
+                        veilpayProgram.provider.connection,
+                        result.signature
+                    );
+                    if (txDetails) {
+                        onRecordUpdate(recordId, { details: { tx: txDetails } });
+                    }
+                }
+            }
         } catch (error) {
             onStatus(`Withdraw failed: ${error instanceof Error ? error.message : 'unknown error'}`);
         } finally {

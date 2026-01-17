@@ -1,4 +1,5 @@
 import React, { FC, useMemo, useState } from 'react';
+import { Buffer } from 'buffer';
 import { Program } from '@coral-xyz/anchor';
 import { PublicKey } from '@solana/web3.js';
 import styles from './UserTransferCard.module.css';
@@ -16,6 +17,8 @@ export type UserTransferCardProps = {
     mintDecimals: number | null;
     shieldedBalance: bigint;
     onDebit: (amount: bigint) => void;
+    onRecord?: (record: import('../lib/transactions').TransactionRecord) => string;
+    onRecordUpdate?: (id: string, patch: import('../lib/transactions').TransactionRecordPatch) => void;
 };
 
 export const UserTransferCard: FC<UserTransferCardProps> = ({
@@ -29,6 +32,8 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
     mintDecimals,
     shieldedBalance,
     onDebit,
+    onRecord,
+    onRecordUpdate,
 }) => {
     const [internalRecipient, setInternalRecipient] = useState('');
     const [externalRecipient, setExternalRecipient] = useState('');
@@ -66,7 +71,7 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
         if (!veilpayProgram || !parsedMint || !parsedInternalRecipient || mintDecimals === null) return;
         setBusy(true);
         try {
-            await runInternalTransferFlow({
+            const result = await runInternalTransferFlow({
                 program: veilpayProgram,
                 verifierProgram,
                 mint: parsedMint,
@@ -76,6 +81,32 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
                 onStatus,
                 onRootChange,
             });
+            if (onRecord) {
+                const { createTransactionRecord } = await import('../lib/transactions');
+                const recordId = onRecord(
+                    createTransactionRecord('transfer:internal', {
+                        signature: result.signature,
+                        relayer: false,
+                        status: 'confirmed',
+                        details: {
+                            mint: parsedMint.toBase58(),
+                            recipient: parsedInternalRecipient.toBase58(),
+                            nullifier: result.nullifier.toString(),
+                            newRoot: Buffer.from(result.newRoot).toString('hex'),
+                        },
+                    })
+                );
+                if (onRecordUpdate) {
+                    const { fetchTransactionDetails } = await import('../lib/transactions');
+                    const txDetails = await fetchTransactionDetails(
+                        veilpayProgram.provider.connection,
+                        result.signature
+                    );
+                    if (txDetails) {
+                        onRecordUpdate(recordId, { details: { tx: txDetails } });
+                    }
+                }
+            }
         } catch (error) {
             onStatus(`Internal transfer failed: ${error instanceof Error ? error.message : 'unknown error'}`);
         } finally {
@@ -87,7 +118,7 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
         if (!veilpayProgram || !parsedMint || !parsedExternalRecipient || mintDecimals === null) return;
         setBusy(true);
         try {
-            await runExternalTransferFlow({
+            const result = await runExternalTransferFlow({
                 program: veilpayProgram,
                 verifierProgram,
                 mint: parsedMint,
@@ -99,6 +130,33 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
                 onStatus,
                 onDebit,
             });
+            if (onRecord) {
+                const { createTransactionRecord } = await import('../lib/transactions');
+                const recordId = onRecord(
+                    createTransactionRecord('transfer:external', {
+                        signature: result.signature,
+                        relayer: true,
+                        status: 'confirmed',
+                        details: {
+                            mint: parsedMint.toBase58(),
+                            recipient: parsedExternalRecipient.toBase58(),
+                            amount: externalAmount,
+                            amountBaseUnits: result.amountBaseUnits.toString(),
+                            nullifier: result.nullifier.toString(),
+                        },
+                    })
+                );
+                if (onRecordUpdate) {
+                    const { fetchTransactionDetails } = await import('../lib/transactions');
+                    const txDetails = await fetchTransactionDetails(
+                        veilpayProgram.provider.connection,
+                        result.signature
+                    );
+                    if (txDetails) {
+                        onRecordUpdate(recordId, { details: { tx: txDetails } });
+                    }
+                }
+            }
         } catch (error) {
             onStatus(`External transfer failed: ${error instanceof Error ? error.message : 'unknown error'}`);
         } finally {
