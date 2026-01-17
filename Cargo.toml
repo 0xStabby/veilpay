@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "programs/*"
-, "tools/groth16-fixture"]
+, "tools/ark-prover", "tools/groth16-fixture"]
 resolver = "2"
 
 [profile.release]

@@ -7,12 +7,17 @@ import { UserDepositCard } from './components/UserDepositCard';
 import { UserWithdrawCard } from './components/UserWithdrawCard';
 import { UserAuthorizationCard } from './components/UserAuthorizationCard';
 import { UserTransferCard } from './components/UserTransferCard';
+import { FlowTesterCard } from './components/FlowTesterCard';
+import { TransactionLogCard } from './components/TransactionLogCard';
+import { MultiWalletTesterCard } from './components/MultiWalletTesterCard';
 import { usePrograms } from './hooks/usePrograms';
 import { useNullifierCounter } from './hooks/useNullifierCounter';
 import { useMintInfo } from './hooks/useMintInfo';
 import { useTokenBalance } from './hooks/useTokenBalance';
 import { useShieldedBalance } from './hooks/useShieldedBalance';
 import { randomBytes } from './lib/crypto';
+import type { TransactionRecord } from './lib/transactions';
+import { buildAddressLabels } from './lib/addressLabels';
 import styles from './App.module.css';
 
 const App = () => {
@@ -20,12 +25,29 @@ const App = () => {
     const [status, setStatus] = useState('');
     const [mintAddress, setMintAddress] = useState('');
     const [root, setRoot] = useState(() => randomBytes(32));
-    const [view, setView] = useState<'user' | 'admin'>('user');
+    const [view, setView] = useState<'user' | 'admin' | 'tx' | 'multi'>('user');
+    const [txLog, setTxLog] = useState<TransactionRecord[]>(() => {
+        try {
+            const stored = localStorage.getItem('veilpay.txlog');
+            return stored ? (JSON.parse(stored) as TransactionRecord[]) : [];
+        } catch {
+            return [];
+        }
+    });
+    const [selectedTxId, setSelectedTxId] = useState<string | null>(null);
+    const [multiWalletLabels, setMultiWalletLabels] = useState<Record<string, string>>({});
     const { next } = useNullifierCounter(1);
     const { decimals, loading: mintLoading } = useMintInfo(connection ?? null, mintAddress);
     const walletPubkey = wallet?.publicKey ?? null;
     const { balance: walletBalance } = useTokenBalance(connection ?? null, mintAddress, walletPubkey);
     const { balance: shieldedBalance, credit, debit } = useShieldedBalance(mintAddress, walletPubkey);
+    const addressLabels = buildAddressLabels({
+        mintAddress,
+        veilpayProgramId: veilpayProgram?.programId ?? null,
+        verifierProgramId: verifierProgram?.programId ?? null,
+        walletLabels: multiWalletLabels,
+        connectedWallet: walletPubkey?.toBase58(),
+    });
 
     useEffect(() => {
         const stored = localStorage.getItem('veilpay.mint');
@@ -39,6 +61,33 @@ const App = () => {
             localStorage.setItem('veilpay.mint', mintAddress);
         }
     }, [mintAddress]);
+
+    useEffect(() => {
+        localStorage.setItem('veilpay.txlog', JSON.stringify(txLog));
+    }, [txLog]);
+
+    const handleRecord = (record: TransactionRecord) => {
+        setTxLog((prev) => [record, ...prev]);
+        setSelectedTxId(record.id);
+        return record.id;
+    };
+
+    const handleRecordUpdate = (id: string, patch: import('./lib/transactions').TransactionRecordPatch) => {
+        setTxLog((prev) =>
+            prev.map((record) => {
+                if (record.id !== id) return record;
+                const mergedDetails = patch.details
+                    ? { ...record.details, ...patch.details }
+                    : record.details;
+                return { ...record, ...patch, details: mergedDetails };
+            })
+        );
+    };
+
+    const clearLog = () => {
+        setTxLog([]);
+        setSelectedTxId(null);
+    };
 
     return (
         <div className={styles.app}>
@@ -57,6 +106,18 @@ const App = () => {
                         onClick={() => setView('admin')}
                     >
                         Admin
+                    </button>
+                    <button
+                        className={view === 'tx' ? styles.toggleActive : styles.toggleButton}
+                        onClick={() => setView('tx')}
+                    >
+                        Tx Logs
+                    </button>
+                    <button
+                        className={view === 'multi' ? styles.toggleActive : styles.toggleButton}
+                        onClick={() => setView('multi')}
+                    >
+                        Multi-Wallet Test
                     </button>
                 </div>
                 <StatusBanner status={mintLoading ? 'Loading mint info...' : status} />
@@ -79,6 +140,34 @@ const App = () => {
                             veilpayProgram={veilpayProgram}
                             verifierProgram={verifierProgram}
                             mintAddress={mintAddress}
+                            onMintChange={setMintAddress}
+                            mintDecimals={decimals}
+                            onStatus={setStatus}
+                        />
+                    </section>
+                ) : view === 'tx' ? (
+                    <section className={styles.grid}>
+                        <TransactionLogCard
+                            records={txLog}
+                            selectedId={selectedTxId}
+                            onSelect={setSelectedTxId}
+                            onClear={clearLog}
+                            addressLabels={addressLabels}
+                        />
+                    </section>
+                ) : view === 'multi' ? (
+                    <section className={styles.grid}>
+                        <MultiWalletTesterCard
+                            connection={connection}
+                            mintAddress={mintAddress}
+                            mintDecimals={decimals}
+                            root={root}
+                            onRootChange={setRoot}
+                            nextNullifier={next}
+                            onStatus={setStatus}
+                            onRecord={handleRecord}
+                            onRecordUpdate={handleRecordUpdate}
+                            onWalletLabels={setMultiWalletLabels}
                         />
                     </section>
                 ) : (
@@ -91,8 +180,26 @@ const App = () => {
                             mintDecimals={decimals}
                             walletBalance={walletBalance}
                             onCredit={credit}
+                            onRecord={handleRecord}
+                            onRecordUpdate={handleRecordUpdate}
                         />
                         <RunbookCard mode="user" />
+                        <FlowTesterCard
+                            veilpayProgram={veilpayProgram}
+                            verifierProgram={verifierProgram}
+                            mintAddress={mintAddress}
+                            root={root}
+                            onRootChange={setRoot}
+                            nextNullifier={next}
+                            mintDecimals={decimals}
+                            walletBalance={walletBalance}
+                            shieldedBalance={shieldedBalance}
+                            onCredit={credit}
+                            onDebit={debit}
+                            onStatus={setStatus}
+                            onRecord={handleRecord}
+                            onRecordUpdate={handleRecordUpdate}
+                        />
                         <UserWithdrawCard
                             veilpayProgram={veilpayProgram}
                             verifierProgram={verifierProgram}
@@ -103,6 +210,8 @@ const App = () => {
                             mintDecimals={decimals}
                             shieldedBalance={shieldedBalance}
                             onDebit={debit}
+                            onRecord={handleRecord}
+                            onRecordUpdate={handleRecordUpdate}
                         />
                         <UserAuthorizationCard
                             veilpayProgram={veilpayProgram}
@@ -114,6 +223,8 @@ const App = () => {
                             mintDecimals={decimals}
                             shieldedBalance={shieldedBalance}
                             onDebit={debit}
+                            onRecord={handleRecord}
+                            onRecordUpdate={handleRecordUpdate}
                         />
                         <UserTransferCard
                             veilpayProgram={veilpayProgram}
@@ -126,6 +237,8 @@ const App = () => {
                             mintDecimals={decimals}
                             shieldedBalance={shieldedBalance}
                             onDebit={debit}
+                            onRecord={handleRecord}
+                            onRecordUpdate={handleRecordUpdate}
                         />
                     </section>
                 )}

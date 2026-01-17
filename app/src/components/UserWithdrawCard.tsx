@@ -1,23 +1,10 @@
 import { useMemo, useState } from 'react';
 import type { FC } from 'react';
-import { Buffer } from 'buffer';
-import { BN, Program } from '@coral-xyz/anchor';
-import type { AnchorProvider } from '@coral-xyz/anchor';
-import { PublicKey, Transaction } from '@solana/web3.js';
-import {
-    TOKEN_PROGRAM_ID,
-    createAssociatedTokenAccountInstruction,
-    getAccount,
-    getAssociatedTokenAddress,
-} from '@solana/spl-token';
+import { Program } from '@coral-xyz/anchor';
+import { PublicKey } from '@solana/web3.js';
 import styles from './UserWithdrawCard.module.css';
-import { deriveConfig, deriveNullifierSet, deriveShielded, deriveVault, deriveVerifierKey } from '../lib/pda';
-import { bytesToBigIntBE, modField, sha256 } from '../lib/crypto';
-import { computeCommitment, computeNullifier, generateProof, bigIntToBytes32, preflightVerify, formatPublicSignals } from '../lib/prover';
-import { VERIFIER_PROGRAM_ID } from '../lib/config';
-import { submitViaRelayer } from '../lib/relayer';
-import { formatTokenAmount, parseTokenAmount } from '../lib/amount';
-import { checkVerifierKeyMatch } from '../lib/verifierKey';
+import { formatTokenAmount } from '../lib/amount';
+import { runWithdrawFlow } from '../lib/flows';
 
 const DEFAULT_AMOUNT = '100000';
 
@@ -31,6 +18,8 @@ type UserWithdrawCardProps = {
     mintDecimals: number | null;
     shieldedBalance: bigint;
     onDebit: (amount: bigint) => void;
+    onRecord?: (record: import('../lib/transactions').TransactionRecord) => string;
+    onRecordUpdate?: (id: string, patch: import('../lib/transactions').TransactionRecordPatch) => void;
 };
 
 export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
@@ -43,6 +32,8 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
     mintDecimals,
     shieldedBalance,
     onDebit,
+    onRecord,
+    onRecordUpdate,
 }) => {
     const [amount, setAmount] = useState(DEFAULT_AMOUNT);
     const [recipient, setRecipient] = useState('');
@@ -70,102 +61,45 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
         if (!veilpayProgram || !parsedMint || !parsedRecipient || mintDecimals === null) return;
         setBusy(true);
         try {
-            onStatus('Generating proof...');
-            const config = deriveConfig(veilpayProgram.programId);
-            const vault = deriveVault(veilpayProgram.programId, parsedMint);
-            const shieldedState = deriveShielded(veilpayProgram.programId, parsedMint);
-            const nullifierSet = deriveNullifierSet(veilpayProgram.programId, parsedMint, 0);
-            const vaultAta = await getAssociatedTokenAddress(parsedMint, vault, true);
-            const recipientAta = await getAssociatedTokenAddress(parsedMint, parsedRecipient);
-            const verifierKey = deriveVerifierKey(VERIFIER_PROGRAM_ID, 0);
-
-            const provider = veilpayProgram.provider as AnchorProvider;
-            const wallet = provider.wallet;
-            if (!wallet) {
-                throw new Error('Connect a wallet to withdraw.');
-            }
-            const ensureAta = async () => {
-                try {
-                    await getAccount(provider.connection, recipientAta);
-                } catch {
-                    const ix = createAssociatedTokenAccountInstruction(
-                        wallet.publicKey,
-                        recipientAta,
-                        parsedRecipient,
-                        parsedMint
-                    );
-                    await provider.sendAndConfirm(new Transaction().add(ix));
-                }
-            };
-
-            await ensureAta();
-
-            const senderSecret = modField(bytesToBigIntBE(crypto.getRandomValues(new Uint8Array(32))));
-            const randomness = modField(bytesToBigIntBE(crypto.getRandomValues(new Uint8Array(32))));
-            const leafIndex = BigInt(nextNullifier());
-            const baseUnits = parseTokenAmount(amount, mintDecimals);
-            const amountValue = baseUnits;
-            const recipientTagHashBytes = await sha256(parsedRecipient.toBytes());
-            const recipientTagHash = modField(bytesToBigIntBE(recipientTagHashBytes));
-            const nullifierValue = await computeNullifier(senderSecret, leafIndex);
-            const commitmentValue = await computeCommitment(amountValue, randomness, recipientTagHash);
-
-            const { proofBytes, publicInputsBytes, publicSignals, proof } = await generateProof({
-                root: bytesToBigIntBE(root).toString(),
-                nullifier: nullifierValue.toString(),
-                recipient_tag_hash: recipientTagHash.toString(),
-                ciphertext_commitment: commitmentValue.toString(),
-                circuit_id: '0',
-                amount: amountValue.toString(),
-                randomness: randomness.toString(),
-                sender_secret: senderSecret.toString(),
-                leaf_index: leafIndex.toString(),
-            });
-
-            onStatus('Preflight verifying proof (no wallet approval needed)...');
-            const verified = await preflightVerify(proof, publicSignals);
-            if (!verified) {
-                throw new Error(`Preflight verify failed. ${formatPublicSignals(publicSignals)}`);
-            }
-            onStatus('Preflight verified. Preparing relayer transaction...');
-
-            if (verifierProgram) {
-                onStatus('Checking verifier key consistency...');
-                const vkCheck = await checkVerifierKeyMatch(verifierProgram);
-                if (!vkCheck.ok) {
-                    throw new Error(`Verifier key mismatch on-chain: ${vkCheck.mismatch}`);
-                }
-            }
-            onStatus('Verifier key matches. Submitting to relayer...');
-
-            const accounts = {
-                config,
-                vault,
-                vaultAta,
-                shieldedState,
-                nullifierSet,
-                recipientAta,
-                verifierProgram: VERIFIER_PROGRAM_ID,
-                verifierKey,
+            const result = await runWithdrawFlow({
+                program: veilpayProgram,
+                verifierProgram,
                 mint: parsedMint,
-                tokenProgram: TOKEN_PROGRAM_ID,
-            };
-
-            const ix = await veilpayProgram.methods
-                .withdraw({
-                    amount: new BN(baseUnits.toString()),
-                    proof: Buffer.from(proofBytes),
-                    publicInputs: Buffer.from(publicInputsBytes),
-                    nullifier: Buffer.from(bigIntToBytes32(nullifierValue)),
-                    root: Buffer.from(root),
-                    relayerFeeBps: 0,
-                })
-                .accounts(accounts)
-                .instruction();
-
-            await submitViaRelayer(provider, new Transaction().add(ix));
-            onDebit(baseUnits);
-            onStatus('Withdraw complete.');
+                recipient: parsedRecipient,
+                amount,
+                mintDecimals,
+                root,
+                nextNullifier,
+                onStatus,
+                onDebit,
+            });
+            if (onRecord) {
+                const { createTransactionRecord } = await import('../lib/transactions');
+                const recordId = onRecord(
+                    createTransactionRecord('withdraw', {
+                        signature: result.signature,
+                        relayer: true,
+                        status: 'confirmed',
+                        details: {
+                            mint: parsedMint.toBase58(),
+                            recipient: parsedRecipient.toBase58(),
+                            amount,
+                            amountBaseUnits: result.amountBaseUnits.toString(),
+                            nullifier: result.nullifier.toString(),
+                        },
+                    })
+                );
+                if (onRecordUpdate) {
+                    const { fetchTransactionDetails } = await import('../lib/transactions');
+                    const txDetails = await fetchTransactionDetails(
+                        veilpayProgram.provider.connection,
+                        result.signature
+                    );
+                    if (txDetails) {
+                        onRecordUpdate(recordId, { details: { tx: txDetails } });
+                    }
+                }
+            }
         } catch (error) {
             onStatus(`Withdraw failed: ${error instanceof Error ? error.message : 'unknown error'}`);
         } finally {

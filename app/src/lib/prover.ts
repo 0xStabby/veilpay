@@ -114,7 +114,7 @@ export async function generateProof(input: Record<string, string | number>): Pro
     );
     const publicSignalsArray = publicSignals as string[];
 
-    const proofAny = proof as any;
+    const proofAny = proof as { pi_a: unknown[]; pi_b: unknown[][]; pi_c: unknown[] };
     const a = [toBigInt(proofAny.pi_a[0]), toBigInt(proofAny.pi_a[1])];
     const b = [
         [toBigInt(proofAny.pi_b[0][0]), toBigInt(proofAny.pi_b[0][1])],

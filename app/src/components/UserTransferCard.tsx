@@ -1,23 +1,11 @@
 import { useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { Buffer } from 'buffer';
-import { BN, Program } from '@coral-xyz/anchor';
-import type { AnchorProvider } from '@coral-xyz/anchor';
-import { PublicKey, Transaction } from '@solana/web3.js';
-import {
-    TOKEN_PROGRAM_ID,
-    createAssociatedTokenAccountInstruction,
-    getAccount,
-    getAssociatedTokenAddress,
-} from '@solana/spl-token';
+import { Program } from '@coral-xyz/anchor';
+import { PublicKey } from '@solana/web3.js';
 import styles from './UserTransferCard.module.css';
-import { deriveConfig, deriveNullifierSet, deriveShielded, deriveVault, deriveVerifierKey } from '../lib/pda';
-import { bytesToBigIntBE, modField, randomBytes, sha256 } from '../lib/crypto';
-import { computeCommitment, computeNullifier, generateProof, bigIntToBytes32, preflightVerify, formatPublicSignals } from '../lib/prover';
-import { VERIFIER_PROGRAM_ID } from '../lib/config';
-import { submitViaRelayer } from '../lib/relayer';
-import { formatTokenAmount, parseTokenAmount } from '../lib/amount';
-import { checkVerifierKeyMatch } from '../lib/verifierKey';
+import { formatTokenAmount } from '../lib/amount';
+import { runExternalTransferFlow, runInternalTransferFlow } from '../lib/flows';
 
 export type UserTransferCardProps = {
     veilpayProgram: Program | null;
@@ -30,6 +18,8 @@ export type UserTransferCardProps = {
     mintDecimals: number | null;
     shieldedBalance: bigint;
     onDebit: (amount: bigint) => void;
+    onRecord?: (record: import('../lib/transactions').TransactionRecord) => string;
+    onRecordUpdate?: (id: string, patch: import('../lib/transactions').TransactionRecordPatch) => void;
 };
 
 export const UserTransferCard: FC<UserTransferCardProps> = ({
@@ -43,6 +33,8 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
     mintDecimals,
     shieldedBalance,
     onDebit,
+    onRecord,
+    onRecordUpdate,
 }) => {
     const [internalRecipient, setInternalRecipient] = useState('');
     const [externalRecipient, setExternalRecipient] = useState('');
@@ -80,73 +72,42 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
         if (!veilpayProgram || !parsedMint || !parsedInternalRecipient || mintDecimals === null) return;
         setBusy(true);
         try {
-            onStatus('Generating proof...');
-            const config = deriveConfig(veilpayProgram.programId);
-            const shieldedState = deriveShielded(veilpayProgram.programId, parsedMint);
-            const nullifierSet = deriveNullifierSet(veilpayProgram.programId, parsedMint, 0);
-            const verifierKey = deriveVerifierKey(VERIFIER_PROGRAM_ID, 0);
-            const newRootValue = modField(bytesToBigIntBE(randomBytes(32)));
-            const newRoot = bigIntToBytes32(newRootValue);
-            const ciphertextNew = randomBytes(64);
-
-            const senderSecret = modField(bytesToBigIntBE(randomBytes(32)));
-            const randomness = modField(bytesToBigIntBE(randomBytes(32)));
-            const leafIndex = BigInt(nextNullifier());
-            const amountValue = 0n;
-            const recipientTagHash = modField(bytesToBigIntBE(await sha256(parsedInternalRecipient.toBytes())));
-            const nullifierValue = await computeNullifier(senderSecret, leafIndex);
-            const commitmentValue = await computeCommitment(amountValue, randomness, recipientTagHash);
-
-            const { proofBytes, publicInputsBytes, publicSignals, proof } = await generateProof({
-                root: bytesToBigIntBE(root).toString(),
-                nullifier: nullifierValue.toString(),
-                recipient_tag_hash: recipientTagHash.toString(),
-                ciphertext_commitment: commitmentValue.toString(),
-                circuit_id: '0',
-                amount: amountValue.toString(),
-                randomness: randomness.toString(),
-                sender_secret: senderSecret.toString(),
-                leaf_index: leafIndex.toString(),
+            const result = await runInternalTransferFlow({
+                program: veilpayProgram,
+                verifierProgram,
+                mint: parsedMint,
+                recipient: parsedInternalRecipient,
+                root,
+                nextNullifier,
+                onStatus,
+                onRootChange,
             });
-
-            onStatus('Preflight verifying proof (no wallet approval needed)...');
-            const verified = await preflightVerify(proof, publicSignals);
-            if (!verified) {
-                throw new Error(`Preflight verify failed. ${formatPublicSignals(publicSignals)}`);
-            }
-            onStatus('Preflight verified. Preparing transaction...');
-
-            if (verifierProgram) {
-                onStatus('Checking verifier key consistency...');
-                const vkCheck = await checkVerifierKeyMatch(verifierProgram);
-                if (!vkCheck.ok) {
-                    throw new Error(`Verifier key mismatch on-chain: ${vkCheck.mismatch}`);
+            if (onRecord) {
+                const { createTransactionRecord } = await import('../lib/transactions');
+                const recordId = onRecord(
+                    createTransactionRecord('transfer:internal', {
+                        signature: result.signature,
+                        relayer: false,
+                        status: 'confirmed',
+                        details: {
+                            mint: parsedMint.toBase58(),
+                            recipient: parsedInternalRecipient.toBase58(),
+                            nullifier: result.nullifier.toString(),
+                            newRoot: Buffer.from(result.newRoot).toString('hex'),
+                        },
+                    })
+                );
+                if (onRecordUpdate) {
+                    const { fetchTransactionDetails } = await import('../lib/transactions');
+                    const txDetails = await fetchTransactionDetails(
+                        veilpayProgram.provider.connection,
+                        result.signature
+                    );
+                    if (txDetails) {
+                        onRecordUpdate(recordId, { details: { tx: txDetails } });
+                    }
                 }
             }
-            onStatus('Verifier key matches. Submitting transaction...');
-
-            await veilpayProgram.methods
-                .internalTransfer({
-                    proof: Buffer.from(proofBytes),
-                    publicInputs: Buffer.from(publicInputsBytes),
-                    nullifier: Buffer.from(bigIntToBytes32(nullifierValue)),
-                    root: Buffer.from(root),
-                    newRoot: Buffer.from(newRoot),
-                    ciphertextNew: Buffer.from(ciphertextNew),
-                    recipientTagHash: Buffer.from(bigIntToBytes32(recipientTagHash)),
-                })
-                .accounts({
-                    config,
-                    shieldedState,
-                    nullifierSet,
-                    verifierProgram: VERIFIER_PROGRAM_ID,
-                    verifierKey,
-                    mint: parsedMint,
-                })
-                .rpc();
-
-            onRootChange(newRoot);
-            onStatus('Internal transfer complete.');
         } catch (error) {
             onStatus(`Internal transfer failed: ${error instanceof Error ? error.message : 'unknown error'}`);
         } finally {
@@ -158,97 +119,45 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
         if (!veilpayProgram || !parsedMint || !parsedExternalRecipient || mintDecimals === null) return;
         setBusy(true);
         try {
-            onStatus('Generating proof...');
-            const config = deriveConfig(veilpayProgram.programId);
-            const vault = deriveVault(veilpayProgram.programId, parsedMint);
-            const shieldedState = deriveShielded(veilpayProgram.programId, parsedMint);
-            const nullifierSet = deriveNullifierSet(veilpayProgram.programId, parsedMint, 0);
-            const vaultAta = await getAssociatedTokenAddress(parsedMint, vault, true);
-            const destinationAta = await getAssociatedTokenAddress(parsedMint, parsedExternalRecipient);
-            const verifierKey = deriveVerifierKey(VERIFIER_PROGRAM_ID, 0);
-
-            const provider = veilpayProgram.provider as AnchorProvider;
-            const wallet = provider.wallet;
-            if (!wallet) {
-                throw new Error('Connect a wallet to transfer.');
-            }
-            try {
-                await getAccount(provider.connection, destinationAta);
-            } catch {
-                const ix = createAssociatedTokenAccountInstruction(
-                    wallet.publicKey,
-                    destinationAta,
-                    parsedExternalRecipient,
-                    parsedMint
-                );
-                await provider.sendAndConfirm(new Transaction().add(ix));
-            }
-
-            const senderSecret = modField(bytesToBigIntBE(randomBytes(32)));
-            const randomness = modField(bytesToBigIntBE(randomBytes(32)));
-            const leafIndex = BigInt(nextNullifier());
-            const baseUnits = parseTokenAmount(externalAmount, mintDecimals);
-            const amountValue = baseUnits;
-            const recipientTagHash = modField(bytesToBigIntBE(await sha256(parsedExternalRecipient.toBytes())));
-            const nullifierValue = await computeNullifier(senderSecret, leafIndex);
-            const commitmentValue = await computeCommitment(amountValue, randomness, recipientTagHash);
-
-            const { proofBytes, publicInputsBytes, publicSignals, proof } = await generateProof({
-                root: bytesToBigIntBE(root).toString(),
-                nullifier: nullifierValue.toString(),
-                recipient_tag_hash: recipientTagHash.toString(),
-                ciphertext_commitment: commitmentValue.toString(),
-                circuit_id: '0',
-                amount: amountValue.toString(),
-                randomness: randomness.toString(),
-                sender_secret: senderSecret.toString(),
-                leaf_index: leafIndex.toString(),
+            const result = await runExternalTransferFlow({
+                program: veilpayProgram,
+                verifierProgram,
+                mint: parsedMint,
+                recipient: parsedExternalRecipient,
+                amount: externalAmount,
+                mintDecimals,
+                root,
+                nextNullifier,
+                onStatus,
+                onDebit,
             });
-
-            onStatus('Preflight verifying proof (no wallet approval needed)...');
-            const verified = await preflightVerify(proof, publicSignals);
-            if (!verified) {
-                throw new Error(`Preflight verify failed. ${formatPublicSignals(publicSignals)}`);
-            }
-            onStatus('Preflight verified. Preparing relayer transaction...');
-
-            if (verifierProgram) {
-                onStatus('Checking verifier key consistency...');
-                const vkCheck = await checkVerifierKeyMatch(verifierProgram);
-                if (!vkCheck.ok) {
-                    throw new Error(`Verifier key mismatch on-chain: ${vkCheck.mismatch}`);
+            if (onRecord) {
+                const { createTransactionRecord } = await import('../lib/transactions');
+                const recordId = onRecord(
+                    createTransactionRecord('transfer:external', {
+                        signature: result.signature,
+                        relayer: true,
+                        status: 'confirmed',
+                        details: {
+                            mint: parsedMint.toBase58(),
+                            recipient: parsedExternalRecipient.toBase58(),
+                            amount: externalAmount,
+                            amountBaseUnits: result.amountBaseUnits.toString(),
+                            nullifier: result.nullifier.toString(),
+                        },
+                    })
+                );
+                if (onRecordUpdate) {
+                    const { fetchTransactionDetails } = await import('../lib/transactions');
+                    const txDetails = await fetchTransactionDetails(
+                        veilpayProgram.provider.connection,
+                        result.signature
+                    );
+                    if (txDetails) {
+                        onRecordUpdate(recordId, { details: { tx: txDetails } });
+                    }
                 }
             }
-            onStatus('Verifier key matches. Submitting to relayer...');
-
-            const accounts = {
-                config,
-                vault,
-                vaultAta,
-                shieldedState,
-                nullifierSet,
-                destinationAta,
-                verifierProgram: VERIFIER_PROGRAM_ID,
-                verifierKey,
-                mint: parsedMint,
-                tokenProgram: TOKEN_PROGRAM_ID,
-            };
-
-            const ix = await veilpayProgram.methods
-                .externalTransfer({
-                    amount: new BN(baseUnits.toString()),
-                    proof: Buffer.from(proofBytes),
-                    publicInputs: Buffer.from(publicInputsBytes),
-                    nullifier: Buffer.from(bigIntToBytes32(nullifierValue)),
-                    root: Buffer.from(root),
-                    relayerFeeBps: 0,
-                })
-                .accounts(accounts)
-                .instruction();
-
-            await submitViaRelayer(provider, new Transaction().add(ix));
-            onDebit(baseUnits);
-            onStatus('External transfer complete.');
         } catch (error) {
             onStatus(`External transfer failed: ${error instanceof Error ? error.message : 'unknown error'}`);
         } finally {

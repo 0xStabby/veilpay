@@ -13,6 +13,7 @@ import {
 import styles from './WithdrawCard.module.css';
 import { deriveConfig, deriveNullifierSet, deriveShielded, deriveVault, deriveVerifierKey } from '../lib/pda';
 import { computeCommitment, computeNullifier, generateProof, bigIntToBytes32, preflightVerify, formatPublicSignals } from '../lib/prover';
+import { ensureNullifierSet } from '../lib/nullifier';
 import { bytesToBigIntBE, modField, sha256, toHex } from '../lib/crypto';
 import { VERIFIER_PROGRAM_ID } from '../lib/config';
 import { submitViaRelayer } from '../lib/relayer';
@@ -77,7 +78,6 @@ export const WithdrawCard: FC<WithdrawCardProps> = ({ veilpayProgram, mintAddres
             const config = deriveConfig(veilpayProgram.programId);
             const vault = deriveVault(veilpayProgram.programId, parsedMint);
             const shieldedState = deriveShielded(veilpayProgram.programId, parsedMint);
-            const nullifierSet = deriveNullifierSet(veilpayProgram.programId, parsedMint, 0);
             const vaultAta = await getAssociatedTokenAddress(parsedMint, vault, true);
             const recipientAta = await getAssociatedTokenAddress(parsedMint, parsedRecipient);
             const verifierKey = deriveVerifierKey(VERIFIER_PROGRAM_ID, 0);
@@ -113,6 +113,7 @@ export const WithdrawCard: FC<WithdrawCardProps> = ({ veilpayProgram, mintAddres
             const recipientTagHash = modField(bytesToBigIntBE(recipientTagHashBytes));
             const nullifierValue = await computeNullifier(senderSecret, leafIndex);
             const commitmentValue = await computeCommitment(amountValue, randomness, recipientTagHash);
+            const nullifierSet = await ensureNullifierSet(veilpayProgram, parsedMint, nullifierValue);
 
             onStatus('Generating Groth16 proof...');
             const { proofBytes, publicInputsBytes, publicSignals, proof } = await generateProof({
