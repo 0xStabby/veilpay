@@ -1,0 +1,64 @@
+# VeilPay Implementation Plan
+
+Goal: Implement the unlinkable escrow-based privacy payments protocol end-to-end (programs, verifier, SDK, UI, tests), with tests proving that the spec and desired functionality are complete and correct.
+
+## Phase 1: Program Core (Anchor)
+- Expand `programs/veilpay/src/lib.rs` into modules:
+  - `state` (config, vault, shielded state, nullifier, authorization, vk registry)
+  - `instructions` (initialize/configure/deposit/withdraw/etc.)
+  - `errors` (protocol-level errors)
+- Implement CPI token transfers for deposit/withdraw/settle flows.
+- Add PDA initialization helpers for vaults, shielded state, nullifier chunks, and VK registry.
+- Enforce mint allowlist and fee constraints in all public instructions.
+- Emit events for: deposit, withdraw, authorization created, authorization settled, internal transfer.
+
+## Phase 2: Verifier Interface (Stage 1 mock + Stage 2 real)
+- Create separate `verifier` program with Groth16 verification using Solana bn254 syscalls.
+- Store VK in `verifier_key` PDAs and reference via the registry.
+- Add CPI calls to the verifier program from proof-verified instructions.
+- Provide a fixture generator for deterministic Groth16 proof bytes.
+
+## Phase 3: SDK (TypeScript)
+- Create `sdk/` package:
+  - key management (ElGamal keys + note secrets)
+  - local Merkle tree mirroring and nullifier calc
+  - ciphertext encoding/decoding
+  - proof API (WASM/remote backends) with progress callbacks
+  - transaction builders for all instructions (Anchor IDL)
+  - intent signing for relayer (domain separation)
+- Include deterministic fixtures for ciphertext and proof bytes.
+
+## Phase 4: Relayer (Node/TS)
+- Create `relayer/` service:
+  - endpoints: /intent, /proof, /execute
+  - validate signature + intent schema (domain separation)
+  - submit transactions and enforce on-chain relayer fee split
+
+## Phase 5: UI (Minimal)
+- Create `ui/`:
+  - connect wallet, deposit, create authorization, settle, withdraw
+  - show proof generation progress
+  - use SDK only (no direct on-chain calls)
+
+## Phase 6: Tests (Must prove spec completeness)
+- Anchor tests:
+  - initialize/configure
+  - deposit/withdraw with mock proofs
+  - authorization creation/settle
+  - internal/external transfer
+  - nullifier double-spend prevention
+  - replay/expiry behavior
+- SDK tests:
+  - ciphertext roundtrip
+  - nullifier calculation matches on-chain chunking
+  - tx builder account metas
+- Relayer tests:
+  - intent signature validation
+  - fee enforcement in tx
+- UI smoke tests (optional):
+  - E2E flow with local validator + mock proofs
+
+## Validation Gates
+- All tests green locally.
+- Spec references match behavior implemented in code and tests.
+- No per-user on-chain state; all linkability avoided at state level.

@@ -1,0 +1,50 @@
+.card {
+    display: grid;
+    gap: 1rem;
+    padding: 1.5rem;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.85);
+    box-shadow: 0 20px 45px rgba(31, 36, 77, 0.15);
+    backdrop-filter: blur(10px);
+}
+
+.title {
+    margin: 0;
+    font-size: 1.35rem;
+    color: #1f244d;
+}
+
+.description {
+    margin: 0.35rem 0 0;
+    color: rgba(31, 36, 77, 0.7);
+}
+
+.button {
+    justify-self: start;
+    border: none;
+    border-radius: 999px;
+    padding: 0.65rem 1.5rem;
+    background: #1f244d;
+    color: #f8f6f2;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.button:not(:disabled):hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 20px rgba(31, 36, 77, 0.25);
+}
+
+.helper {
+    margin: 0;
+    font-size: 0.9rem;
+    color: rgba(31, 36, 77, 0.6);
+}

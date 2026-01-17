@@ -1,0 +1,2109 @@
+{
+  "address": "B5M7aRq3PXTNBzbrzxdgyN7hR2K6EsqE9L2hGid5EHst",
+  "metadata": {
+    "name": "veilpay",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "configure_fees",
+      "discriminator": [
+        180,
+        96,
+        224,
+        105,
+        174,
+        237,
+        193,
+        67
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  149,
+                  177,
+                  239,
+                  77,
+                  140,
+                  169,
+                  210,
+                  100,
+                  92,
+                  1,
+                  34,
+                  90,
+                  217,
+                  154,
+                  8,
+                  149,
+                  157,
+                  49,
+                  79,
+                  16,
+                  228,
+                  213,
+                  249,
+                  4,
+                  196,
+                  73,
+                  16,
+                  38,
+                  235,
+                  171,
+                  204,
+                  79
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "fee_bps",
+          "type": "u16"
+        },
+        {
+          "name": "relayer_fee_bps_max",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "create_authorization",
+      "discriminator": [
+        82,
+        105,
+        2,
+        148,
+        133,
+        5,
+        239,
+        196
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  149,
+                  177,
+                  239,
+                  77,
+                  140,
+                  169,
+                  210,
+                  100,
+                  92,
+                  1,
+                  34,
+                  90,
+                  217,
+                  154,
+                  8,
+                  149,
+                  157,
+                  49,
+                  79,
+                  16,
+                  228,
+                  213,
+                  249,
+                  4,
+                  196,
+                  73,
+                  16,
+                  38,
+                  235,
+                  171,
+                  204,
+                  79
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authorization",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  116,
+                  104
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.intent_hash"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "CreateAuthorizationArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "deposit",
+      "discriminator": [
+        242,
+        35,
+        198,
+        137,
+        82,
+        225,
+        242,
+        182
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  149,
+                  177,
+                  239,
+                  77,
+                  140,
+                  169,
+                  210,
+                  100,
+                  92,
+                  1,
+                  34,
+                  90,
+                  217,
+                  154,
+                  8,
+                  149,
+                  157,
+                  49,
+                  79,
+                  16,
+                  228,
+                  213,
+                  249,
+                  4,
+                  196,
+                  73,
+                  16,
+                  38,
+                  235,
+                  171,
+                  204,
+                  79
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_ata",
+          "writable": true
+        },
+        {
+          "name": "shielded_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  104,
+                  105,
+                  101,
+                  108,
+                  100,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user",
+          "signer": true
+        },
+        {
+          "name": "user_ata",
+          "writable": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "DepositArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "external_transfer",
+      "discriminator": [
+        11,
+        179,
+        85,
+        190,
+        61,
+        53,
+        105,
+        169
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  149,
+                  177,
+                  239,
+                  77,
+                  140,
+                  169,
+                  210,
+                  100,
+                  92,
+                  1,
+                  34,
+                  90,
+                  217,
+                  154,
+                  8,
+                  149,
+                  157,
+                  49,
+                  79,
+                  16,
+                  228,
+                  213,
+                  249,
+                  4,
+                  196,
+                  73,
+                  16,
+                  38,
+                  235,
+                  171,
+                  204,
+                  79
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_ata",
+          "writable": true
+        },
+        {
+          "name": "shielded_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  104,
+                  105,
+                  101,
+                  108,
+                  100,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "nullifier_set",
+          "writable": true
+        },
+        {
+          "name": "destination_ata",
+          "writable": true
+        },
+        {
+          "name": "relayer_fee_ata",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "verifier_program",
+          "address": "ApgL98o4JA6ZJSR3G9X8HTymPCssztpKMYFZWohraotk"
+        },
+        {
+          "name": "verifier_key"
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ExternalTransferArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "initialize_config",
+      "discriminator": [
+        208,
+        127,
+        21,
+        1,
+        194,
+        190,
+        196,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  149,
+                  177,
+                  239,
+                  77,
+                  140,
+                  169,
+                  210,
+                  100,
+                  92,
+                  1,
+                  34,
+                  90,
+                  217,
+                  154,
+                  8,
+                  149,
+                  157,
+                  49,
+                  79,
+                  16,
+                  228,
+                  213,
+                  249,
+                  4,
+                  196,
+                  73,
+                  16,
+                  38,
+                  235,
+                  171,
+                  204,
+                  79
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "InitializeConfigArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "initialize_mint_state",
+      "discriminator": [
+        103,
+        18,
+        27,
+        175,
+        211,
+        185,
+        169,
+        69
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  149,
+                  177,
+                  239,
+                  77,
+                  140,
+                  169,
+                  210,
+                  100,
+                  92,
+                  1,
+                  34,
+                  90,
+                  217,
+                  154,
+                  8,
+                  149,
+                  157,
+                  49,
+                  79,
+                  16,
+                  228,
+                  213,
+                  249,
+                  4,
+                  196,
+                  73,
+                  16,
+                  38,
+                  235,
+                  171,
+                  204,
+                  79
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_ata",
+          "writable": true
+        },
+        {
+          "name": "shielded_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  104,
+                  105,
+                  101,
+                  108,
+                  100,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "nullifier_set",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  117,
+                  108,
+                  108,
+                  105,
+                  102,
+                  105,
+                  101,
+                  114,
+                  95,
+                  115,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              },
+              {
+                "kind": "arg",
+                "path": "chunk_index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "chunk_index",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "initialize_vk_registry",
+      "discriminator": [
+        162,
+        115,
+        147,
+        144,
+        215,
+        157,
+        86,
+        25
+      ],
+      "accounts": [
+        {
+          "name": "vk_registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  107,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "internal_transfer",
+      "discriminator": [
+        56,
+        217,
+        60,
+        137,
+        252,
+        221,
+        185,
+        114
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  149,
+                  177,
+                  239,
+                  77,
+                  140,
+                  169,
+                  210,
+                  100,
+                  92,
+                  1,
+                  34,
+                  90,
+                  217,
+                  154,
+                  8,
+                  149,
+                  157,
+                  49,
+                  79,
+                  16,
+                  228,
+                  213,
+                  249,
+                  4,
+                  196,
+                  73,
+                  16,
+                  38,
+                  235,
+                  171,
+                  204,
+                  79
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "shielded_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  104,
+                  105,
+                  101,
+                  108,
+                  100,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "nullifier_set",
+          "writable": true
+        },
+        {
+          "name": "verifier_program",
+          "address": "ApgL98o4JA6ZJSR3G9X8HTymPCssztpKMYFZWohraotk"
+        },
+        {
+          "name": "verifier_key"
+        },
+        {
+          "name": "mint"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "InternalTransferArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "register_mint",
+      "discriminator": [
+        242,
+        43,
+        74,
+        162,
+        217,
+        214,
+        191,
+        171
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  149,
+                  177,
+                  239,
+                  77,
+                  140,
+                  169,
+                  210,
+                  100,
+                  92,
+                  1,
+                  34,
+                  90,
+                  217,
+                  154,
+                  8,
+                  149,
+                  157,
+                  49,
+                  79,
+                  16,
+                  228,
+                  213,
+                  249,
+                  4,
+                  196,
+                  73,
+                  16,
+                  38,
+                  235,
+                  171,
+                  204,
+                  79
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "mint",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "settle_authorization",
+      "discriminator": [
+        103,
+        204,
+        251,
+        47,
+        248,
+        172,
+        71,
+        113
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  149,
+                  177,
+                  239,
+                  77,
+                  140,
+                  169,
+                  210,
+                  100,
+                  92,
+                  1,
+                  34,
+                  90,
+                  217,
+                  154,
+                  8,
+                  149,
+                  157,
+                  49,
+                  79,
+                  16,
+                  228,
+                  213,
+                  249,
+                  4,
+                  196,
+                  73,
+                  16,
+                  38,
+                  235,
+                  171,
+                  204,
+                  79
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authorization",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_ata",
+          "writable": true
+        },
+        {
+          "name": "shielded_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  104,
+                  105,
+                  101,
+                  108,
+                  100,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "nullifier_set",
+          "writable": true
+        },
+        {
+          "name": "recipient_ata",
+          "writable": true
+        },
+        {
+          "name": "relayer_fee_ata",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "verifier_program",
+          "address": "ApgL98o4JA6ZJSR3G9X8HTymPCssztpKMYFZWohraotk"
+        },
+        {
+          "name": "verifier_key"
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "SettleAuthorizationArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "withdraw",
+      "discriminator": [
+        183,
+        18,
+        70,
+        156,
+        148,
+        109,
+        161,
+        34
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  149,
+                  177,
+                  239,
+                  77,
+                  140,
+                  169,
+                  210,
+                  100,
+                  92,
+                  1,
+                  34,
+                  90,
+                  217,
+                  154,
+                  8,
+                  149,
+                  157,
+                  49,
+                  79,
+                  16,
+                  228,
+                  213,
+                  249,
+                  4,
+                  196,
+                  73,
+                  16,
+                  38,
+                  235,
+                  171,
+                  204,
+                  79
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_ata",
+          "writable": true
+        },
+        {
+          "name": "shielded_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  104,
+                  105,
+                  101,
+                  108,
+                  100,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "nullifier_set",
+          "writable": true
+        },
+        {
+          "name": "recipient_ata",
+          "writable": true
+        },
+        {
+          "name": "relayer_fee_ata",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "verifier_program",
+          "address": "ApgL98o4JA6ZJSR3G9X8HTymPCssztpKMYFZWohraotk"
+        },
+        {
+          "name": "verifier_key"
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "WithdrawArgs"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Authorization",
+      "discriminator": [
+        3,
+        68,
+        168,
+        243,
+        195,
+        168,
+        32,
+        75
+      ]
+    },
+    {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    },
+    {
+      "name": "NullifierSet",
+      "discriminator": [
+        251,
+        219,
+        17,
+        100,
+        208,
+        102,
+        127,
+        25
+      ]
+    },
+    {
+      "name": "ShieldedState",
+      "discriminator": [
+        109,
+        188,
+        25,
+        78,
+        58,
+        0,
+        28,
+        80
+      ]
+    },
+    {
+      "name": "VaultPool",
+      "discriminator": [
+        64,
+        55,
+        145,
+        17,
+        146,
+        105,
+        18,
+        195
+      ]
+    },
+    {
+      "name": "VerifierKey",
+      "discriminator": [
+        27,
+        40,
+        233,
+        33,
+        249,
+        246,
+        9,
+        239
+      ]
+    },
+    {
+      "name": "VkRegistry",
+      "discriminator": [
+        68,
+        64,
+        58,
+        198,
+        150,
+        82,
+        114,
+        37
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "Unauthorized",
+      "msg": "Unauthorized"
+    },
+    {
+      "code": 6001,
+      "name": "AllowlistTooLarge",
+      "msg": "Allowlist exceeds max length"
+    },
+    {
+      "code": 6002,
+      "name": "CircuitListTooLarge",
+      "msg": "Circuit list exceeds max length"
+    },
+    {
+      "code": 6003,
+      "name": "ProtocolPaused",
+      "msg": "Protocol is paused"
+    },
+    {
+      "code": 6004,
+      "name": "RelayerFeeTooHigh",
+      "msg": "Relayer fee too high"
+    },
+    {
+      "code": 6005,
+      "name": "MathOverflow",
+      "msg": "Math overflow"
+    },
+    {
+      "code": 6006,
+      "name": "NullifierAlreadyUsed",
+      "msg": "Nullifier already used"
+    },
+    {
+      "code": 6007,
+      "name": "NullifierChunkMismatch",
+      "msg": "Nullifier chunk mismatch"
+    },
+    {
+      "code": 6008,
+      "name": "MintNotAllowed",
+      "msg": "Mint not allowed"
+    },
+    {
+      "code": 6009,
+      "name": "InvalidVaultAuthority",
+      "msg": "Invalid vault authority"
+    },
+    {
+      "code": 6010,
+      "name": "UnknownRoot",
+      "msg": "Unknown root"
+    },
+    {
+      "code": 6011,
+      "name": "AuthorizationNotOpen",
+      "msg": "Authorization not open"
+    },
+    {
+      "code": 6012,
+      "name": "AuthorizationExpired",
+      "msg": "Authorization expired"
+    },
+    {
+      "code": 6013,
+      "name": "InvalidByteLength",
+      "msg": "Invalid byte length"
+    },
+    {
+      "code": 6014,
+      "name": "InvalidProof",
+      "msg": "Invalid proof"
+    },
+    {
+      "code": 6015,
+      "name": "MissingRelayerFeeAccount",
+      "msg": "Missing relayer fee account"
+    },
+    {
+      "code": 6016,
+      "name": "InvalidRelayerFeeAccount",
+      "msg": "Invalid relayer fee account"
+    },
+    {
+      "code": 6017,
+      "name": "RelayerFeeExceedsAmount",
+      "msg": "Relayer fee exceeds amount"
+    }
+  ],
+  "types": [
+    {
+      "name": "Authorization",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "intent_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "payee_tag_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount_ciphertext",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "expiry_slot",
+            "type": "u64"
+          },
+          {
+            "name": "status",
+            "type": "u8"
+          },
+          {
+            "name": "circuit_id",
+            "type": "u32"
+          },
+          {
+            "name": "proof_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "relayer_pubkey",
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Config",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "relayer_fee_bps_max",
+            "type": "u16"
+          },
+          {
+            "name": "vk_registry",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint_allowlist",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "circuit_ids",
+            "type": {
+              "vec": "u32"
+            }
+          },
+          {
+            "name": "paused",
+            "type": "bool"
+          },
+          {
+            "name": "version",
+            "type": "u32"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreateAuthorizationArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "intent_hash",
+            "type": "bytes"
+          },
+          {
+            "name": "payee_tag_hash",
+            "type": "bytes"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount_ciphertext",
+            "type": "bytes"
+          },
+          {
+            "name": "expiry_slot",
+            "type": "u64"
+          },
+          {
+            "name": "circuit_id",
+            "type": "u32"
+          },
+          {
+            "name": "proof_hash",
+            "type": "bytes"
+          },
+          {
+            "name": "relayer_pubkey",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DepositArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "ciphertext",
+            "type": "bytes"
+          },
+          {
+            "name": "commitment",
+            "type": "bytes"
+          },
+          {
+            "name": "new_root",
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ExternalTransferArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "proof",
+            "type": "bytes"
+          },
+          {
+            "name": "nullifier",
+            "type": "bytes"
+          },
+          {
+            "name": "root",
+            "type": "bytes"
+          },
+          {
+            "name": "public_inputs",
+            "type": "bytes"
+          },
+          {
+            "name": "relayer_fee_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitializeConfigArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "relayer_fee_bps_max",
+            "type": "u16"
+          },
+          {
+            "name": "vk_registry",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint_allowlist",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "circuit_ids",
+            "type": {
+              "vec": "u32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "InternalTransferArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proof",
+            "type": "bytes"
+          },
+          {
+            "name": "nullifier",
+            "type": "bytes"
+          },
+          {
+            "name": "root",
+            "type": "bytes"
+          },
+          {
+            "name": "new_root",
+            "type": "bytes"
+          },
+          {
+            "name": "ciphertext_new",
+            "type": "bytes"
+          },
+          {
+            "name": "recipient_tag_hash",
+            "type": "bytes"
+          },
+          {
+            "name": "public_inputs",
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NullifierSet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "chunk_index",
+            "type": "u32"
+          },
+          {
+            "name": "bitset",
+            "type": {
+              "array": [
+                "u8",
+                1024
+              ]
+            }
+          },
+          {
+            "name": "count",
+            "type": "u32"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SettleAuthorizationArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "proof",
+            "type": "bytes"
+          },
+          {
+            "name": "nullifier",
+            "type": "bytes"
+          },
+          {
+            "name": "root",
+            "type": "bytes"
+          },
+          {
+            "name": "public_inputs",
+            "type": "bytes"
+          },
+          {
+            "name": "relayer_fee_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ShieldedState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "merkle_root",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "root_history",
+            "type": {
+              "vec": {
+                "array": [
+                  "u8",
+                  32
+                ]
+              }
+            }
+          },
+          {
+            "name": "root_history_index",
+            "type": "u32"
+          },
+          {
+            "name": "commitment_count",
+            "type": "u64"
+          },
+          {
+            "name": "circuit_id",
+            "type": "u32"
+          },
+          {
+            "name": "version",
+            "type": "u32"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultPool",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault_pda",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault_ata",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "total_deposited",
+            "type": "u64"
+          },
+          {
+            "name": "total_withdrawn",
+            "type": "u64"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VerifierKey",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "alpha_g1",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "beta_g2",
+            "type": {
+              "array": [
+                "u8",
+                128
+              ]
+            }
+          },
+          {
+            "name": "gamma_g2",
+            "type": {
+              "array": [
+                "u8",
+                128
+              ]
+            }
+          },
+          {
+            "name": "delta_g2",
+            "type": {
+              "array": [
+                "u8",
+                128
+              ]
+            }
+          },
+          {
+            "name": "public_inputs_len",
+            "type": "u32"
+          },
+          {
+            "name": "gamma_abc",
+            "type": {
+              "vec": {
+                "array": [
+                  "u8",
+                  64
+                ]
+              }
+            }
+          },
+          {
+            "name": "mock",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VkEntry",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "circuit_id",
+            "type": "u32"
+          },
+          {
+            "name": "vk_account",
+            "type": "pubkey"
+          },
+          {
+            "name": "vk_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VkRegistry",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "entries",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "VkEntry"
+                }
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WithdrawArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "proof",
+            "type": "bytes"
+          },
+          {
+            "name": "nullifier",
+            "type": "bytes"
+          },
+          {
+            "name": "root",
+            "type": "bytes"
+          },
+          {
+            "name": "public_inputs",
+            "type": "bytes"
+          },
+          {
+            "name": "relayer_fee_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    }
+  ]
+}

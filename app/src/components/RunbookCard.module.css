@@ -1,0 +1,63 @@
+.card {
+    background: var(--bg-panel);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    border: 1px solid var(--border);
+    box-shadow: 0 18px 38px var(--shadow);
+    display: grid;
+    gap: 1rem;
+}
+
+.card h2 {
+    margin: 0;
+    color: var(--text);
+}
+
+.card p {
+    margin: 0.35rem 0 0;
+    color: var(--text-muted);
+}
+
+.section {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.section h3 {
+    margin: 0;
+    color: var(--text);
+}
+
+.list {
+    margin: 0;
+    padding-left: 1.2rem;
+    color: var(--text-muted);
+    display: grid;
+    gap: 0.35rem;
+}
+
+.list code {
+    color: var(--text);
+}
+
+.pending {
+    color: var(--text-muted);
+}
+
+.done {
+    color: var(--text);
+}
+
+.status {
+    display: inline-flex;
+    width: 1.2rem;
+    margin-right: 0.35rem;
+    color: var(--text);
+}
+
+.note {
+    border-top: 1px solid var(--border);
+    padding-top: 0.75rem;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+}

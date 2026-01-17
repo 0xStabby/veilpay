@@ -1,0 +1,32 @@
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+
+:root {
+    color-scheme: dark;
+    --bg: #050708;
+    --bg-panel: rgba(6, 10, 12, 0.92);
+    --bg-panel-strong: rgba(6, 12, 10, 0.95);
+    --bg-input: rgba(4, 8, 6, 0.85);
+    --text: #b8ffdf;
+    --text-muted: rgba(184, 255, 223, 0.65);
+    --text-dim: rgba(184, 255, 223, 0.55);
+    --border: rgba(0, 255, 140, 0.15);
+    --border-strong: rgba(0, 255, 140, 0.35);
+    --accent: rgba(0, 255, 140, 0.15);
+    --shadow: rgba(0, 0, 0, 0.55);
+    --radius: 6px;
+    --radius-tight: 4px;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+}
+
+button {
+    font-family: inherit;
+}

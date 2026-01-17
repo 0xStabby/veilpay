@@ -1,0 +1,56 @@
+:root {
+  --bg: #f4f0e8;
+  --ink: #2c2a25;
+  --accent: #e87b46;
+  --card: #fff9f0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Georgia", "Times New Roman", serif;
+  background: radial-gradient(circle at top, #fff2dd 0%, var(--bg) 55%);
+  color: var(--ink);
+}
+
+.shell {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 40px 24px;
+  display: grid;
+  gap: 24px;
+}
+
+section {
+  background: var(--card);
+  padding: 20px;
+  border-radius: 16px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
+}
+
+button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+input {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #d6cbbd;
+  margin-right: 8px;
+}
+
+pre {
+  background: #1f1b16;
+  color: #f4e9d4;
+  padding: 16px;
+  border-radius: 12px;
+  min-height: 120px;
+}

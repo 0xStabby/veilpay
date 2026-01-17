@@ -1,0 +1,269 @@
+{
+  "address": "ApgL98o4JA6ZJSR3G9X8HTymPCssztpKMYFZWohraotk",
+  "metadata": {
+    "name": "verifier",
+    "version": "0.1.0",
+    "spec": "0.1.0"
+  },
+  "instructions": [
+    {
+      "name": "initialize_verifier_key",
+      "discriminator": [
+        206,
+        94,
+        71,
+        165,
+        246,
+        5,
+        51,
+        108
+      ],
+      "accounts": [
+        {
+          "name": "verifier_key",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  101,
+                  114,
+                  105,
+                  102,
+                  105,
+                  101,
+                  114,
+                  95,
+                  107,
+                  101,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.key_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "InitializeVerifierKeyArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "verify_groth16",
+      "discriminator": [
+        228,
+        26,
+        135,
+        7,
+        19,
+        253,
+        172,
+        97
+      ],
+      "accounts": [
+        {
+          "name": "verifier_key"
+        }
+      ],
+      "args": [
+        {
+          "name": "proof",
+          "type": "bytes"
+        },
+        {
+          "name": "public_inputs",
+          "type": "bytes"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "VerifierKey",
+      "discriminator": [
+        27,
+        40,
+        233,
+        33,
+        249,
+        246,
+        9,
+        239
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidProof",
+      "msg": "Invalid proof"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidLength",
+      "msg": "Invalid length"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidVerifierKey",
+      "msg": "Invalid verifier key"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidInputCount",
+      "msg": "Invalid public input count"
+    },
+    {
+      "code": 6004,
+      "name": "TooManyInputs",
+      "msg": "Too many public inputs"
+    },
+    {
+      "code": 6005,
+      "name": "PairingFailed",
+      "msg": "Pairing check failed"
+    },
+    {
+      "code": 6006,
+      "name": "AdditionFailed",
+      "msg": "G1 addition failed"
+    },
+    {
+      "code": 6007,
+      "name": "MultiplicationFailed",
+      "msg": "G1 multiplication failed"
+    }
+  ],
+  "types": [
+    {
+      "name": "InitializeVerifierKeyArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "key_id",
+            "type": "u32"
+          },
+          {
+            "name": "alpha_g1",
+            "type": "bytes"
+          },
+          {
+            "name": "beta_g2",
+            "type": "bytes"
+          },
+          {
+            "name": "gamma_g2",
+            "type": "bytes"
+          },
+          {
+            "name": "delta_g2",
+            "type": "bytes"
+          },
+          {
+            "name": "public_inputs_len",
+            "type": "u32"
+          },
+          {
+            "name": "gamma_abc",
+            "type": {
+              "vec": "bytes"
+            }
+          },
+          {
+            "name": "mock",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VerifierKey",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "alpha_g1",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "beta_g2",
+            "type": {
+              "array": [
+                "u8",
+                128
+              ]
+            }
+          },
+          {
+            "name": "gamma_g2",
+            "type": {
+              "array": [
+                "u8",
+                128
+              ]
+            }
+          },
+          {
+            "name": "delta_g2",
+            "type": {
+              "array": [
+                "u8",
+                128
+              ]
+            }
+          },
+          {
+            "name": "public_inputs_len",
+            "type": "u32"
+          },
+          {
+            "name": "gamma_abc",
+            "type": {
+              "vec": {
+                "array": [
+                  "u8",
+                  64
+                ]
+              }
+            }
+          },
+          {
+            "name": "mock",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ]
+}
