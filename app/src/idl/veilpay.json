@@ -769,6 +769,128 @@
       ]
     },
     {
+      "name": "initialize_nullifier_chunk",
+      "discriminator": [
+        101,
+        53,
+        96,
+        140,
+        51,
+        32,
+        25,
+        17
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  149,
+                  177,
+                  239,
+                  77,
+                  140,
+                  169,
+                  210,
+                  100,
+                  92,
+                  1,
+                  34,
+                  90,
+                  217,
+                  154,
+                  8,
+                  149,
+                  157,
+                  49,
+                  79,
+                  16,
+                  228,
+                  213,
+                  249,
+                  4,
+                  196,
+                  73,
+                  16,
+                  38,
+                  235,
+                  171,
+                  204,
+                  79
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "nullifier_set",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  117,
+                  108,
+                  108,
+                  105,
+                  102,
+                  105,
+                  101,
+                  114,
+                  95,
+                  115,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              },
+              {
+                "kind": "arg",
+                "path": "chunk_index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "chunk_index",
+          "type": "u32"
+        }
+      ]
+    },
+    {
       "name": "initialize_vk_registry",
       "discriminator": [
         162,

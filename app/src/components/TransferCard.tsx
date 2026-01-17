@@ -11,6 +11,7 @@ import {
 import styles from './TransferCard.module.css';
 import { deriveConfig, deriveNullifierSet, deriveShielded, deriveVault, deriveVerifierKey } from '../lib/pda';
 import { computeCommitment, computeNullifier, generateProof, bigIntToBytes32, preflightVerify, formatPublicSignals } from '../lib/prover';
+import { ensureNullifierSet } from '../lib/nullifier';
 import { bytesToBigIntBE, modField, randomBytes, sha256, toHex } from '../lib/crypto';
 import { VERIFIER_PROGRAM_ID } from '../lib/config';
 import { submitViaRelayer } from '../lib/relayer';
@@ -82,7 +83,6 @@ export const TransferCard: FC<TransferCardProps> = ({
             onStatus('Submitting internal transfer...');
             const config = deriveConfig(veilpayProgram.programId);
             const shieldedState = deriveShielded(veilpayProgram.programId, parsedMint);
-            const nullifierSet = deriveNullifierSet(veilpayProgram.programId, parsedMint, 0);
             const verifierKey = deriveVerifierKey(VERIFIER_PROGRAM_ID, 0);
             const newRootValue = modField(bytesToBigIntBE(randomBytes(32)));
             const newRoot = bigIntToBytes32(newRootValue);
@@ -94,6 +94,7 @@ export const TransferCard: FC<TransferCardProps> = ({
             const nullifierValue = await computeNullifier(senderSecret, leafIndex);
             const recipientTagHashValue = modField(bytesToBigIntBE(recipientTagHash));
             const commitmentValue = await computeCommitment(amountValue, randomness, recipientTagHashValue);
+            const nullifierSet = await ensureNullifierSet(veilpayProgram, parsedMint, nullifierValue);
 
             onStatus('Generating Groth16 proof...');
             const { proofBytes, publicInputsBytes, publicSignals, proof } = await generateProof({
@@ -154,7 +155,6 @@ export const TransferCard: FC<TransferCardProps> = ({
             const config = deriveConfig(veilpayProgram.programId);
             const vault = deriveVault(veilpayProgram.programId, parsedMint);
             const shieldedState = deriveShielded(veilpayProgram.programId, parsedMint);
-            const nullifierSet = deriveNullifierSet(veilpayProgram.programId, parsedMint, 0);
             const vaultAta = await getAssociatedTokenAddress(parsedMint, vault, true);
             const destinationAta = await getAssociatedTokenAddress(parsedMint, parsedExternalRecipient);
             const verifierKey = deriveVerifierKey(VERIFIER_PROGRAM_ID, 0);
@@ -189,6 +189,7 @@ export const TransferCard: FC<TransferCardProps> = ({
             const recipientTagHashValue = modField(bytesToBigIntBE(recipientTagHashBytes));
             const nullifierValue = await computeNullifier(senderSecret, leafIndex);
             const commitmentValue = await computeCommitment(amountValue, randomness, recipientTagHashValue);
+            const nullifierSet = await ensureNullifierSet(veilpayProgram, parsedMint, nullifierValue);
 
             onStatus('Generating Groth16 proof...');
             const { proofBytes, publicInputsBytes, publicSignals, proof } = await generateProof({

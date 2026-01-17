@@ -11,6 +11,7 @@ import {
 import styles from './AuthorizationCard.module.css';
 import { deriveAuthorization, deriveConfig, deriveNullifierSet, deriveShielded, deriveVault, deriveVerifierKey } from '../lib/pda';
 import { computeCommitment, computeNullifier, generateProof, bigIntToBytes32, preflightVerify, formatPublicSignals } from '../lib/prover';
+import { ensureNullifierSet } from '../lib/nullifier';
 import { bytesToBigIntBE, concatBytes, modField, randomBytes, sha256, toHex } from '../lib/crypto';
 import { RELAYER_URL, VERIFIER_PROGRAM_ID } from '../lib/config';
 import { useWallet } from '@solana/wallet-adapter-react';
@@ -139,7 +140,6 @@ export const AuthorizationCard: FC<AuthorizationCardProps> = ({ veilpayProgram, 
             const authorization = deriveAuthorization(veilpayProgram.programId, intentHash);
             const vault = deriveVault(veilpayProgram.programId, parsedMint);
             const shieldedState = deriveShielded(veilpayProgram.programId, parsedMint);
-            const nullifierSet = deriveNullifierSet(veilpayProgram.programId, parsedMint, 0);
             const vaultAta = await getAssociatedTokenAddress(parsedMint, vault, true);
             const recipientAta = await getAssociatedTokenAddress(parsedMint, parsedRecipient);
             const verifierKey = deriveVerifierKey(VERIFIER_PROGRAM_ID, 0);
@@ -166,6 +166,7 @@ export const AuthorizationCard: FC<AuthorizationCardProps> = ({ veilpayProgram, 
             const recipientTagHash = modField(bytesToBigIntBE(recipientTagHashBytes));
             const nullifierValue = await computeNullifier(senderSecret, leafIndex);
             const commitmentValue = await computeCommitment(amountValue, randomness, recipientTagHash);
+            const nullifierSet = await ensureNullifierSet(veilpayProgram, parsedMint, nullifierValue);
 
             onStatus('Generating Groth16 proof...');
             const { proofBytes, publicInputsBytes, publicSignals, proof } = await generateProof({

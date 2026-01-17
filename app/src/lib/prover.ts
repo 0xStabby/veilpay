@@ -49,18 +49,6 @@ export const bigIntToBytes32 = (value: bigint): Uint8Array => {
     return out;
 };
 
-async function getVerificationKey(): Promise<unknown> {
-    if (!vkeyPromise) {
-        vkeyPromise = fetch('/prover/verification_key.json').then(async (response) => {
-            if (!response.ok) {
-                throw new Error(`Failed to load verification key: ${response.status}`);
-            }
-            return response.json();
-        });
-    }
-    return vkeyPromise;
-}
-
 export async function preflightVerify(
     proof: unknown,
     publicSignals: string[],
@@ -113,27 +101,32 @@ export async function generateProof(input: Record<string, string | number>): Pro
         '/prover/veilpay.zkey'
     );
 
-    const proofAny = proof as any;
-    const a = [toBigInt(proofAny.pi_a[0]), toBigInt(proofAny.pi_a[1])];
-    const b = [
-        [toBigInt(proofAny.pi_b[0][0]), toBigInt(proofAny.pi_b[0][1])],
-        [toBigInt(proofAny.pi_b[1][0]), toBigInt(proofAny.pi_b[1][1])],
-    ];
-    const c = [toBigInt(proofAny.pi_c[0]), toBigInt(proofAny.pi_c[1])];
+    const callData = await snarkjs.groth16.exportSolidityCallData(proof, publicSignals);
+    const argv = callData.replace(/["[\]\s]/g, '').split(',').filter(Boolean);
+    const solidity = {
+        a: [argv[0], argv[1]],
+        b: [
+            [argv[2], argv[3]],
+            [argv[4], argv[5]],
+        ],
+        c: [argv[6], argv[7]],
+        inputs: argv.slice(8),
+    };
 
-    // solana-bn254 expects Fq2 elements as (c1, c0) big-endian bytes.
     const proofBytes = concatBytes([
-        bigIntToBytes32(a[0]),
-        bigIntToBytes32(a[1]),
-        bigIntToBytes32(b[0][0]),
-        bigIntToBytes32(b[0][1]),
-        bigIntToBytes32(b[1][0]),
-        bigIntToBytes32(b[1][1]),
-        bigIntToBytes32(c[0]),
-        bigIntToBytes32(c[1]),
+        bigIntToBytes32(toBigInt(solidity.a[0])),
+        bigIntToBytes32(toBigInt(solidity.a[1])),
+        bigIntToBytes32(toBigInt(solidity.b[0][0])),
+        bigIntToBytes32(toBigInt(solidity.b[0][1])),
+        bigIntToBytes32(toBigInt(solidity.b[1][0])),
+        bigIntToBytes32(toBigInt(solidity.b[1][1])),
+        bigIntToBytes32(toBigInt(solidity.c[0])),
+        bigIntToBytes32(toBigInt(solidity.c[1])),
     ]);
 
-    const publicInputsBytes = concatBytes(publicSignals.map((value) => bigIntToBytes32(toBigInt(value))));
+    const publicInputsBytes = concatBytes(
+        solidity.inputs.map((value) => bigIntToBytes32(toBigInt(value)))
+    );
 
     return {
         proofBytes,
@@ -141,4 +134,16 @@ export async function generateProof(input: Record<string, string | number>): Pro
         publicSignals,
         proof,
     };
+}
+
+async function getVerificationKey(): Promise<unknown> {
+    if (!vkeyPromise) {
+        vkeyPromise = fetch('/prover/verification_key.json').then(async (response) => {
+            if (!response.ok) {
+                throw new Error(`Failed to load verification key: ${response.status}`);
+            }
+            return response.json();
+        });
+    }
+    return vkeyPromise;
 }

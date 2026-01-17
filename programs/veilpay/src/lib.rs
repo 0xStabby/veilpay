@@ -103,6 +103,23 @@ pub mod veilpay {
         Ok(())
     }
 
+    pub fn initialize_nullifier_chunk(
+        ctx: Context<InitializeNullifierChunk>,
+        chunk_index: u32,
+    ) -> Result<()> {
+        require!(
+            ctx.accounts.config.mint_allowlist.contains(&ctx.accounts.mint.key()),
+            VeilpayError::MintNotAllowed
+        );
+        let nullifier = &mut ctx.accounts.nullifier_set;
+        nullifier.mint = ctx.accounts.mint.key();
+        nullifier.chunk_index = chunk_index;
+        nullifier.bitset = [0u8; NULLIFIER_BYTES];
+        nullifier.count = 0;
+        nullifier.bump = ctx.bumps.nullifier_set;
+        Ok(())
+    }
+
     pub fn configure_fees(ctx: Context<ConfigureFees>, fee_bps: u16, relayer_fee_bps_max: u16) -> Result<()> {
         let config = &mut ctx.accounts.config;
         require!(config.admin == ctx.accounts.admin.key(), VeilpayError::Unauthorized);
@@ -506,6 +523,25 @@ pub struct InitializeMintState<'info> {
     pub nullifier_set: Box<Account<'info, NullifierSet>>,
     #[account(mut)]
     pub admin: Signer<'info>,
+    pub mint: Account<'info, Mint>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(chunk_index: u32)]
+pub struct InitializeNullifierChunk<'info> {
+    #[account(seeds = [b"config", crate::ID.as_ref()], bump = config.bump)]
+    pub config: Account<'info, Config>,
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + NullifierSet::INIT_SPACE,
+        seeds = [b"nullifier_set", mint.key().as_ref(), chunk_index.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub nullifier_set: Box<Account<'info, NullifierSet>>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
     pub mint: Account<'info, Mint>,
     pub system_program: Program<'info, System>,
 }

@@ -23,11 +23,11 @@ const g1ToHex = (g1) => {
 
 const g2ToHex = (g2) => {
   // snarkjs verification_key.json stores G2 as [[x2,x1],[y2,y1],[1,0]].
-  // solana-bn254 expects (c1, c0) for each Fq2 element, so we keep the order.
-  const xIm = toHex32(g2[0][0]);
-  const xRe = toHex32(g2[0][1]);
-  const yIm = toHex32(g2[1][0]);
-  const yRe = toHex32(g2[1][1]);
+  // solana-bn254 expects (x1, x2, y1, y2) order (imag, real) like the Solidity verifier.
+  const xIm = toHex32(g2[0][1]);
+  const xRe = toHex32(g2[0][0]);
+  const yIm = toHex32(g2[1][1]);
+  const yRe = toHex32(g2[1][0]);
   return `${xIm}${xRe}${yIm}${yRe}`;
 };
 

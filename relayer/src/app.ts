@@ -1,12 +1,33 @@
-import express from "express";
+import express, { type Express } from "express";
 import cors from "cors";
 import { Connection, PublicKey, Transaction } from "@solana/web3.js";
 import { z } from "zod";
 import nacl from "tweetnacl";
+import path from "path";
+import os from "os";
+import { access, mkdtemp, readFile, rm, writeFile } from "fs/promises";
+import { execFile } from "child_process";
+import { promisify } from "util";
 
-export const app = express();
+export const app: Express = express();
 app.use(cors({ origin: "http://localhost:5173" }));
 app.use(express.json());
+
+const execFileAsync = promisify(execFile);
+const repoRoot = path.resolve(__dirname, "..", "..");
+const proverBinary =
+  process.env.ARK_PROVER_PATH || path.join(repoRoot, "target", "debug", "ark-prover");
+const wasmPath = path.join(repoRoot, "circuits", "build", "veilpay_js", "veilpay.wasm");
+const r1csPath = path.join(repoRoot, "circuits", "build", "veilpay.r1cs");
+const zkeyPath = path.join(repoRoot, "circuits", "build", "veilpay_final.zkey");
+
+async function ensureExists(label: string, filePath: string) {
+  try {
+    await access(filePath);
+  } catch {
+    throw new Error(`${label} not found: ${filePath}`);
+  }
+}
 
 const intentSchema = z.object({
   intentHash: z.string(),
@@ -57,8 +78,44 @@ app.post("/intent", (req, res) => {
   res.json({ id: parsed.data.intentHash });
 });
 
-app.post("/proof", (_req, res) => {
-  res.json({ ok: true });
+const proofSchema = z.object({
+  input: z.record(z.string(), z.union([z.string(), z.number()])),
+});
+
+app.post("/proof", async (req, res) => {
+  const parsed = proofSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  try {
+    await ensureExists("ark-prover binary", proverBinary);
+    await ensureExists("circom wasm", wasmPath);
+    await ensureExists("circom r1cs", r1csPath);
+    await ensureExists("circom zkey", zkeyPath);
+
+    const workDir = await mkdtemp(path.join(os.tmpdir(), "veilpay-proof-"));
+    const inputPath = path.join(workDir, "input.json");
+    const outPath = path.join(workDir, "proof.json");
+    const vkPath = path.join(workDir, "vk.json");
+
+    await writeFile(inputPath, JSON.stringify(parsed.data.input));
+    await execFileAsync(proverBinary, [
+      wasmPath,
+      r1csPath,
+      zkeyPath,
+      inputPath,
+      outPath,
+      vkPath,
+    ]);
+
+    const proofJson = JSON.parse(await readFile(outPath, "utf8"));
+    res.json(proofJson);
+    await rm(workDir, { recursive: true, force: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Proof generation failed";
+    res.status(500).json({ error: message });
+  }
 });
 
 const executeSchema = z.object({
