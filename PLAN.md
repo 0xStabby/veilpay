@@ -1,6 +1,6 @@
 # VeilPay Implementation Plan
 
-Goal: Implement the unlinkable escrow-based privacy payments protocol end-to-end (programs, verifier, SDK, UI, tests), with tests proving that the spec and desired functionality are complete and correct.
+Goal: Implement the unlinkable escrow-based privacy payments protocol end-to-end (programs, verifier, SDK, app, tests), with tests proving that the spec and desired functionality are complete and correct.
 
 ## Phase 1: Program Core (Anchor)
 - Expand `programs/veilpay/src/lib.rs` into modules:
@@ -34,13 +34,7 @@ Goal: Implement the unlinkable escrow-based privacy payments protocol end-to-end
   - validate signature + intent schema (domain separation)
   - submit transactions and enforce on-chain relayer fee split
 
-## Phase 5: UI (Minimal)
-- Create `ui/`:
-  - connect wallet, deposit, create authorization, settle, withdraw
-  - show proof generation progress
-  - use SDK only (no direct on-chain calls)
-
-## Phase 6: Tests (Must prove spec completeness)
+## Phase 5: Tests (Must prove spec completeness)
 - Anchor tests:
   - initialize/configure
   - deposit/withdraw with mock proofs
@@ -55,8 +49,6 @@ Goal: Implement the unlinkable escrow-based privacy payments protocol end-to-end
 - Relayer tests:
   - intent signature validation
   - fee enforcement in tx
-- UI smoke tests (optional):
-  - E2E flow with local validator + mock proofs
 
 ## Validation Gates
 - All tests green locally.
