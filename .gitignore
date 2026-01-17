@@ -21,3 +21,4 @@ circuits/powersOfTau*.ptau
 **/build
 .vercel
 .env*.local
+*.sym
