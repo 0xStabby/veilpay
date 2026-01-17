@@ -29,6 +29,19 @@ ensure_env() {
   fi
 }
 
+ensure_keypair() {
+  local name="$1"
+  local path="$ROOT_DIR/target/deploy/${name}-keypair.json"
+  if [[ ! -f "$path" ]]; then
+    mkdir -p "$(dirname "$path")"
+    solana-keygen new --no-bip39-passphrase -o "$path" -f >/dev/null
+    echo "Generated ${name} program keypair: $path"
+  fi
+}
+
+ensure_keypair "veilpay"
+ensure_keypair "verifier"
+
 anchor build
 anchor deploy --provider.cluster "$RPC_URL"
 
