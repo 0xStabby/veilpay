@@ -8,7 +8,7 @@ type TransactionLogCardProps = {
     selectedId: string | null;
     onSelect: (id: string) => void;
     onClear: () => void;
-    walletLabels?: Record<string, string>;
+    addressLabels?: Record<string, string>;
 };
 
 export const TransactionLogCard: FC<TransactionLogCardProps> = ({
@@ -16,7 +16,7 @@ export const TransactionLogCard: FC<TransactionLogCardProps> = ({
     selectedId,
     onSelect,
     onClear,
-    walletLabels = {},
+    addressLabels = {},
 }) => {
     const selected = records.find((record) => record.id === selectedId) ?? null;
     const [activeTab, setActiveTab] = useState<'summary' | 'accounts' | 'tokens' | 'logs' | 'instructions'>('summary');
@@ -51,7 +51,7 @@ export const TransactionLogCard: FC<TransactionLogCardProps> = ({
 
     const signer = tx?.accounts?.find((account) => account.signer)?.pubkey ?? null;
     const labelFor = (pubkey: string | null | undefined) =>
-        pubkey ? walletLabels[pubkey] ?? undefined : undefined;
+        pubkey ? addressLabels[pubkey] ?? undefined : undefined;
 
     const balanceRows =
         tx?.accounts && tx.preBalances && tx.postBalances

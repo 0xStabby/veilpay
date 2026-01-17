@@ -17,6 +17,7 @@ import { useTokenBalance } from './hooks/useTokenBalance';
 import { useShieldedBalance } from './hooks/useShieldedBalance';
 import { randomBytes } from './lib/crypto';
 import type { TransactionRecord } from './lib/transactions';
+import { buildAddressLabels } from './lib/addressLabels';
 import styles from './App.module.css';
 
 const App: React.FC = () => {
@@ -40,6 +41,13 @@ const App: React.FC = () => {
     const walletPubkey = wallet?.publicKey ?? null;
     const { balance: walletBalance } = useTokenBalance(connection ?? null, mintAddress, walletPubkey);
     const { balance: shieldedBalance, credit, debit } = useShieldedBalance(mintAddress, walletPubkey);
+    const addressLabels = buildAddressLabels({
+        mintAddress,
+        veilpayProgramId: veilpayProgram?.programId ?? null,
+        verifierProgramId: verifierProgram?.programId ?? null,
+        walletLabels: multiWalletLabels,
+        connectedWallet: walletPubkey?.toBase58(),
+    });
 
     useEffect(() => {
         const stored = localStorage.getItem('veilpay.mint');
@@ -144,7 +152,7 @@ const App: React.FC = () => {
                             selectedId={selectedTxId}
                             onSelect={setSelectedTxId}
                             onClear={clearLog}
-                            walletLabels={multiWalletLabels}
+                            addressLabels={addressLabels}
                         />
                     </section>
                 ) : view === 'multi' ? (

@@ -42,7 +42,9 @@ function middleEllipsis(value: string, maxWidth: number, font: string) {
 
 export const PubkeyBadge: FC<PubkeyBadgeProps> = ({ value, density = 'normal', hoverLabel }) => {
     const [copied, setCopied] = useState(false);
-    const [display, setDisplay] = useState(value);
+    const label = hoverLabel ?? '';
+    const displayValue = label || value;
+    const [display, setDisplay] = useState(displayValue);
     const badgeRef = useRef<HTMLButtonElement | null>(null);
 
     useEffect(() => {
@@ -58,17 +60,21 @@ export const PubkeyBadge: FC<PubkeyBadgeProps> = ({ value, density = 'normal', h
                 parseFloat(style.borderRightWidth || '0');
             const maxWidth = node.clientWidth - padding - 8;
             if (maxWidth <= 0) {
-                setDisplay(value);
+                setDisplay(displayValue);
+                return;
+            }
+            if (label) {
+                setDisplay(displayValue);
                 return;
             }
             const target = density === 'compact' ? Math.min(maxWidth, 120) : maxWidth;
-            setDisplay(middleEllipsis(value, target, font));
+            setDisplay(middleEllipsis(displayValue, target, font));
         };
         update();
         const observer = new ResizeObserver(update);
         observer.observe(node);
         return () => observer.disconnect();
-    }, [value]);
+    }, [displayValue, density]);
 
     const handleCopy = async () => {
         try {
@@ -83,7 +89,9 @@ export const PubkeyBadge: FC<PubkeyBadgeProps> = ({ value, density = 'normal', h
     return (
         <button ref={badgeRef} type="button" className={styles.badge} onClick={handleCopy} title={value}>
             <span className={styles.text}>{display}</span>
-            <span className={styles.hover}>{hoverLabel ?? (copied ? 'Copied' : 'Copy')}</span>
+            <span className={styles.hover}>
+                {label ? value : copied ? 'Copied' : 'Copy'}
+            </span>
         </button>
     );
 };
