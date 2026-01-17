@@ -1,4 +1,5 @@
-import React, { FC, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { FC } from 'react';
 import { Program } from '@coral-xyz/anchor';
 import { PublicKey } from '@solana/web3.js';
 import { useWallet } from '@solana/wallet-adapter-react';

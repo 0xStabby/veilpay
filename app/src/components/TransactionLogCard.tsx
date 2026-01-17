@@ -1,4 +1,5 @@
-import React, { FC, useState } from 'react';
+import { useState } from 'react';
+import type { FC } from 'react';
 import styles from './TransactionLogCard.module.css';
 import type { TransactionRecord } from '../lib/transactions';
 import { PubkeyBadge } from './PubkeyBadge';

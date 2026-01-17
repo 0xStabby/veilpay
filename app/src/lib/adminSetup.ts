@@ -1,5 +1,5 @@
-import { BN, Program } from '@coral-xyz/anchor';
-import { Connection, Keypair, PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
+import { Program } from '@coral-xyz/anchor';
+import { Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
 import {
     MINT_SIZE,
     TOKEN_PROGRAM_ID,
@@ -246,7 +246,7 @@ export async function initializeMintState(params: {
         const vaultAta = await getAssociatedTokenAddress(mint, vault, true);
         const userAta = await getAssociatedTokenAddress(mint, admin);
 
-        const instructions = [];
+        const instructions: TransactionInstruction[] = [];
         const maybeCreateAta = async (ata: PublicKey, owner: PublicKey) => {
             try {
                 await getAccount(connection, ata);

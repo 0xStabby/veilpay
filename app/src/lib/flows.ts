@@ -1,5 +1,6 @@
 import { Buffer } from 'buffer';
 import { BN, Program } from '@coral-xyz/anchor';
+import type { AnchorProvider } from '@coral-xyz/anchor';
 import { PublicKey, Transaction } from '@solana/web3.js';
 import {
     TOKEN_PROGRAM_ID,
@@ -31,17 +32,25 @@ import { parseTokenAmount } from './amount';
 
 type StatusHandler = (message: string) => void;
 
+const getProvider = (program: Program): AnchorProvider => {
+    const provider = program.provider as AnchorProvider;
+    if (!provider.wallet) {
+        throw new Error('Connect a wallet to continue.');
+    }
+    return provider;
+};
+
 async function ensureAta(
-    program: Program,
+    provider: AnchorProvider,
     mint: PublicKey,
     owner: PublicKey
 ): Promise<PublicKey> {
     const ata = await getAssociatedTokenAddress(mint, owner);
     try {
-        await getAccount(program.provider.connection, ata);
+        await getAccount(provider.connection, ata);
     } catch {
-        const ix = createAssociatedTokenAccountInstruction(program.provider.wallet.publicKey, ata, owner, mint);
-        await program.provider.sendAndConfirm(new Transaction().add(ix));
+        const ix = createAssociatedTokenAccountInstruction(provider.wallet.publicKey, ata, owner, mint);
+        await provider.sendAndConfirm(new Transaction().add(ix));
     }
     return ata;
 }
@@ -56,19 +65,20 @@ export async function runDepositFlow(params: {
     onCredit: (amount: bigint) => void;
 }): Promise<{ signature: string; amountBaseUnits: bigint; newRoot: Uint8Array }> {
     const { program, mint, amount, mintDecimals, onStatus, onRootChange, onCredit } = params;
+    const provider = getProvider(program);
     onStatus('Depositing into VeilPay vault...');
     const config = deriveConfig(program.programId);
     const vault = deriveVault(program.programId, mint);
     const shieldedState = deriveShielded(program.programId, mint);
     const vaultAta = await getAssociatedTokenAddress(mint, vault, true);
-    const userAta = await getAssociatedTokenAddress(mint, program.provider.wallet.publicKey);
+    const userAta = await getAssociatedTokenAddress(mint, provider.wallet.publicKey);
 
     const ciphertext = randomBytes(64);
     const newRootValue = modField(bytesToBigIntBE(randomBytes(32)));
     const newRoot = bigIntToBytes32(newRootValue);
     const randomness = modField(bytesToBigIntBE(randomBytes(32)));
     const baseUnits = parseTokenAmount(amount, mintDecimals);
-    const recipientTagBytes = await sha256(program.provider.wallet.publicKey.toBytes());
+    const recipientTagBytes = await sha256(provider.wallet.publicKey.toBytes());
     const recipientTagHash = modField(bytesToBigIntBE(recipientTagBytes));
     const commitmentValue = await computeCommitment(baseUnits, randomness, recipientTagHash);
     const commitment = bigIntToBytes32(commitmentValue);
@@ -85,7 +95,7 @@ export async function runDepositFlow(params: {
             vault,
             vaultAta,
             shieldedState,
-            user: program.provider.wallet.publicKey,
+            user: provider.wallet.publicKey,
             userAta,
             mint,
             tokenProgram: TOKEN_PROGRAM_ID,
@@ -111,12 +121,13 @@ export async function runWithdrawFlow(params: {
     onDebit: (amount: bigint) => void;
 }): Promise<{ signature: string; amountBaseUnits: bigint; nullifier: bigint }> {
     const { program, verifierProgram, mint, recipient, amount, mintDecimals, root, nextNullifier, onStatus, onDebit } = params;
+    const provider = getProvider(program);
     onStatus('Generating proof...');
     const config = deriveConfig(program.programId);
     const vault = deriveVault(program.programId, mint);
     const shieldedState = deriveShielded(program.programId, mint);
     const vaultAta = await getAssociatedTokenAddress(mint, vault, true);
-    const recipientAta = await ensureAta(program, mint, recipient);
+    const recipientAta = await ensureAta(provider, mint, recipient);
     const verifierKey = deriveVerifierKey(VERIFIER_PROGRAM_ID, 0);
 
     const senderSecret = modField(bytesToBigIntBE(randomBytes(32)));
@@ -173,15 +184,15 @@ export async function runWithdrawFlow(params: {
             shieldedState,
             nullifierSet,
             recipientAta,
-            relayerFeeAta: null,
+            relayerFeeAta: undefined,
             verifierProgram: VERIFIER_PROGRAM_ID,
             verifierKey,
             mint,
             tokenProgram: TOKEN_PROGRAM_ID,
-        })
+        } as any)
         .instruction();
 
-    const relayerResult = await submitViaRelayer(program.provider, new Transaction().add(ix));
+    const relayerResult = await submitViaRelayer(provider, new Transaction().add(ix));
     onDebit(baseUnits);
     onStatus('Withdraw complete.');
     return {
@@ -206,7 +217,7 @@ export async function runCreateAuthorizationFlow(params: {
     expirySlot: bigint;
     amountCiphertext: Uint8Array;
 }> {
-    const { program, mint, payer, signMessage, payee, amount, expirySlots, onStatus } = params;
+    const { program, mint, payer, signMessage, payee, amount: _amount, expirySlots, onStatus } = params;
     const amountCiphertext = randomBytes(64);
     const expirySlot = BigInt(Date.now()) + BigInt(expirySlots);
     const payeeTagHash = await sha256(payee.toBytes());
@@ -295,13 +306,14 @@ export async function runSettleAuthorizationFlow(params: {
         onStatus,
         onDebit,
     } = params;
+    const provider = getProvider(program);
     onStatus('Generating proof...');
     const config = deriveConfig(program.programId);
     const authorization = deriveAuthorization(program.programId, intentHash);
     const vault = deriveVault(program.programId, mint);
     const shieldedState = deriveShielded(program.programId, mint);
     const vaultAta = await getAssociatedTokenAddress(mint, vault, true);
-    const recipientAta = await ensureAta(program, mint, payee);
+    const recipientAta = await ensureAta(provider, mint, payee);
     const verifierKey = deriveVerifierKey(VERIFIER_PROGRAM_ID, 0);
 
     const senderSecret = modField(bytesToBigIntBE(randomBytes(32)));
@@ -358,15 +370,15 @@ export async function runSettleAuthorizationFlow(params: {
             shieldedState,
             nullifierSet,
             recipientAta,
-            relayerFeeAta: null,
+            relayerFeeAta: undefined,
             verifierProgram: VERIFIER_PROGRAM_ID,
             verifierKey,
             mint,
             tokenProgram: TOKEN_PROGRAM_ID,
-        })
+        } as any)
         .instruction();
 
-    const relayerResult = await submitViaRelayer(program.provider, new Transaction().add(ix));
+    const relayerResult = await submitViaRelayer(provider, new Transaction().add(ix));
     onDebit(baseUnits);
     onStatus('Authorization settled.');
     return {
@@ -481,12 +493,13 @@ export async function runExternalTransferFlow(params: {
         onStatus,
         onDebit,
     } = params;
+    const provider = getProvider(program);
     onStatus('Generating proof...');
     const config = deriveConfig(program.programId);
     const vault = deriveVault(program.programId, mint);
     const shieldedState = deriveShielded(program.programId, mint);
     const vaultAta = await getAssociatedTokenAddress(mint, vault, true);
-    const destinationAta = await ensureAta(program, mint, recipient);
+    const destinationAta = await ensureAta(provider, mint, recipient);
     const verifierKey = deriveVerifierKey(VERIFIER_PROGRAM_ID, 0);
 
     const senderSecret = modField(bytesToBigIntBE(randomBytes(32)));
@@ -542,15 +555,15 @@ export async function runExternalTransferFlow(params: {
             shieldedState,
             nullifierSet,
             destinationAta,
-            relayerFeeAta: null,
+            relayerFeeAta: undefined,
             verifierProgram: VERIFIER_PROGRAM_ID,
             verifierKey,
             mint,
             tokenProgram: TOKEN_PROGRAM_ID,
-        })
+        } as any)
         .instruction();
 
-    const relayerResult = await submitViaRelayer(program.provider, new Transaction().add(ix));
+    const relayerResult = await submitViaRelayer(provider, new Transaction().add(ix));
     onDebit(baseUnits);
     onStatus('External transfer complete.');
     return {

@@ -1,4 +1,5 @@
-import React, { FC, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { FC } from 'react';
 import { AnchorProvider, Program } from '@coral-xyz/anchor';
 import { Keypair, PublicKey, Transaction } from '@solana/web3.js';
 import {

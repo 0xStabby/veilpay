@@ -11,7 +11,7 @@ import {
     getAssociatedTokenAddress,
 } from '@solana/spl-token';
 import styles from './AuthorizationCard.module.css';
-import { deriveAuthorization, deriveConfig, deriveNullifierSet, deriveShielded, deriveVault, deriveVerifierKey } from '../lib/pda';
+import { deriveAuthorization, deriveConfig, deriveShielded, deriveVault, deriveVerifierKey } from '../lib/pda';
 import { computeCommitment, computeNullifier, generateProof, bigIntToBytes32, preflightVerify, formatPublicSignals } from '../lib/prover';
 import { ensureNullifierSet } from '../lib/nullifier';
 import { bytesToBigIntBE, concatBytes, modField, randomBytes, sha256, toHex } from '../lib/crypto';
