@@ -14,7 +14,7 @@ sdk/dist
 ui/dist
 circuits/build
 circuits/powersOfTau*.ptau
-app/public/prover
+# app/public/prover
 **/.parcel-cache
 **/.turbo
 **/dist
