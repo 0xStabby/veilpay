@@ -4,6 +4,19 @@ set -euo pipefail
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 ROOT_ENV_FILE="$ROOT_DIR/.env.dev"
 APP_ENV_FILE="$ROOT_DIR/app/.env.dev"
+RESET_KEYS=0
+
+for arg in "$@"; do
+  case "$arg" in
+    --reset-keys)
+      RESET_KEYS=1
+      ;;
+    *)
+      echo "Unknown option: $arg" >&2
+      exit 1
+      ;;
+  esac
+done
 
 if [[ ! -f "$ROOT_ENV_FILE" ]]; then
   echo "Missing $ROOT_ENV_FILE. Create it with RPC_URL or VITE_RPC_ENDPOINT." >&2
@@ -32,6 +45,9 @@ ensure_env() {
 ensure_keypair() {
   local name="$1"
   local path="$ROOT_DIR/target/deploy/${name}-keypair.json"
+  if [[ "$RESET_KEYS" == "1" ]]; then
+    rm -f "$path"
+  fi
   if [[ ! -f "$path" ]]; then
     mkdir -p "$(dirname "$path")"
     solana-keygen new --no-bip39-passphrase -o "$path" -f >/dev/null
