@@ -34,6 +34,7 @@ const App: React.FC = () => {
         }
     });
     const [selectedTxId, setSelectedTxId] = useState<string | null>(null);
+    const [multiWalletLabels, setMultiWalletLabels] = useState<Record<string, string>>({});
     const { next } = useNullifierCounter(1);
     const { decimals, loading: mintLoading } = useMintInfo(connection ?? null, mintAddress);
     const walletPubkey = wallet?.publicKey ?? null;
@@ -143,6 +144,7 @@ const App: React.FC = () => {
                             selectedId={selectedTxId}
                             onSelect={setSelectedTxId}
                             onClear={clearLog}
+                            walletLabels={multiWalletLabels}
                         />
                     </section>
                 ) : view === 'multi' ? (
@@ -157,6 +159,7 @@ const App: React.FC = () => {
                             onStatus={setStatus}
                             onRecord={handleRecord}
                             onRecordUpdate={handleRecordUpdate}
+                            onWalletLabels={setMultiWalletLabels}
                         />
                     </section>
                 ) : (

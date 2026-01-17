@@ -11,6 +11,7 @@
     cursor: pointer;
     max-width: 100%;
     min-width: 0;
+    position: relative;
 }
 
 .text,
@@ -19,20 +20,27 @@
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 100%;
+    transition: opacity 120ms ease;
 }
 
 .hover {
-    display: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     font-size: 0.65rem;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--text-muted);
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    pointer-events: none;
 }
 
 .badge:hover .text {
-    display: none;
+    opacity: 0;
 }
 
 .badge:hover .hover {
-    display: inline;
+    opacity: 1;
 }

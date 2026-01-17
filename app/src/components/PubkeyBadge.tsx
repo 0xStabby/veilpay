@@ -4,6 +4,7 @@ import styles from './PubkeyBadge.module.css';
 type PubkeyBadgeProps = {
     value: string;
     density?: 'compact' | 'normal';
+    hoverLabel?: string;
 };
 
 function measureText(text: string, font: string) {
@@ -39,7 +40,7 @@ function middleEllipsis(value: string, maxWidth: number, font: string) {
     return best;
 }
 
-export const PubkeyBadge: FC<PubkeyBadgeProps> = ({ value, density = 'normal' }) => {
+export const PubkeyBadge: FC<PubkeyBadgeProps> = ({ value, density = 'normal', hoverLabel }) => {
     const [copied, setCopied] = useState(false);
     const [display, setDisplay] = useState(value);
     const badgeRef = useRef<HTMLButtonElement | null>(null);
@@ -82,7 +83,7 @@ export const PubkeyBadge: FC<PubkeyBadgeProps> = ({ value, density = 'normal' })
     return (
         <button ref={badgeRef} type="button" className={styles.badge} onClick={handleCopy} title={value}>
             <span className={styles.text}>{display}</span>
-            <span className={styles.hover}>{copied ? 'Copied' : 'Copy'}</span>
+            <span className={styles.hover}>{hoverLabel ?? (copied ? 'Copied' : 'Copy')}</span>
         </button>
     );
 };

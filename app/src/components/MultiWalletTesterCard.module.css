@@ -61,20 +61,29 @@
     color: var(--text);
 }
 
-.checklist {
+.flowList {
     display: grid;
     gap: 0.5rem;
     border: 1px solid var(--border);
     border-radius: var(--radius-tight);
     padding: 0.75rem;
     background: rgba(0, 0, 0, 0.2);
+    font-size: 0.85rem;
 }
 
-.checkRow {
-    display: flex;
-    gap: 0.5rem;
+.flowRow {
+    display: grid;
+    grid-template-columns: auto auto 1fr auto;
+    gap: 0.6rem;
     align-items: center;
     color: var(--text);
+}
+
+.flowStatus {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
 }
 
 .actionRow {
@@ -111,4 +120,26 @@
     color: var(--text-muted);
     font-size: 0.85rem;
     margin: 0;
+}
+
+.flowRow::before {
+    content: '';
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 999px;
+    border: 1px solid var(--border-strong);
+    background: rgba(255, 255, 255, 0.08);
+    display: inline-block;
+}
+
+.flowRow[data-status='running']::before {
+    background: var(--accent);
+}
+
+.flowRow[data-status='success']::before {
+    background: var(--success);
+}
+
+.flowRow[data-status='error']::before {
+    background: var(--danger);
 }

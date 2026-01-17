@@ -1,4 +1,4 @@
-import React, { FC, useEffect, useMemo, useState } from 'react';
+import React, { FC, useEffect, useMemo, useRef, useState } from 'react';
 import { AnchorProvider, Program } from '@coral-xyz/anchor';
 import { Keypair, PublicKey, Transaction } from '@solana/web3.js';
 import {
@@ -14,9 +14,17 @@ import veilpayIdl from '../idl/veilpay.json';
 import verifierIdl from '../idl/verifier.json';
 import { formatTokenAmount, parseTokenAmount } from '../lib/amount';
 import { PubkeyBadge } from './PubkeyBadge';
-import { runDepositFlow, runExternalTransferFlow, runInternalTransferFlow, runWithdrawFlow } from '../lib/flows';
+import {
+    runCreateAuthorizationFlow,
+    runDepositFlow,
+    runExternalTransferFlow,
+    runInternalTransferFlow,
+    runSettleAuthorizationFlow,
+    runWithdrawFlow,
+} from '../lib/flows';
 import type { TransactionRecord, TransactionRecordPatch } from '../lib/transactions';
 import { createTransactionRecord, fetchTransactionDetails } from '../lib/transactions';
+import nacl from 'tweetnacl';
 
 type MultiWalletTesterCardProps = {
     connection: import('@solana/web3.js').Connection | null;
@@ -28,6 +36,7 @@ type MultiWalletTesterCardProps = {
     onStatus: (message: string) => void;
     onRecord: (record: TransactionRecord) => string;
     onRecordUpdate: (id: string, patch: TransactionRecordPatch) => void;
+    onWalletLabels: (labels: Record<string, string>) => void;
 };
 
 const normalizeIdl = (idl: any) => {
@@ -70,6 +79,7 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
     onStatus,
     onRecord,
     onRecordUpdate,
+    onWalletLabels,
 }) => {
     const { publicKey, sendTransaction } = useWallet();
     const [walletA, setWalletA] = useState<Keypair | null>(null);
@@ -78,11 +88,14 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
     const [amount, setAmount] = useState('1');
     const [fundAmount, setFundAmount] = useState('10');
     const [busy, setBusy] = useState(false);
+    const [stepStatus, setStepStatus] = useState<Record<string, 'idle' | 'running' | 'success' | 'error'>>({});
+    const rootRef = useRef(root);
     const [selected, setSelected] = useState({
         deposit: true,
         withdraw: true,
         internal: true,
         external: true,
+        authorization: true,
     });
 
     useEffect(() => {
@@ -92,7 +105,18 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
         if (restoredA) setWalletA(restoredA);
         if (restoredB) setWalletB(restoredB);
         if (restoredC) setWalletC(restoredC);
+        if (restoredA || restoredB || restoredC) {
+            const labels: Record<string, string> = {};
+            if (restoredA) labels[restoredA.publicKey.toBase58()] = 'Wallet A';
+            if (restoredB) labels[restoredB.publicKey.toBase58()] = 'Wallet B';
+            if (restoredC) labels[restoredC.publicKey.toBase58()] = 'Wallet C';
+            onWalletLabels(labels);
+        }
     }, []);
+
+    useEffect(() => {
+        rootRef.current = root;
+    }, [root]);
 
     const parsedMint = useMemo(() => {
         if (!mintAddress) return null;
@@ -140,6 +164,11 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
         saveKeypair('veilpay.walletA', kpA);
         saveKeypair('veilpay.walletB', kpB);
         saveKeypair('veilpay.walletC', kpC);
+        onWalletLabels({
+            [kpA.publicKey.toBase58()]: 'Wallet A',
+            [kpB.publicKey.toBase58()]: 'Wallet B',
+            [kpC.publicKey.toBase58()]: 'Wallet C',
+        });
         onStatus('Generated Wallet A, B, and C.');
     };
 
@@ -150,6 +179,7 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
         localStorage.removeItem('veilpay.walletA');
         localStorage.removeItem('veilpay.walletB');
         localStorage.removeItem('veilpay.walletC');
+        onWalletLabels({});
     };
 
     const handleAirdrop = async () => {
@@ -233,6 +263,10 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
         }
     };
 
+    const setStatus = (id: string, status: 'idle' | 'running' | 'success' | 'error') => {
+        setStepStatus((prev) => ({ ...prev, [id]: status }));
+    };
+
     const runMultiWalletFlow = async () => {
         if (!connection || mintDecimals === null || !parsedMint) return;
         if (!walletA || !walletB || !walletC) return;
@@ -244,16 +278,29 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
         try {
             onStatus('Running multi-wallet flow...');
             const baseUnits = parseTokenAmount(amount, mintDecimals);
+            const spendSteps = ['withdraw', 'external', 'authorization'].filter(
+                (key) => selected[key as keyof typeof selected]
+            ).length;
+            const perSpendRaw = spendSteps > 0 ? baseUnits / BigInt(spendSteps) : baseUnits;
+            const perSpend = perSpendRaw > 0n ? perSpendRaw : baseUnits;
             const amountString = formatTokenAmount(baseUnits, mintDecimals);
+            const spendAmountString = formatTokenAmount(perSpend > 0n ? perSpend : baseUnits, mintDecimals);
+            if (perSpendRaw === 0n && spendSteps > 0) {
+                onStatus('Flow amount is too small to split; using full amount for each spend.');
+            }
 
             if (selected.deposit) {
+                setStatus('deposit', 'running');
                 const result = await runDepositFlow({
                     program: programsA.veilpay,
                     mint: parsedMint,
                     amount: amountString,
                     mintDecimals,
                     onStatus,
-                    onRootChange,
+                    onRootChange: (next) => {
+                        rootRef.current = next;
+                        onRootChange(next);
+                    },
                     onCredit: () => undefined,
                 });
                 await recordTx('wallet-a:deposit', result.signature, false, {
@@ -261,88 +308,149 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                     amount: amountString,
                     wallet: walletA.publicKey.toBase58(),
                 });
+                setStatus('deposit', 'success');
             }
 
             if (selected.internal) {
+                setStatus('internal-a-b', 'running');
                 const result = await runInternalTransferFlow({
                     program: programsA.veilpay,
                     verifierProgram: programsA.verifier,
                     mint: parsedMint,
                     recipient: walletB.publicKey,
-                    root,
+                    root: rootRef.current,
                     nextNullifier,
                     onStatus,
-                    onRootChange,
+                    onRootChange: (next) => {
+                        rootRef.current = next;
+                        onRootChange(next);
+                    },
                 });
                 await recordTx('wallet-a:internal', result.signature, false, {
                     mint: parsedMint.toBase58(),
                     recipient: walletB.publicKey.toBase58(),
                     wallet: walletA.publicKey.toBase58(),
                 });
+                setStatus('internal-a-b', 'success');
+            }
+
+            if (selected.authorization) {
+                setStatus('authorization', 'running');
+                const createResult = await runCreateAuthorizationFlow({
+                    program: programsA.veilpay,
+                    mint: parsedMint,
+                    payer: walletA.publicKey,
+                    signMessage: async (message: Uint8Array) =>
+                        nacl.sign.detached(message, walletA.secretKey),
+                    payee: walletB.publicKey,
+                    amount: spendAmountString,
+                    expirySlots: '200',
+                    onStatus,
+                });
+                await recordTx('wallet-a:auth-create', createResult.signature, false, {
+                    mint: parsedMint.toBase58(),
+                    payee: walletB.publicKey.toBase58(),
+                    amount: spendAmountString,
+                    wallet: walletA.publicKey.toBase58(),
+                });
+                const settleResult = await runSettleAuthorizationFlow({
+                    program: programsB.veilpay,
+                    verifierProgram: programsB.verifier,
+                    mint: parsedMint,
+                    payee: walletB.publicKey,
+                    amount: spendAmountString,
+                    mintDecimals,
+                    root,
+                    nextNullifier,
+                    intentHash: createResult.intentHash,
+                    onStatus,
+                    onDebit: () => undefined,
+                });
+                await recordTx('wallet-b:auth-settle', settleResult.signature, true, {
+                    mint: parsedMint.toBase58(),
+                    payee: walletB.publicKey.toBase58(),
+                    amount: spendAmountString,
+                    wallet: walletB.publicKey.toBase58(),
+                });
+                setStatus('authorization', 'success');
             }
 
             if (selected.internal) {
+                setStatus('internal-b-c', 'running');
                 const result = await runInternalTransferFlow({
                     program: programsB.veilpay,
                     verifierProgram: programsB.verifier,
                     mint: parsedMint,
                     recipient: walletC.publicKey,
-                    root,
+                    root: rootRef.current,
                     nextNullifier,
                     onStatus,
-                    onRootChange,
+                    onRootChange: (next) => {
+                        rootRef.current = next;
+                        onRootChange(next);
+                    },
                 });
                 await recordTx('wallet-b:internal', result.signature, false, {
                     mint: parsedMint.toBase58(),
                     recipient: walletC.publicKey.toBase58(),
                     wallet: walletB.publicKey.toBase58(),
                 });
+                setStatus('internal-b-c', 'success');
             }
 
             if (selected.withdraw) {
+                setStatus('withdraw', 'running');
                 const result = await runWithdrawFlow({
                     program: programsC.veilpay,
                     verifierProgram: programsC.verifier,
                     mint: parsedMint,
                     recipient: walletC.publicKey,
-                    amount: amountString,
+                    amount: spendAmountString,
                     mintDecimals,
-                    root,
+                    root: rootRef.current,
                     nextNullifier,
                     onStatus,
                     onDebit: () => undefined,
                 });
                 await recordTx('wallet-c:withdraw', result.signature, true, {
                     mint: parsedMint.toBase58(),
-                    amount: amountString,
+                    amount: spendAmountString,
                     recipient: walletC.publicKey.toBase58(),
                     wallet: walletC.publicKey.toBase58(),
                 });
+                setStatus('withdraw', 'success');
             }
 
             if (selected.external) {
+                setStatus('external', 'running');
                 const target = walletC?.publicKey ?? walletA.publicKey;
                 const result = await runExternalTransferFlow({
                     program: programsB.veilpay,
                     verifierProgram: programsB.verifier,
                     mint: parsedMint,
                     recipient: target,
-                    amount: amountString,
+                    amount: spendAmountString,
                     mintDecimals,
-                    root,
+                    root: rootRef.current,
                     nextNullifier,
                     onStatus,
                     onDebit: () => undefined,
                 });
                 await recordTx('wallet-b:external', result.signature, true, {
                     mint: parsedMint.toBase58(),
-                    amount: amountString,
+                    amount: spendAmountString,
                     recipient: target.toBase58(),
                     wallet: walletB.publicKey.toBase58(),
                 });
+                setStatus('external', 'success');
             }
 
             onStatus('Completed multi-wallet flow.');
+        } catch (error) {
+            onStatus(`Multi-wallet flow failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+            setStepStatus((prev) =>
+                Object.fromEntries(Object.entries(prev).map(([key, value]) => [key, value === 'running' ? 'error' : value]))
+            );
         } finally {
             setBusy(false);
         }
@@ -352,20 +460,20 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
         <section className={styles.card}>
             <header>
                 <h2>Multi-Wallet Flow Tester</h2>
-                <p>Deposit A → transfer A→B → transfer B→C → withdraw by Wallet C.</p>
+                <p>Run flows with three local wallets to verify unlinkability.</p>
             </header>
             <div className={styles.walletRow}>
                 <div>
                     <span>Wallet A</span>
-                    {walletA ? <PubkeyBadge value={walletA.publicKey.toBase58()} /> : <em>not generated</em>}
+                    {walletA ? <PubkeyBadge value={walletA.publicKey.toBase58()} hoverLabel="Wallet A" /> : <em>not generated</em>}
                 </div>
                 <div>
                     <span>Wallet B</span>
-                    {walletB ? <PubkeyBadge value={walletB.publicKey.toBase58()} /> : <em>not generated</em>}
+                    {walletB ? <PubkeyBadge value={walletB.publicKey.toBase58()} hoverLabel="Wallet B" /> : <em>not generated</em>}
                 </div>
                 <div>
                     <span>Wallet C</span>
-                    {walletC ? <PubkeyBadge value={walletC.publicKey.toBase58()} /> : <em>not generated</em>}
+                    {walletC ? <PubkeyBadge value={walletC.publicKey.toBase58()} hoverLabel="Wallet C" /> : <em>not generated</em>}
                 </div>
                 <div className={styles.walletActions}>
                     <button className={styles.button} onClick={handleGenerate} disabled={busy}>
@@ -388,25 +496,36 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                 </label>
             </div>
 
-            <div className={styles.checklist}>
+            <div className={styles.flowList}>
                 {[
-                    { id: 'deposit', label: 'Deposit' },
-                    { id: 'withdraw', label: 'Withdraw' },
-                    { id: 'internal', label: 'Internal transfer' },
-                    { id: 'external', label: 'External transfer' },
-                ].map((item) => (
-                    <label key={item.id} className={styles.checkRow}>
-                        <input
-                            type="checkbox"
-                            checked={selected[item.id as keyof typeof selected]}
-                            onChange={(event) =>
-                                setSelected((prev) => ({ ...prev, [item.id]: event.target.checked }))
-                            }
-                            disabled={busy}
-                        />
-                        <span>{item.label}</span>
-                    </label>
-                ))}
+                    { id: 'deposit', label: 'Deposit A' },
+                    { id: 'internal-a-b', label: 'Internal A→B', toggle: 'internal' },
+                    { id: 'authorization', label: 'Auth A→B', toggle: 'authorization' },
+                    { id: 'internal-b-c', label: 'Internal B→C', toggle: 'internal' },
+                    { id: 'withdraw', label: 'Withdraw C' },
+                    { id: 'external', label: 'External B→C', toggle: 'external' },
+                ].map((step) => {
+                    const toggleKey = step.toggle as keyof typeof selected | undefined;
+                    const isChecked = toggleKey ? selected[toggleKey] : selected[step.id as keyof typeof selected] ?? true;
+                    return (
+                        <label key={step.id} className={styles.flowRow} data-status={stepStatus[step.id] ?? 'idle'}>
+                            <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(event) => {
+                                    if (!toggleKey) {
+                                        setSelected((prev) => ({ ...prev, [step.id]: event.target.checked }));
+                                        return;
+                                    }
+                                    setSelected((prev) => ({ ...prev, [toggleKey]: event.target.checked }));
+                                }}
+                                disabled={busy}
+                            />
+                            <span>{step.label}</span>
+                            <span className={styles.flowStatus}>{stepStatus[step.id] ?? 'idle'}</span>
+                        </label>
+                    );
+                })}
             </div>
 
             <div className={styles.actionRow}>
@@ -436,7 +555,7 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                 </button>
             </div>
             <p className={styles.note}>
-                Note: Authorization flows require wallet message signing, so they remain in the main Flow Tester.
+                Uses local wallets for signing, so authorization flows are supported here as well.
             </p>
         </section>
     );

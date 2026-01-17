@@ -8,9 +8,16 @@ type TransactionLogCardProps = {
     selectedId: string | null;
     onSelect: (id: string) => void;
     onClear: () => void;
+    walletLabels?: Record<string, string>;
 };
 
-export const TransactionLogCard: FC<TransactionLogCardProps> = ({ records, selectedId, onSelect, onClear }) => {
+export const TransactionLogCard: FC<TransactionLogCardProps> = ({
+    records,
+    selectedId,
+    onSelect,
+    onClear,
+    walletLabels = {},
+}) => {
     const selected = records.find((record) => record.id === selectedId) ?? null;
     const [activeTab, setActiveTab] = useState<'summary' | 'accounts' | 'tokens' | 'logs' | 'instructions'>('summary');
     const tx = selected?.details?.tx as
@@ -43,6 +50,8 @@ export const TransactionLogCard: FC<TransactionLogCardProps> = ({ records, selec
         | undefined;
 
     const signer = tx?.accounts?.find((account) => account.signer)?.pubkey ?? null;
+    const labelFor = (pubkey: string | null | undefined) =>
+        pubkey ? walletLabels[pubkey] ?? undefined : undefined;
 
     const balanceRows =
         tx?.accounts && tx.preBalances && tx.postBalances
@@ -116,7 +125,7 @@ export const TransactionLogCard: FC<TransactionLogCardProps> = ({ records, selec
                             </div>
                             <div className={styles.detailRow}>
                                 <span>Signer</span>
-                                {signer ? <PubkeyBadge value={signer} /> : <code>n/a</code>}
+                                {signer ? <PubkeyBadge value={signer} hoverLabel={labelFor(signer)} /> : <code>n/a</code>}
                             </div>
                             <div className={styles.detailRow}>
                                 <span>Timestamp</span>
@@ -145,7 +154,7 @@ export const TransactionLogCard: FC<TransactionLogCardProps> = ({ records, selec
                                     <div>
                                         <span>Mint</span>
                                         {selected.details?.mint ? (
-                                            <PubkeyBadge value={String(selected.details.mint)} />
+                                            <PubkeyBadge value={String(selected.details.mint)} hoverLabel={labelFor(String(selected.details.mint))} />
                                         ) : (
                                             <strong>n/a</strong>
                                         )}
@@ -153,7 +162,10 @@ export const TransactionLogCard: FC<TransactionLogCardProps> = ({ records, selec
                                     <div>
                                         <span>Recipient</span>
                                         {selected.details?.recipient || selected.details?.payee ? (
-                                            <PubkeyBadge value={String(selected.details.recipient ?? selected.details.payee)} />
+                                            <PubkeyBadge
+                                                value={String(selected.details.recipient ?? selected.details.payee)}
+                                                hoverLabel={labelFor(String(selected.details.recipient ?? selected.details.payee))}
+                                            />
                                         ) : (
                                             <strong>n/a</strong>
                                         )}
@@ -191,7 +203,10 @@ export const TransactionLogCard: FC<TransactionLogCardProps> = ({ records, selec
                                             </div>
                                             {balanceRows.map((row) => (
                                                 <div key={row.account.pubkey} className={styles.tableRow}>
-                                                    <PubkeyBadge value={row.account.pubkey} />
+                                                    <PubkeyBadge
+                                                        value={row.account.pubkey}
+                                                        hoverLabel={labelFor(row.account.pubkey)}
+                                                    />
                                                     <span>{row.pre}</span>
                                                     <span>{row.post}</span>
                                                     <span className={row.delta >= 0 ? styles.deltaPos : styles.deltaNeg}>
@@ -220,8 +235,8 @@ export const TransactionLogCard: FC<TransactionLogCardProps> = ({ records, selec
                                             {tokenBalanceRows.map((row) => (
                                                 <div key={`${row.accountIndex}-${row.mint}`} className={styles.tokenTableRow}>
                                                     <span>{row.accountIndex}</span>
-                                                    <PubkeyBadge value={row.owner} density="compact" />
-                                                    <PubkeyBadge value={row.mint} density="compact" />
+                                                    <PubkeyBadge value={row.owner} density="compact" hoverLabel={labelFor(row.owner)} />
+                                                    <PubkeyBadge value={row.mint} density="compact" hoverLabel={labelFor(row.mint)} />
                                                     <span>{row.pre}</span>
                                                     <span>{row.post}</span>
                                                 </div>
@@ -254,7 +269,10 @@ export const TransactionLogCard: FC<TransactionLogCardProps> = ({ records, selec
                                                 >
                                                     <div className={styles.instructionHeader}>
                                                         {ix.programId || ix.program ? (
-                                                            <PubkeyBadge value={String(ix.programId ?? ix.program)} />
+                                                            <PubkeyBadge
+                                                                value={String(ix.programId ?? ix.program)}
+                                                                hoverLabel={labelFor(String(ix.programId ?? ix.program))}
+                                                            />
                                                         ) : (
                                                             <code>unknown program</code>
                                                         )}
@@ -263,7 +281,7 @@ export const TransactionLogCard: FC<TransactionLogCardProps> = ({ records, selec
                                                     {ix.accounts && ix.accounts.length > 0 && (
                                                         <div className={styles.instructionAccounts}>
                                                             {ix.accounts.map((account) => (
-                                                                <PubkeyBadge key={account} value={account} />
+                                                                <PubkeyBadge key={account} value={account} hoverLabel={labelFor(account)} />
                                                             ))}
                                                         </div>
                                                     )}
