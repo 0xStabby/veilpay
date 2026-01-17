@@ -9,6 +9,7 @@ import { UserAuthorizationCard } from './components/UserAuthorizationCard';
 import { UserTransferCard } from './components/UserTransferCard';
 import { FlowTesterCard } from './components/FlowTesterCard';
 import { TransactionLogCard } from './components/TransactionLogCard';
+import { MultiWalletTesterCard } from './components/MultiWalletTesterCard';
 import { usePrograms } from './hooks/usePrograms';
 import { useNullifierCounter } from './hooks/useNullifierCounter';
 import { useMintInfo } from './hooks/useMintInfo';
@@ -23,7 +24,7 @@ const App: React.FC = () => {
     const [status, setStatus] = useState('');
     const [mintAddress, setMintAddress] = useState('');
     const [root, setRoot] = useState(() => randomBytes(32));
-    const [view, setView] = useState<'user' | 'admin' | 'tx'>('user');
+    const [view, setView] = useState<'user' | 'admin' | 'tx' | 'multi'>('user');
     const [txLog, setTxLog] = useState<TransactionRecord[]>(() => {
         try {
             const stored = localStorage.getItem('veilpay.txlog');
@@ -103,6 +104,12 @@ const App: React.FC = () => {
                     >
                         Tx Logs
                     </button>
+                    <button
+                        className={view === 'multi' ? styles.toggleActive : styles.toggleButton}
+                        onClick={() => setView('multi')}
+                    >
+                        Multi-Wallet Test
+                    </button>
                 </div>
                 <StatusBanner status={mintLoading ? 'Loading mint info...' : status} />
                 {view === 'admin' ? (
@@ -136,6 +143,20 @@ const App: React.FC = () => {
                             selectedId={selectedTxId}
                             onSelect={setSelectedTxId}
                             onClear={clearLog}
+                        />
+                    </section>
+                ) : view === 'multi' ? (
+                    <section className={styles.grid}>
+                        <MultiWalletTesterCard
+                            connection={connection}
+                            mintAddress={mintAddress}
+                            mintDecimals={decimals}
+                            root={root}
+                            onRootChange={setRoot}
+                            nextNullifier={next}
+                            onStatus={setStatus}
+                            onRecord={handleRecord}
+                            onRecordUpdate={handleRecordUpdate}
                         />
                     </section>
                 ) : (
