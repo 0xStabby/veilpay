@@ -1,9 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RPC_URL="https://api.devnet.solana.com"
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 APP_ENV_FILE="$ROOT_DIR/app/.env.dev"
+
+get_env_value() {
+  local key="$1"
+  if [[ -f "$APP_ENV_FILE" ]]; then
+    rg -n "^${key}=" "$APP_ENV_FILE" | head -n1 | awk -F= '{print $2}'
+  fi
+}
+
+RPC_URL="${RPC_URL:-$(get_env_value "VITE_RPC_ENDPOINT")}"
+RELAYER_URL="${RELAYER_URL:-$(get_env_value "VITE_RELAYER_URL")}"
+
+if [[ -z "$RPC_URL" ]]; then
+  echo "Missing RPC URL. Set RPC_URL or VITE_RPC_ENDPOINT in $APP_ENV_FILE." >&2
+  exit 1
+fi
 
 ensure_env() {
   local key="$1"
@@ -22,9 +36,13 @@ VEILPAY_ID=$(solana address -k "$ROOT_DIR/target/deploy/veilpay-keypair.json")
 VERIFIER_ID=$(solana address -k "$ROOT_DIR/target/deploy/verifier-keypair.json")
 
 if [[ ! -f "$APP_ENV_FILE" ]]; then
-  cat <<'ENVEOF' > "$APP_ENV_FILE"
-VITE_RPC_ENDPOINT=https://api.devnet.solana.com
-VITE_RELAYER_URL=http://66.42.64.115
+  if [[ -z "$RELAYER_URL" ]]; then
+    echo "Missing RELAYER_URL. Set RELAYER_URL or VITE_RELAYER_URL to create $APP_ENV_FILE." >&2
+    exit 1
+  fi
+  cat <<ENVEOF > "$APP_ENV_FILE"
+VITE_RPC_ENDPOINT=$RPC_URL
+VITE_RELAYER_URL=$RELAYER_URL
 VITE_VEILPAY_PROGRAM_ID=
 VITE_VERIFIER_PROGRAM_ID=
 VITE_AIRDROP_URL=https://faucet.solana.com/
