@@ -7,14 +7,14 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { useWallet } from '@solana/wallet-adapter-react';
 import {
     airdropSol,
-    createMint,
     initializeConfig,
     initializeMintState,
     initializeVerifierKey,
     initializeVkRegistry,
-    mintToWallet,
     registerMint,
+    wrapSolToWsol,
 } from '../lib/adminSetup';
+import { WSOL_MINT } from '../lib/config';
 
 type RunbookCardProps = {
     mode: 'admin' | 'user';
@@ -23,7 +23,6 @@ type RunbookCardProps = {
     verifierProgram?: Program | null;
     mintAddress?: string;
     onMintChange?: (value: string) => void;
-    mintDecimals?: number | null;
     onStatus?: (message: string) => void;
 };
 
@@ -36,10 +35,9 @@ export const RunbookCard: FC<RunbookCardProps> = ({
     verifierProgram = null,
     mintAddress = '',
     onMintChange,
-    mintDecimals = null,
     onStatus = () => undefined,
 }) => {
-    const { publicKey, sendTransaction, signTransaction } = useWallet();
+    const { publicKey, sendTransaction } = useWallet();
     const [busy, setBusy] = useState(false);
     const [stepStatus, setStepStatus] = useState<Record<string, StepStatus>>({});
 
@@ -66,10 +64,6 @@ export const RunbookCard: FC<RunbookCardProps> = ({
     const runAdminSetup = async () => {
         if (!connection || !publicKey || !veilpayProgram || !verifierProgram) {
             onStatus('Connect wallet and ensure programs are ready.');
-            return;
-        }
-        if (!signTransaction) {
-            onStatus('Wallet does not support direct signing.');
             return;
         }
         setBusy(true);
@@ -111,21 +105,14 @@ export const RunbookCard: FC<RunbookCardProps> = ({
 
         let activeMint = parsedMint;
         if (!activeMint) {
-            setStatus('mint', 'running');
-            activeMint = await createMint({
-                connection,
-                wallet: { publicKey, sendTransaction, signTransaction },
-                decimals: mintDecimals ?? 6,
-                onStatus,
-                onMintChange: onMintChange ?? (() => undefined),
-            });
-            setStatus('mint', activeMint ? 'success' : 'error');
-            if (!activeMint) {
-                setBusy(false);
-                return;
-            }
-        } else {
-            setStatus('mint', 'success');
+            activeMint = WSOL_MINT;
+            onMintChange?.(WSOL_MINT.toBase58());
+        }
+        setStatus('mint', activeMint.equals(WSOL_MINT) ? 'success' : 'error');
+        if (!activeMint.equals(WSOL_MINT)) {
+            onStatus('Mint must be WSOL on devnet.');
+            setBusy(false);
+            return;
         }
 
         const followups: Array<{ id: string; run: () => Promise<boolean> }> = [
@@ -153,14 +140,12 @@ export const RunbookCard: FC<RunbookCardProps> = ({
                     }),
             },
             {
-                id: 'mint-to',
+                id: 'wrap-sol',
                 run: () =>
-                    mintToWallet({
+                    wrapSolToWsol({
                         connection,
                         admin: publicKey,
-                        mint: activeMint!,
-                        decimals: mintDecimals ?? 6,
-                        amount: '1000',
+                        amount: '1',
                         sendTransaction,
                         onStatus,
                     }),
@@ -210,7 +195,7 @@ export const RunbookCard: FC<RunbookCardProps> = ({
                 <>
                     <header>
                         <h2>Admin Runbook</h2>
-                        <p>Localnet bootstrap steps (auto-checking).</p>
+                        <p>Admin bootstrap steps (auto-checking).</p>
                     </header>
                     <div className={styles.flowChecklist}>
                         {items.map((item) => {

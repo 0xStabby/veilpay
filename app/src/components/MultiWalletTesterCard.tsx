@@ -89,7 +89,7 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
     const [walletB, setWalletB] = useState<Keypair | null>(null);
     const [walletC, setWalletC] = useState<Keypair | null>(null);
     const [amount, setAmount] = useState('1');
-    const [fundAmount, setFundAmount] = useState('10');
+    const [fundAmount, setFundAmount] = useState('0.3');
     const [busy, setBusy] = useState(false);
     const [stepStatus, setStepStatus] = useState<Record<string, 'idle' | 'running' | 'success' | 'error'>>({});
     const rootRef = useRef(root);
@@ -243,10 +243,25 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
         await ensureAta(walletB.publicKey, ataB, publicKey);
         await ensureAta(walletC.publicKey, ataC, publicKey);
 
-        const baseUnits = parseTokenAmount(fundAmount, mintDecimals);
-        instructions.push(createTransferInstruction(adminAta, ataA, publicKey, baseUnits, [], TOKEN_PROGRAM_ID));
-        instructions.push(createTransferInstruction(adminAta, ataB, publicKey, baseUnits, [], TOKEN_PROGRAM_ID));
-        instructions.push(createTransferInstruction(adminAta, ataC, publicKey, baseUnits, [], TOKEN_PROGRAM_ID));
+        let perWalletUnits = parseTokenAmount(fundAmount, mintDecimals);
+        const adminAccount = await getAccount(connection, adminAta);
+        const totalNeeded = perWalletUnits * 3n;
+        if (adminAccount.amount < totalNeeded) {
+            const maxPerWallet = adminAccount.amount / 3n;
+            if (maxPerWallet <= 0n) {
+                throw new Error('Insufficient token balance to fund generated wallets.');
+            }
+            if (maxPerWallet < perWalletUnits) {
+                onStatus(
+                    `Funding amount reduced to ${formatTokenAmount(maxPerWallet, mintDecimals)} per wallet (insufficient balance).`
+                );
+                perWalletUnits = maxPerWallet;
+            }
+        }
+
+        instructions.push(createTransferInstruction(adminAta, ataA, publicKey, perWalletUnits, [], TOKEN_PROGRAM_ID));
+        instructions.push(createTransferInstruction(adminAta, ataB, publicKey, perWalletUnits, [], TOKEN_PROGRAM_ID));
+        instructions.push(createTransferInstruction(adminAta, ataC, publicKey, perWalletUnits, [], TOKEN_PROGRAM_ID));
 
         await sendTransaction(new Transaction().add(...instructions), connection);
         onStatus('Funded tokens to Wallet A/B/C.');
@@ -412,7 +427,26 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                     throw new Error('Funding wallets failed.');
                 }
             }
-            const baseUnits = parseTokenAmount(amount, mintDecimals);
+            let baseUnits = parseTokenAmount(amount, mintDecimals);
+            if (selected.deposit) {
+                const walletAta = await getAssociatedTokenAddress(parsedMint, walletA.publicKey);
+                let walletBalance = 0n;
+                try {
+                    const walletAccount = await getAccount(connection, walletAta);
+                    walletBalance = walletAccount.amount;
+                } catch {
+                    walletBalance = 0n;
+                }
+                if (walletBalance <= 0n) {
+                    throw new Error('Wallet A has no tokens available for the deposit step.');
+                }
+                if (walletBalance < baseUnits) {
+                    onStatus(
+                        `Reducing flow amount to ${formatTokenAmount(walletBalance, mintDecimals)} to match Wallet A balance.`
+                    );
+                    baseUnits = walletBalance;
+                }
+            }
             const spendSteps = ['withdraw', 'external', 'authorization'].filter(
                 (key) => selected[key as keyof typeof selected]
             ).length;
@@ -495,7 +529,7 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                     payee: walletB.publicKey,
                     amount: spendAmountString,
                     mintDecimals,
-                    root,
+                    root: rootRef.current,
                     nextNullifier,
                     intentHash: createResult.intentHash,
                     onStatus,

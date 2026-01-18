@@ -3,7 +3,7 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { getAccount, getAssociatedTokenAddress, getMint } from '@solana/spl-token';
 import { Program } from '@coral-xyz/anchor';
 import { deriveConfig, deriveNullifierSet, deriveShielded, deriveVault, deriveVkRegistry, deriveVerifierKey } from '../lib/pda';
-import { VEILPAY_PROGRAM_ID, VERIFIER_PROGRAM_ID } from '../lib/config';
+import { VEILPAY_PROGRAM_ID, VERIFIER_PROGRAM_ID, WSOL_MINT } from '../lib/config';
 
 type ChecklistItem = {
     id: string;
@@ -50,7 +50,7 @@ export function useAdminChecklist(params: {
 
             items.push({
                 id: 'localnet',
-                label: 'Run `anchor localnet` (RPC + programs deployed)',
+                label: 'RPC reachable + programs deployed',
                 done: rpcOk && veilpayProgramOk && verifierProgramOk,
             });
 
@@ -109,12 +109,12 @@ export function useAdminChecklist(params: {
                 }
             }
 
-            const mintOk = mintKey
+            const mintOk = mintKey?.equals(WSOL_MINT)
                 ? await getMint(connection, mintKey).then(() => true).catch(() => false)
                 : false;
             items.push({
                 id: 'mint',
-                label: 'Create mint',
+                label: 'Use WSOL mint',
                 done: mintOk,
             });
 
@@ -159,8 +159,8 @@ export function useAdminChecklist(params: {
                 }
             }
             items.push({
-                id: 'mint-to',
-                label: 'Mint tokens to wallet',
+                id: 'wrap-sol',
+                label: 'Wrap SOL to WSOL',
                 done: mintedOk,
             });
 

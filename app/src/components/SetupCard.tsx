@@ -6,14 +6,14 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import styles from './SetupCard.module.css';
 import {
     airdropSol,
-    createMint,
     initializeConfig,
     initializeMintState,
     initializeVerifierKey,
     initializeVkRegistry,
-    mintToWallet,
     registerMint,
+    wrapSolToWsol,
 } from '../lib/adminSetup';
+import { WSOL_MINT } from '../lib/config';
 
 type SetupCardProps = {
     veilpayProgram: Program | null;
@@ -22,7 +22,6 @@ type SetupCardProps = {
     onStatus: (message: string) => void;
     mintAddress: string;
     onMintChange: (value: string) => void;
-    mintDecimals: number | null;
 };
 
 export const SetupCard: FC<SetupCardProps> = ({
@@ -32,13 +31,10 @@ export const SetupCard: FC<SetupCardProps> = ({
     onStatus,
     mintAddress,
     onMintChange,
-    mintDecimals,
 }) => {
-    const { publicKey, sendTransaction, signTransaction } = useWallet();
+    const { publicKey, sendTransaction } = useWallet();
     const [busy, setBusy] = useState(false);
-    const [decimals, setDecimals] = useState(6);
-    const [mintAmount, setMintAmount] = useState('1000');
-    const [useExistingMint, setUseExistingMint] = useState(false);
+    const [wrapAmount, setWrapAmount] = useState('1');
 
     const parsedMint = useMemo(() => {
         if (!mintAddress) return null;
@@ -77,18 +73,15 @@ export const SetupCard: FC<SetupCardProps> = ({
         setBusy(false);
     };
 
-    const handleCreateMint = async () => {
-        if (!publicKey || !signTransaction) {
-            onStatus('Connect a wallet that supports signing.');
-            return;
-        }
+    const handleWrapSol = async () => {
+        if (!publicKey) return;
         setBusy(true);
-        await createMint({
+        await wrapSolToWsol({
             connection,
-            wallet: { publicKey, sendTransaction, signTransaction },
-            decimals,
+            admin: publicKey,
+            amount: wrapAmount,
+            sendTransaction,
             onStatus,
-            onMintChange,
         });
         setBusy(false);
     };
@@ -120,26 +113,15 @@ export const SetupCard: FC<SetupCardProps> = ({
         setBusy(false);
     };
 
-    const handleMintToUser = async () => {
-        if (!publicKey || !parsedMint) return;
-        setBusy(true);
-        await mintToWallet({
-            connection,
-            admin: publicKey,
-            mint: parsedMint,
-            decimals: mintDecimals ?? decimals,
-            amount: mintAmount,
-            sendTransaction,
-            onStatus,
-        });
-        setBusy(false);
+    const handleSetWsol = () => {
+        onMintChange(WSOL_MINT.toBase58());
     };
 
     return (
         <section className={styles.card}>
             <header className={styles.header}>
-                <h2>Localnet setup</h2>
-                <p>Initialize protocol PDAs, verifier key, and a local SPL mint.</p>
+                <h2>Admin setup</h2>
+                <p>Initialize protocol PDAs, verifier key, and WSOL mint state.</p>
             </header>
             <div className={styles.grid}>
                 <button className={styles.button} onClick={handleAirdrop} disabled={!publicKey || busy}>
@@ -160,33 +142,14 @@ export const SetupCard: FC<SetupCardProps> = ({
                         <input
                             value={mintAddress}
                             onChange={(event) => onMintChange(event.target.value)}
-                            placeholder="Mint pubkey"
-                            disabled={!useExistingMint}
+                            placeholder="WSOL mint"
                         />
                     </label>
-                    <button className={styles.button} onClick={handleCreateMint} disabled={!publicKey || busy}>
-                        Create mint
+                    <button className={styles.button} onClick={handleSetWsol} disabled={busy}>
+                        Use WSOL
                     </button>
                 </div>
-                <label className={styles.checkbox}>
-                    <input
-                        type="checkbox"
-                        checked={useExistingMint}
-                        onChange={(event) => setUseExistingMint(event.target.checked)}
-                    />
-                    Use existing mint
-                </label>
                 <div className={styles.fieldRow}>
-                    <label className={styles.label}>
-                        Decimals
-                        <input
-                            type="number"
-                            min={0}
-                            max={9}
-                            value={decimals}
-                            onChange={(event) => setDecimals(Number(event.target.value))}
-                        />
-                    </label>
                     <button className={styles.button} onClick={handleRegisterMint} disabled={!publicKey || !parsedMint || busy}>
                         Register mint
                     </button>
@@ -196,14 +159,14 @@ export const SetupCard: FC<SetupCardProps> = ({
                 </button>
                 <div className={styles.fieldRow}>
                     <label className={styles.label}>
-                        Mint amount (tokens)
+                        Wrap SOL amount
                         <input
-                            value={mintAmount}
-                            onChange={(event) => setMintAmount(event.target.value)}
+                            value={wrapAmount}
+                            onChange={(event) => setWrapAmount(event.target.value)}
                         />
                     </label>
-                    <button className={styles.button} onClick={handleMintToUser} disabled={!publicKey || !parsedMint || busy}>
-                        Mint to wallet
+                    <button className={styles.button} onClick={handleWrapSol} disabled={!publicKey || busy}>
+                        Wrap SOL
                     </button>
                 </div>
             </div>
