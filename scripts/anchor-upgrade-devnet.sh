@@ -2,6 +2,11 @@
 set -euo pipefail
 
 APP_ENV_FILE="${1:-app/.env.dev}"
+ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+VEILPAY_IDL_SOURCE="$ROOT_DIR/target/idl/veilpay.json"
+VEILPAY_IDL_DEST="$ROOT_DIR/app/src/idl/veilpay.json"
+VERIFIER_IDL_SOURCE="$ROOT_DIR/target/idl/verifier.json"
+VERIFIER_IDL_DEST="$ROOT_DIR/app/src/idl/verifier.json"
 
 if [[ ! -f "$APP_ENV_FILE" ]]; then
   echo "Missing env file: $APP_ENV_FILE" >&2
@@ -24,4 +29,12 @@ anchor upgrade --program-id "$VEILPAY_PROGRAM_ID" --provider.cluster "$RPC_ENDPO
 echo "Upgrading verifier: $VERIFIER_PROGRAM_ID"
 anchor upgrade --program-id "$VERIFIER_PROGRAM_ID" --provider.cluster "$RPC_ENDPOINT" target/deploy/verifier.so
 
-echo "Done. If program IDs changed, update app/.env.dev and IDLs."
+if [[ -f "$VEILPAY_IDL_SOURCE" ]]; then
+  cp "$VEILPAY_IDL_SOURCE" "$VEILPAY_IDL_DEST"
+fi
+
+if [[ -f "$VERIFIER_IDL_SOURCE" ]]; then
+  cp "$VERIFIER_IDL_SOURCE" "$VERIFIER_IDL_DEST"
+fi
+
+echo "Done. Updated IDLs in app/src/idl if available."

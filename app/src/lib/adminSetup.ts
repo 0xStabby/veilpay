@@ -1,13 +1,13 @@
 import { Program } from '@coral-xyz/anchor';
-import { Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
+import { Connection, PublicKey, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
 import {
-    MINT_SIZE,
+    NATIVE_MINT,
     TOKEN_PROGRAM_ID,
     createAssociatedTokenAccountInstruction,
-    createInitializeMintInstruction,
-    createMintToInstruction,
+    createSyncNativeInstruction,
     getAccount,
     getAssociatedTokenAddress,
+    getMint,
 } from '@solana/spl-token';
 import { AIRDROP_URL } from './config';
 import { deriveConfig, deriveNullifierSet, deriveShielded, deriveVault, deriveVkRegistry, deriveVerifierKey } from './pda';
@@ -15,12 +15,6 @@ import { verifierKeyFixture } from './fixtures';
 import { parseTokenAmount } from './amount';
 
 type StatusHandler = (message: string) => void;
-
-type WalletContext = {
-    publicKey: PublicKey;
-    sendTransaction: (tx: Transaction, connection: Connection) => Promise<string>;
-    signTransaction: (tx: Transaction) => Promise<Transaction>;
-};
 
 async function ensureLegacyMint(connection: Connection, mint: PublicKey, onStatus: StatusHandler): Promise<boolean> {
     try {
@@ -156,52 +150,6 @@ export async function initializeVerifierKey(params: {
     }
 }
 
-export async function createMint(params: {
-    connection: Connection;
-    wallet: WalletContext;
-    decimals: number;
-    onStatus: StatusHandler;
-    onMintChange: (value: string) => void;
-}): Promise<PublicKey | null> {
-    const { connection, wallet, decimals, onStatus, onMintChange } = params;
-    try {
-        onStatus('Creating mint...');
-        const mintKeypair = Keypair.generate();
-        const lamports = await connection.getMinimumBalanceForRentExemption(MINT_SIZE);
-        const tx = new Transaction().add(
-            SystemProgram.createAccount({
-                fromPubkey: wallet.publicKey,
-                newAccountPubkey: mintKeypair.publicKey,
-                lamports,
-                space: MINT_SIZE,
-                programId: TOKEN_PROGRAM_ID,
-            }),
-            createInitializeMintInstruction(mintKeypair.publicKey, decimals, wallet.publicKey, null)
-        );
-        const { value } = await connection.getLatestBlockhashAndContext();
-        tx.feePayer = wallet.publicKey;
-        tx.recentBlockhash = value.blockhash;
-        tx.partialSign(mintKeypair);
-        const signed = await wallet.signTransaction(tx);
-        const signature = await connection.sendRawTransaction(signed.serialize());
-        onStatus(`Mint created: ${mintKeypair.publicKey.toBase58().slice(0, 8)}...`);
-        onMintChange(mintKeypair.publicKey.toBase58());
-        await connection.confirmTransaction(
-            {
-                signature,
-                blockhash: value.blockhash,
-                lastValidBlockHeight: value.lastValidBlockHeight,
-            },
-            'confirmed'
-        );
-        return mintKeypair.publicKey;
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        onStatus(`Mint create failed: ${message}`);
-        return null;
-    }
-}
-
 export async function registerMint(params: {
     program: Program;
     admin: PublicKey;
@@ -289,34 +237,45 @@ export async function initializeMintState(params: {
     }
 }
 
-export async function mintToWallet(params: {
+export async function wrapSolToWsol(params: {
     connection: Connection;
     admin: PublicKey;
-    mint: PublicKey;
-    decimals: number;
     amount: string;
     sendTransaction: (tx: Transaction, connection: Connection) => Promise<string>;
     onStatus: StatusHandler;
 }): Promise<boolean> {
-    const { connection, admin, mint, decimals, amount, sendTransaction, onStatus } = params;
+    const { connection, admin, amount, sendTransaction, onStatus } = params;
     try {
-        const ok = await ensureLegacyMint(connection, mint, onStatus);
-        if (!ok) return false;
-        onStatus('Minting tokens to wallet...');
-        const ata = await getAssociatedTokenAddress(mint, admin);
+        const mintInfo = await getMint(connection, NATIVE_MINT);
+        const decimals = mintInfo.decimals;
+        const lamports = parseTokenAmount(amount, decimals);
+        if (lamports <= 0n) {
+            onStatus('Wrap amount must be greater than zero.');
+            return false;
+        }
+        if (lamports > BigInt(Number.MAX_SAFE_INTEGER)) {
+            onStatus('Wrap amount is too large.');
+            return false;
+        }
+
+        const ata = await getAssociatedTokenAddress(NATIVE_MINT, admin);
+        const instructions: TransactionInstruction[] = [];
         try {
             await getAccount(connection, ata);
         } catch {
-            const createIx = createAssociatedTokenAccountInstruction(admin, ata, admin, mint);
-            await sendTransaction(new Transaction().add(createIx), connection);
+            instructions.push(createAssociatedTokenAccountInstruction(admin, ata, admin, NATIVE_MINT));
         }
-        const baseUnits = parseTokenAmount(amount, decimals);
-        const ix = createMintToInstruction(mint, ata, admin, baseUnits);
-        await sendTransaction(new Transaction().add(ix), connection);
-        onStatus('Minted tokens to wallet.');
+        instructions.push(
+            SystemProgram.transfer({ fromPubkey: admin, toPubkey: ata, lamports: Number(lamports) }),
+            createSyncNativeInstruction(ata)
+        );
+
+        await sendTransaction(new Transaction().add(...instructions), connection);
+        onStatus('Wrapped SOL into WSOL.');
         return true;
     } catch (error) {
-        onStatus(`Mint-to failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+        const message = error instanceof Error ? error.message : 'unknown error';
+        onStatus(`Wrap SOL failed: ${message}`);
         return false;
     }
 }

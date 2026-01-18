@@ -106,6 +106,14 @@ const toBigInt = (value: unknown): bigint => {
     throw new Error('Invalid bigint value');
 };
 
+const toBigIntFromCallData = (value: string): bigint => {
+    const trimmed = value.trim();
+    if (trimmed.startsWith('0x') || trimmed.startsWith('0X')) {
+        return BigInt(trimmed);
+    }
+    return BigInt(trimmed);
+};
+
 export async function generateProof(input: Record<string, string | number>): Promise<ProofResult> {
     const { proof, publicSignals } = await snarkjs.groth16.fullProve(
         input,
@@ -114,15 +122,19 @@ export async function generateProof(input: Record<string, string | number>): Pro
     );
     const publicSignalsArray = publicSignals as string[];
 
-    const proofAny = proof as { pi_a: unknown[]; pi_b: unknown[][]; pi_c: unknown[] };
-    const a = [toBigInt(proofAny.pi_a[0]), toBigInt(proofAny.pi_a[1])];
+    const callData = await snarkjs.groth16.exportSolidityCallData(proof, publicSignalsArray);
+    const argv = callData.replace(/["[\]\s]/g, '').split(',').filter(Boolean);
+    if (argv.length < 8) {
+        throw new Error('Unexpected calldata length from snarkjs.');
+    }
+    const a = [toBigIntFromCallData(argv[0]), toBigIntFromCallData(argv[1])];
     const b = [
-        [toBigInt(proofAny.pi_b[0][0]), toBigInt(proofAny.pi_b[0][1])],
-        [toBigInt(proofAny.pi_b[1][0]), toBigInt(proofAny.pi_b[1][1])],
+        [toBigIntFromCallData(argv[2]), toBigIntFromCallData(argv[3])],
+        [toBigIntFromCallData(argv[4]), toBigIntFromCallData(argv[5])],
     ];
-    const c = [toBigInt(proofAny.pi_c[0]), toBigInt(proofAny.pi_c[1])];
+    const c = [toBigIntFromCallData(argv[6]), toBigIntFromCallData(argv[7])];
 
-    // solana-bn254 expects Fq2 elements as (c1, c0) big-endian bytes.
+    // Use Solidity calldata ordering to avoid Fq2 ordering mismatches.
     const proofBytes = concatBytes([
         bigIntToBytes32(a[0]),
         bigIntToBytes32(a[1]),
@@ -135,7 +147,7 @@ export async function generateProof(input: Record<string, string | number>): Pro
     ]);
 
     const publicInputsBytes = concatBytes(
-        publicSignalsArray.map((value: string) => bigIntToBytes32(toBigInt(value)))
+        argv.slice(8).map((value: string) => bigIntToBytes32(toBigIntFromCallData(value)))
     );
 
     return {

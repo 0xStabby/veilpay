@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{Mint, Token, TokenAccount};
 use verifier::cpi::accounts::VerifyGroth16 as VerifyGroth16Cpi;
 
-declare_id!("J8VaR7WLv4JSG7D9ig67wiQLZX7jYZr9UUoqH9JUtuTb");
+declare_id!("4C6H1aqxks1AgjtsLPbNrDXFsb6DwQ6c1Jhw2ZugTLv2");
 
 const MAX_ALLOWLIST: usize = 32;
 const MAX_CIRCUITS: usize = 8;

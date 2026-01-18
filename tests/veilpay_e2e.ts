@@ -3,6 +3,7 @@ import { Program } from "@coral-xyz/anchor";
 import { assert } from "chai";
 import fs from "fs";
 import path from "path";
+import { execFileSync } from "child_process";
 import {
   createMint,
   getAssociatedTokenAddress,
@@ -43,6 +44,8 @@ describe("veilpay e2e (real groth16)", () => {
 
   const proofPath = path.join(process.cwd(), "circuits/build/snarkjs_proof.json");
   const vkFixturePath = path.join(process.cwd(), "circuits/build/verifier_key.json");
+  const wasmPath = path.join(process.cwd(), "circuits/build/veilpay_js/veilpay.wasm");
+  const zkeyPath = path.join(process.cwd(), "circuits/build/veilpay_final.zkey");
 
   let mint: PublicKey;
   let vaultPda: PublicKey;
@@ -53,8 +56,30 @@ describe("veilpay e2e (real groth16)", () => {
   let verifierKeyPda: PublicKey;
 
   it("runs deposit -> withdraw with real proof", async () => {
-    if (!fs.existsSync(proofPath) || !fs.existsSync(vkFixturePath)) {
-      throw new Error("Missing proof artifacts. Run node scripts/gen-proof-json.js first.");
+    const proofNeedsRegen = () => {
+      if (!fs.existsSync(proofPath) || !fs.existsSync(vkFixturePath)) {
+        return true;
+      }
+      const proofStat = fs.statSync(proofPath);
+      const vkStat = fs.statSync(vkFixturePath);
+      const zkeyStat = fs.statSync(zkeyPath);
+      const wasmStat = fs.statSync(wasmPath);
+      const newestInput = Math.max(
+        vkStat.mtimeMs,
+        zkeyStat.mtimeMs,
+        wasmStat.mtimeMs
+      );
+      return proofStat.mtimeMs < newestInput;
+    };
+
+    if (proofNeedsRegen()) {
+      if (!fs.existsSync(wasmPath) || !fs.existsSync(zkeyPath)) {
+        throw new Error("Missing circuit artifacts. Run scripts/build-circuits.sh first.");
+      }
+      execFileSync("node", ["scripts/gen-proof-json.js"], { stdio: "inherit" });
+      if (!fs.existsSync(proofPath) || !fs.existsSync(vkFixturePath)) {
+        throw new Error("Missing proof artifacts after generation. Run node scripts/gen-proof-json.js.");
+      }
     }
 
     const vkFixture = JSON.parse(fs.readFileSync(vkFixturePath, "utf8"));

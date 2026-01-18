@@ -5,7 +5,7 @@ use solana_bn254::prelude::{
     ALT_BN128_PAIRING_ELEMENT_SIZE, ALT_BN128_PAIRING_OUTPUT_SIZE,
 };
 
-declare_id!("CRZejShyrDfr86ZnBZbGG2hyfD9jz82cX3XhoFEtFWCm");
+declare_id!("CKzPKEVD9Bq5Q4iJzALC1Zuk66wwGwK52XsKmFDELYZe");
 
 const MAX_PUBLIC_INPUTS: usize = 8;
 

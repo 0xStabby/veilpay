@@ -18,12 +18,13 @@ import { useShieldedBalance } from './hooks/useShieldedBalance';
 import { randomBytes } from './lib/crypto';
 import type { TransactionRecord } from './lib/transactions';
 import { buildAddressLabels } from './lib/addressLabels';
+import { WSOL_MINT } from './lib/config';
 import styles from './App.module.css';
 
 const App = () => {
     const { connection, veilpayProgram, verifierProgram, wallet } = usePrograms();
     const [status, setStatus] = useState('');
-    const [mintAddress, setMintAddress] = useState('');
+    const [mintAddress, setMintAddress] = useState(() => WSOL_MINT.toBase58());
     const [root, setRoot] = useState(() => randomBytes(32));
     const [view, setView] = useState<'user' | 'admin' | 'tx' | 'multi'>('user');
     const [txLog, setTxLog] = useState<TransactionRecord[]>(() => {
@@ -51,9 +52,7 @@ const App = () => {
 
     useEffect(() => {
         const stored = localStorage.getItem('veilpay.mint');
-        if (stored) {
-            setMintAddress(stored);
-        }
+        setMintAddress(stored || WSOL_MINT.toBase58());
     }, []);
 
     useEffect(() => {
@@ -131,7 +130,6 @@ const App = () => {
                                 onStatus={setStatus}
                                 mintAddress={mintAddress}
                                 onMintChange={setMintAddress}
-                                mintDecimals={decimals}
                             />
                         )}
                         <RunbookCard
@@ -141,7 +139,6 @@ const App = () => {
                             verifierProgram={verifierProgram}
                             mintAddress={mintAddress}
                             onMintChange={setMintAddress}
-                            mintDecimals={decimals}
                             onStatus={setStatus}
                         />
                     </section>
