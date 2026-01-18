@@ -306,6 +306,34 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
         }
     };
 
+    const waitForWalletAFunding = async () => {
+        if (!connection || !walletA) return;
+        const maxAttempts = 15;
+        const delayMs = 1000;
+        onStatus('Waiting for Wallet A funding to land...');
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+            const solBalance = await connection.getBalance(walletA.publicKey);
+            let tokenBalance = 0n;
+            if (parsedMint && mintDecimals !== null) {
+                const ata = await getAssociatedTokenAddress(parsedMint, walletA.publicKey);
+                try {
+                    const account = await getAccount(connection, ata);
+                    tokenBalance = account.amount;
+                } catch {
+                    tokenBalance = 0n;
+                }
+            }
+            const hasSol = solBalance > 0;
+            const hasTokens = !parsedMint || mintDecimals === null || tokenBalance > 0n;
+            if (hasSol && hasTokens) {
+                onStatus('Wallet A funded.');
+                return;
+            }
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+        throw new Error('Wallet A funding not confirmed yet. Try again in a moment.');
+    };
+
     const cleanupWallet = async (keypair: Keypair) => {
         if (!connection || !publicKey) {
             throw new Error('Connect a wallet before cleanup.');
@@ -421,6 +449,7 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                 setStatus('fund-wallets', 'running');
                 try {
                     await fundGeneratedWallets();
+                    await waitForWalletAFunding();
                     setStatus('fund-wallets', 'success');
                 } catch {
                     setStatus('fund-wallets', 'error');
