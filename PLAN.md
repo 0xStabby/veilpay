@@ -2,6 +2,14 @@
 
 Goal: Implement the unlinkable escrow-based privacy payments protocol end-to-end (programs, verifier, SDK, app, tests), with tests proving that the spec and desired functionality are complete and correct.
 
+## Immediate Privacy Requirements (new)
+- Replace all placeholder cryptography in app flows with real note commitments, real ciphertexts, and real Merkle roots.
+- Ensure recipient tags derive from recipient secrets, not public keys.
+- Ensure all proof inputs are tied to existing notes and valid Merkle paths.
+- Clarify the privacy model for external transfers (recipient public).
+- Clarify whether relayers are trusted with payer identity; if not, redesign authorization intents to hide payer.
+- Add documentation: `docs/privacy.md` and `docs/required-changes.md`.
+
 ## Phase 1: Program Core (Anchor)
 - Expand `programs/veilpay/src/lib.rs` into modules:
   - `state` (config, vault, shielded state, nullifier, authorization, vk registry)
@@ -33,6 +41,7 @@ Goal: Implement the unlinkable escrow-based privacy payments protocol end-to-end
   - endpoints: /intent, /proof, /execute
   - validate signature + intent schema (domain separation)
   - submit transactions and enforce on-chain relayer fee split
+  - If relayer is untrusted, support privacy-preserving intents (no payer pubkey disclosure).
 
 ## Phase 5: Tests (Must prove spec completeness)
 - Anchor tests:
@@ -46,6 +55,7 @@ Goal: Implement the unlinkable escrow-based privacy payments protocol end-to-end
   - ciphertext roundtrip
   - nullifier calculation matches on-chain chunking
   - tx builder account metas
+  - note storage + Merkle path correctness
 - Relayer tests:
   - intent signature validation
   - fee enforcement in tx

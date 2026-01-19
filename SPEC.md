@@ -6,11 +6,18 @@ Executive Summary
 - Amount privacy is achieved with ElGamal encryption; correctness is enforced with Groth16 proofs.
 - A per-mint shielded state PDA maintains a global commitment tree and root history.
 - Nullifiers prevent double spend via a chunked on-chain set.
-- Authorizations (invoices) are unlinkable to payer addresses on-chain; relayers validate intent signatures off-chain.
+- Authorizations (invoices) are unlinkable to payer addresses on-chain; relayers validate intent signatures off-chain (privacy depends on relayer trust model).
 - Verifying keys are stored in a dedicated verifier program account and versioned via a registry for upgrades.
 - Relayers can submit gasless transactions while fees are enforced on-chain (amount split in-program).
 - The SDK (TypeScript) orchestrates key management, proofs, and transaction construction.
 - The MVP plan phases in encryption and proof verification to manage risk and performance.
+
+Privacy Assumptions and Guarantees
+- Recipient tags are derived from recipient secrets (not public keys) to avoid linkability.
+- Proofs are generated from real notes that exist in the commitment tree (valid Merkle paths).
+- Merkle roots are computed from the note tree, not randomized.
+- External transfers reveal the destination ATA on-chain; only the source note is hidden.
+- Authorization privacy depends on relayer trust. If the relayer is untrusted, intent submission must not reveal payer identity.
 
 ## Architecture
 
