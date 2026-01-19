@@ -99,13 +99,6 @@ const concatBytes = (chunks: Uint8Array[]): Uint8Array => {
     return out;
 };
 
-const toBigInt = (value: unknown): bigint => {
-    if (typeof value === 'bigint') return value;
-    if (typeof value === 'number') return BigInt(value);
-    if (typeof value === 'string') return BigInt(value);
-    throw new Error('Invalid bigint value');
-};
-
 const toBigIntFromCallData = (value: string): bigint => {
     const trimmed = value.trim();
     if (trimmed.startsWith('0x') || trimmed.startsWith('0X')) {
