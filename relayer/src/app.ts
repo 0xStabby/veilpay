@@ -22,6 +22,10 @@ app.use(
 );
 app.use(express.json());
 
+app.get("/health", (_req, res) => {
+  res.json({ ok: true });
+});
+
 const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(__dirname, "..", "..");
 const proverBinary =
