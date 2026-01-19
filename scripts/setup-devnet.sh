@@ -172,6 +172,11 @@ if [[ "$RUN_RELAYER_PROVISION" == "1" ]]; then
   fi
 fi
 
+RELAYER_DOMAIN="$(rg -n "^RELAYER_DOMAIN=" "$ROOT_DIR/relayer/.env.dev" | head -n1 | cut -d= -f2-)"
+if [[ -n "$RELAYER_DOMAIN" ]]; then
+  ensure_env "VITE_RELAYER_URL" "https://${RELAYER_DOMAIN}"
+fi
+
 cat <<MSG
 Deployed to devnet.
 - Veilpay:  $VEILPAY_ID

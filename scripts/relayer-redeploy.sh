@@ -58,4 +58,31 @@ if [[ -f "${RELAYER_DIR}/.env.dev" ]]; then
 fi
 
 ssh "${SSH_OPTS[@]}" "${SSH_USER}@${SERVER_IP}" \
-  "cd /opt/veilpay-relayer && pnpm install --prod && systemctl restart veilpay-relayer"
+  "cd /opt/veilpay-relayer && pnpm install --prod && systemctl restart veilpay-relayer && \
+  if command -v ufw >/dev/null 2>&1; then \
+    sudo ufw allow 80/tcp; \
+    sudo ufw allow 443/tcp; \
+    sudo ufw status verbose; \
+  fi; \
+  if command -v certbot >/dev/null 2>&1; then \
+    DOMAIN=\$(grep -E '^RELAYER_DOMAIN=' /opt/veilpay-relayer/.env | head -n1 | cut -d= -f2-); \
+    EMAIL=\$(grep -E '^RELAYER_CERT_EMAIL=' /opt/veilpay-relayer/.env | head -n1 | cut -d= -f2-); \
+    if [[ -n \"\$DOMAIN\" && -n \"\$EMAIL\" ]]; then \
+      sudo sed -i \"s/^\\s*server_name .*/    server_name \${DOMAIN};/\" /etc/nginx/sites-enabled/veilpay-relayer || true; \
+      sudo nginx -t && sudo systemctl reload nginx || true; \
+      if [[ ! -f \"/etc/letsencrypt/live/\${DOMAIN}/fullchain.pem\" ]]; then \
+        certbot --nginx -d \"\$DOMAIN\" --non-interactive --agree-tos -m \"\$EMAIL\" || true; \
+        systemctl reload nginx || true; \
+      fi; \
+    fi; \
+  else \
+    DOMAIN=\$(grep -E '^RELAYER_DOMAIN=' /opt/veilpay-relayer/.env | head -n1 | cut -d= -f2-); \
+    EMAIL=\$(grep -E '^RELAYER_CERT_EMAIL=' /opt/veilpay-relayer/.env | head -n1 | cut -d= -f2-); \
+    if [[ -n \"\$DOMAIN\" && -n \"\$EMAIL\" ]]; then \
+      sudo apt-get update && sudo apt-get install -y certbot python3-certbot-nginx; \
+      sudo sed -i \"s/^\\s*server_name .*/    server_name \${DOMAIN};/\" /etc/nginx/sites-enabled/veilpay-relayer || true; \
+      sudo nginx -t && sudo systemctl reload nginx || true; \
+      certbot --nginx -d \"\$DOMAIN\" --non-interactive --agree-tos -m \"\$EMAIL\" || true; \
+      systemctl reload nginx || true; \
+    fi; \
+  fi"

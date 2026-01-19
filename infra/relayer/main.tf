@@ -8,5 +8,7 @@ resource "vultr_instance" "relayer" {
     relayer_port            = var.relayer_port
     relayer_rpc_url         = var.relayer_rpc_url
     relayer_allowed_origins = var.relayer_allowed_origins
+    relayer_domain          = var.relayer_domain
+    relayer_cert_email      = var.relayer_cert_email
   })
 }

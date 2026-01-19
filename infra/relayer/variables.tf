@@ -32,3 +32,13 @@ variable "relayer_allowed_origins" {
   type    = string
   default = "*"
 }
+
+variable "relayer_domain" {
+  type    = string
+  default = ""
+}
+
+variable "relayer_cert_email" {
+  type    = string
+  default = ""
+}
