@@ -3,13 +3,9 @@ import { WalletHeader } from './components/WalletHeader';
 import { StatusBanner } from './components/StatusBanner';
 import { SetupCard } from './components/SetupCard';
 import { RunbookCard } from './components/RunbookCard';
-import { UserDepositCard } from './components/UserDepositCard';
-import { UserWithdrawCard } from './components/UserWithdrawCard';
-import { UserAuthorizationCard } from './components/UserAuthorizationCard';
-import { UserTransferCard } from './components/UserTransferCard';
-import { FlowTesterCard } from './components/FlowTesterCard';
 import { TransactionLogCard } from './components/TransactionLogCard';
 import { MultiWalletTesterCard } from './components/MultiWalletTesterCard';
+import { UserFlowCard } from './components/UserFlowCard';
 import { usePrograms } from './hooks/usePrograms';
 import { useNullifierCounter } from './hooks/useNullifierCounter';
 import { useMintInfo } from './hooks/useMintInfo';
@@ -37,6 +33,7 @@ const App = () => {
     });
     const [selectedTxId, setSelectedTxId] = useState<string | null>(null);
     const [multiWalletLabels, setMultiWalletLabels] = useState<Record<string, string>>({});
+    const showAdmin = false;
     const { next } = useNullifierCounter(1);
     const { decimals, loading: mintLoading } = useMintInfo(connection ?? null, mintAddress);
     const walletPubkey = wallet?.publicKey ?? null;
@@ -54,6 +51,12 @@ const App = () => {
         const stored = localStorage.getItem('veilpay.mint');
         setMintAddress(stored || WSOL_MINT.toBase58());
     }, []);
+
+    useEffect(() => {
+        if (!showAdmin && view === 'admin') {
+            setView('user');
+        }
+    }, [showAdmin, view]);
 
     useEffect(() => {
         if (mintAddress) {
@@ -100,12 +103,14 @@ const App = () => {
                     >
                         User
                     </button>
-                    <button
-                        className={view === 'admin' ? styles.toggleActive : styles.toggleButton}
-                        onClick={() => setView('admin')}
-                    >
-                        Admin
-                    </button>
+                    {showAdmin && (
+                        <button
+                            className={view === 'admin' ? styles.toggleActive : styles.toggleButton}
+                            onClick={() => setView('admin')}
+                        >
+                            Admin
+                        </button>
+                    )}
                     <button
                         className={view === 'tx' ? styles.toggleActive : styles.toggleButton}
                         onClick={() => setView('tx')}
@@ -169,70 +174,18 @@ const App = () => {
                     </section>
                 ) : (
                     <section className={styles.grid}>
-                        <UserDepositCard
-                            veilpayProgram={veilpayProgram}
-                            mintAddress={mintAddress}
-                            onStatus={setStatus}
-                            onRootChange={setRoot}
-                            mintDecimals={decimals}
-                            walletBalance={walletBalance}
-                            onCredit={credit}
-                            onRecord={handleRecord}
-                            onRecordUpdate={handleRecordUpdate}
-                        />
-                        <RunbookCard mode="user" />
-                        <FlowTesterCard
+                        <UserFlowCard
                             veilpayProgram={veilpayProgram}
                             verifierProgram={verifierProgram}
                             mintAddress={mintAddress}
-                            root={root}
+                            onStatus={setStatus}
                             onRootChange={setRoot}
+                            root={root}
                             nextNullifier={next}
                             mintDecimals={decimals}
                             walletBalance={walletBalance}
                             shieldedBalance={shieldedBalance}
                             onCredit={credit}
-                            onDebit={debit}
-                            onStatus={setStatus}
-                            onRecord={handleRecord}
-                            onRecordUpdate={handleRecordUpdate}
-                        />
-                        <UserWithdrawCard
-                            veilpayProgram={veilpayProgram}
-                            verifierProgram={verifierProgram}
-                            mintAddress={mintAddress}
-                            onStatus={setStatus}
-                            root={root}
-                            nextNullifier={next}
-                            mintDecimals={decimals}
-                            shieldedBalance={shieldedBalance}
-                            onDebit={debit}
-                            onRecord={handleRecord}
-                            onRecordUpdate={handleRecordUpdate}
-                        />
-                        <UserAuthorizationCard
-                            veilpayProgram={veilpayProgram}
-                            verifierProgram={verifierProgram}
-                            mintAddress={mintAddress}
-                            onStatus={setStatus}
-                            root={root}
-                            nextNullifier={next}
-                            mintDecimals={decimals}
-                            shieldedBalance={shieldedBalance}
-                            onDebit={debit}
-                            onRecord={handleRecord}
-                            onRecordUpdate={handleRecordUpdate}
-                        />
-                        <UserTransferCard
-                            veilpayProgram={veilpayProgram}
-                            verifierProgram={verifierProgram}
-                            mintAddress={mintAddress}
-                            onStatus={setStatus}
-                            root={root}
-                            nextNullifier={next}
-                            onRootChange={setRoot}
-                            mintDecimals={decimals}
-                            shieldedBalance={shieldedBalance}
                             onDebit={debit}
                             onRecord={handleRecord}
                             onRecordUpdate={handleRecordUpdate}

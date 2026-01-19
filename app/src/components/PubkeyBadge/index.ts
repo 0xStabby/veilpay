@@ -1,0 +1,1 @@
+export { PubkeyBadge } from './PubkeyBadge';

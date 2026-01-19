@@ -1,0 +1,1 @@
+export { AuthorizationCard } from './AuthorizationCard';
