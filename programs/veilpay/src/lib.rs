@@ -10,6 +10,12 @@ const MAX_ROOT_HISTORY: usize = 32;
 const MAX_VK_ENTRIES: usize = 16;
 const NULLIFIER_BITS: usize = 8192;
 const NULLIFIER_BYTES: usize = NULLIFIER_BITS / 8;
+const ZERO_ROOT: [u8; 32] = [
+    0x21, 0x34, 0xE7, 0x6A, 0xC5, 0xD2, 0x1A, 0xAB,
+    0x18, 0x6C, 0x2B, 0xE1, 0xDD, 0x8F, 0x84, 0xEE,
+    0x88, 0x0A, 0x1E, 0x46, 0xEA, 0xF7, 0x12, 0xF9,
+    0xD3, 0x71, 0xB6, 0xDF, 0x22, 0x19, 0x1F, 0x3E,
+];
 
 #[program]
 pub mod veilpay {
@@ -85,7 +91,7 @@ pub mod veilpay {
 
         let shielded = &mut ctx.accounts.shielded_state;
         shielded.mint = mint_key;
-        shielded.merkle_root = [0u8; 32];
+        shielded.merkle_root = ZERO_ROOT;
         shielded.root_history = Vec::new();
         shielded.root_history_index = 0;
         shielded.commitment_count = 0;
@@ -140,7 +146,7 @@ pub mod veilpay {
         );
         let new_root = to_fixed_32(&args.new_root)?;
         let _commitment = to_fixed_32(&args.commitment)?;
-        let _ciphertext = to_fixed_64(&args.ciphertext)?;
+        let _ciphertext = to_fixed_128(&args.ciphertext)?;
 
         let cpi_accounts = anchor_spl::token::Transfer {
             from: ctx.accounts.user_ata.to_account_info(),
@@ -248,7 +254,7 @@ pub mod veilpay {
         );
         let intent_hash = to_fixed_32(&args.intent_hash)?;
         let payee_tag_hash = to_fixed_32(&args.payee_tag_hash)?;
-        let amount_ciphertext = to_fixed_64(&args.amount_ciphertext)?;
+        let amount_ciphertext = to_fixed_128(&args.amount_ciphertext)?;
         let proof_hash = to_fixed_32(&args.proof_hash)?;
         let auth = &mut ctx.accounts.authorization;
         auth.intent_hash = intent_hash;
@@ -367,7 +373,7 @@ pub mod veilpay {
         let root = to_fixed_32(&args.root)?;
         let new_root = to_fixed_32(&args.new_root)?;
         let nullifier = to_fixed_32(&args.nullifier)?;
-        let _ciphertext = to_fixed_64(&args.ciphertext_new)?;
+        let _ciphertext = to_fixed_128(&args.ciphertext_new)?;
         let _recipient_tag = to_fixed_32(&args.recipient_tag_hash)?;
         require!(root_known(&ctx.accounts.shielded_state, root), VeilpayError::UnknownRoot);
         mark_nullifier(&mut ctx.accounts.nullifier_set, nullifier)?;
@@ -786,7 +792,7 @@ pub struct Authorization {
     pub intent_hash: [u8; 32],
     pub payee_tag_hash: [u8; 32],
     pub mint: Pubkey,
-    pub amount_ciphertext: [u8; 64],
+    pub amount_ciphertext: [u8; 128],
     pub expiry_slot: u64,
     pub status: u8,
     pub circuit_id: u32,
@@ -847,9 +853,9 @@ fn to_fixed_32(bytes: &[u8]) -> Result<[u8; 32]> {
     Ok(out)
 }
 
-fn to_fixed_64(bytes: &[u8]) -> Result<[u8; 64]> {
-    require!(bytes.len() == 64, VeilpayError::InvalidByteLength);
-    let mut out = [0u8; 64];
+fn to_fixed_128(bytes: &[u8]) -> Result<[u8; 128]> {
+    require!(bytes.len() == 128, VeilpayError::InvalidByteLength);
+    let mut out = [0u8; 128];
     out.copy_from_slice(bytes);
     Ok(out)
 }

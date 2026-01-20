@@ -82,7 +82,13 @@ export async function preflightVerify(
 }
 
 export function formatPublicSignals(publicSignals: string[]): string {
-    const labels = ['root', 'nullifier', 'recipient_tag_hash', 'ciphertext_commitment', 'circuit_id'];
+    const labels = [
+        'root',
+        'nullifier',
+        'recipient_tag_hash',
+        'ciphertext_commitment',
+        'circuit_id',
+    ];
     return labels
         .map((label, index) => `${label}=${publicSignals[index] ?? ''}`)
         .join(' ');

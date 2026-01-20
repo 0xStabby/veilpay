@@ -28,7 +28,7 @@ ROOT[0] = 9;
 const NEW_ROOT = new Uint8Array(32);
 NEW_ROOT[0] = 10;
 
-const CIPHERTEXT = new Uint8Array(64);
+const CIPHERTEXT = new Uint8Array(128);
 const COMMITMENT = new Uint8Array(32);
 const buf = (value: Uint8Array) => Buffer.from(value);
 

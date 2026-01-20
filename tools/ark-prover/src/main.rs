@@ -24,6 +24,23 @@ fn parse_big(value: &Value) -> Result<BigUint> {
     }
 }
 
+fn push_inputs(builder: &mut CircomBuilder<Fr>, key: &str, value: &Value) -> Result<()> {
+    match value {
+        Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                let indexed = format!("{key}[{index}]");
+                push_inputs(builder, &indexed, item)?;
+            }
+        }
+        _ => {
+            let big = parse_big(value)?;
+            let big_int = BigInt::from(big);
+            builder.push_input(key, big_int);
+        }
+    }
+    Ok(())
+}
+
 fn fq_to_be(fq: &impl BigInteger) -> [u8; 32] {
     let mut out = [0u8; 32];
     let bytes = fq.to_bytes_be();
@@ -78,9 +95,7 @@ fn run() -> Result<()> {
         .map_err(|err| anyhow!("circom config failed: {err:?}"))?;
     let mut builder = CircomBuilder::new(cfg);
     for (key, value) in input_obj {
-        let big = parse_big(value)?;
-        let big_int = BigInt::from(big);
-        builder.push_input(key, big_int);
+        push_inputs(&mut builder, key, value)?;
     }
 
     let circom = builder
