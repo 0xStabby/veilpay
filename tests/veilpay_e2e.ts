@@ -191,10 +191,10 @@ describe("veilpay e2e (real groth16)", () => {
       new anchor.web3.Transaction().add(vaultAtaIx)
     );
 
-    const root = 5n;
     const amount = 100_000n;
     const proofFixture = JSON.parse(fs.readFileSync(proofPath, "utf8"));
     const publicSignals = proofFixture.publicSignals as string[];
+    const root = BigInt(publicSignals[0]);
     const nullifier = BigInt(publicSignals[1]);
     const recipientTagHash = BigInt(publicSignals[2]);
     const commitment = BigInt(publicSignals[3]);
@@ -235,7 +235,7 @@ describe("veilpay e2e (real groth16)", () => {
     await program.methods
       .deposit({
         amount: new anchor.BN(amount.toString()),
-        ciphertext: buf(new Uint8Array(64)),
+        ciphertext: buf(new Uint8Array(128)),
         commitment: commitmentBytes,
         newRoot: depositRoot,
       })

@@ -2,63 +2,53 @@
 
 This document captures the concrete changes needed for VeilPay to deliver sender/recipient unlinkability guarantees. It complements `docs/privacy.md`, which documents current gaps.
 
-## Critical (must‑fix)
+## Completed
 
 1) **Real note commitments**
-- Commitments must be derived from note secrets, not random placeholders.
-- Each deposit appends a real commitment to the shielded state tree.
+- Commitments are derived from note secrets.
+- Deposits append a real commitment to the local Merkle tree and update on-chain root.
 
 2) **Real Merkle roots**
-- `newRoot` must be computed from the commitment tree.
-- No random root generation in client flows.
+- `newRoot` is computed from the commitment tree.
+- Flows verify the on-chain root matches the local tree before proceeding.
 
 3) **Recipient tags derived from secrets**
-- `recipientTagHash` must be derived from a recipient secret, not the public key.
-- This prevents trivial linkage by hashing known wallet addresses.
+- `recipientTagHash` is derived from a local recipient tag secret, not from a public key.
 
-4) **Proofs must spend from real notes**
-- Proof inputs must reference a note that exists in the current tree (via Merkle path).
-- Random `sender_secret`, `randomness`, and `commitment` in withdraw/transfer flows are invalid for privacy.
+4) **Proofs spend from real notes**
+- Proof inputs reference a note in the local tree (with Merkle path).
+- Withdraw/transfer flows use stored secrets, not random placeholders.
 
-5) **Encrypted amounts**
-- Ciphertexts must be actual ElGamal encryptions of the amount/tag payload.
-- Random bytes are not an acceptable placeholder for privacy claims.
+5) **Local note store**
+- App maintains local notes and derives Merkle paths for proofs.
 
-6) **Authorization privacy**
-- The relayer intent currently includes `payer` pubkey and signature.
-- If the relayer is untrusted, replace this with a privacy-preserving intent scheme (e.g., anonymous signature or a blinded intent relay).
+6) **Root history checks**
+- Flows verify the current root against on-chain state before proving.
 
-## Important (strongly recommended)
+7) **Relayer policy toggle**
+- `RELAYER_TRUSTED=true` allows submitting intents without payer identity.
 
-1) **Local note store**
-- SDK should maintain local note storage with Merkle paths and nullifier state.
-- App should read notes from this store rather than generating fresh secrets per operation.
+## Remaining / partial
 
-2) **Root history sync**
-- Client must verify that the used root is in on-chain root history.
-- Prevents stale or invalid roots from being accepted.
+1) **ElGamal encryption**
+- Ciphertexts are currently a symmetric stream derived from the recipient tag secret.
+- Replace this with real ElGamal encryption and recipient key exchange for production privacy.
 
-3) **External transfer disclosure**
+2) **Recipient secret exchange**
+- Secrets are local; there is no out-of-band exchange for unrelated wallets.
+- This needs a real key distribution mechanism for external recipients.
+
+3) **Relayer anonymity vs chain visibility**
+- Even in trusted relayer mode, the payer is still a signer on-chain.
+- A full anonymity scheme would require a different protocol (not just relayer changes).
+
+## External transfer disclosure
+
 - External transfer destination ATA is public; this is a known limitation.
 - The system should explicitly document that external transfers do not hide recipients.
-
-4) **Relayer policy**
-- If relayer is used, define whether it is trusted with payer identity.
-- If not trusted, change protocol to avoid revealing payer identity to the relayer.
-
-## Where changes are needed (current app)
-
-- `app/src/lib/flows.ts`
-  - `runDepositFlow`: replace random ciphertext/root with real encrypted note + computed root.
-  - `runWithdrawFlow`: use real note secrets and merkle proof; avoid random secrets.
-  - `runInternalTransferFlow`: real note spend and new commitment; not amount=0 placeholder.
-  - `runExternalTransferFlow`: real note spend; still public recipient.
-  - `runCreateAuthorizationFlow`: avoid payer identity disclosure if relayer is untrusted.
-  - `runSettleAuthorizationFlow`: real note spend and proof.
 
 ## Desired end‑state (privacy properties)
 
 - Observers cannot link deposits to withdrawals/transfers by tags or commitments.
 - Relayer (if untrusted) cannot link payer to authorization intent.
 - External recipients are public, but the source note is hidden.
-

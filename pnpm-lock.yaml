@@ -218,6 +218,9 @@ importers:
       bn.js:
         specifier: ^5.2.2
         version: 5.2.2
+      circomlibjs:
+        specifier: ^0.1.7
+        version: 0.1.7(bufferutil@4.1.0)(utf-8-validate@5.0.10)
     devDependencies:
       ts-node:
         specifier: ^10.9.2
