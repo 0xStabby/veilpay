@@ -37,3 +37,36 @@ export const ensureNullifierSet = async (
         .rpc();
     return nullifierSet;
 };
+
+export const ensureNullifierSets = async (
+    program: Program,
+    mint: PublicKey,
+    nullifiers: bigint[]
+): Promise<PublicKey[]> => {
+    const chunkIndexes = new Set<number>();
+    for (const nullifier of nullifiers) {
+        if (nullifier === 0n) {
+            continue;
+        }
+        chunkIndexes.add(nullifierChunkIndex(nullifier));
+    }
+    const sets: PublicKey[] = [];
+    for (const chunkIndex of chunkIndexes) {
+        const nullifierSet = deriveNullifierSet(program.programId, mint, chunkIndex);
+        const info = await program.provider.connection.getAccountInfo(nullifierSet);
+        if (!info) {
+            await program.methods
+                .initializeNullifierChunk(chunkIndex)
+                .accounts({
+                    config: deriveConfig(program.programId),
+                    nullifierSet,
+                    payer: (program.provider as AnchorProvider).wallet.publicKey,
+                    mint,
+                    systemProgram: SystemProgram.programId,
+                })
+                .rpc();
+        }
+        sets.push(nullifierSet);
+    }
+    return sets;
+};

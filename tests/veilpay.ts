@@ -1,8 +1,6 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { assert } from "chai";
-import fs from "fs";
-import path from "path";
 import {
   createMint,
   getAssociatedTokenAddress,
@@ -32,20 +30,54 @@ const CIPHERTEXT = new Uint8Array(128);
 const COMMITMENT = new Uint8Array(32);
 const buf = (value: Uint8Array) => Buffer.from(value);
 
-const fixturePath = path.join(process.cwd(), "tests/fixtures/groth16.json");
-const fixture = JSON.parse(fs.readFileSync(fixturePath, "utf8"));
-const hexToBuf = (hex: string) => Buffer.from(hex, "hex");
-const groth16 = {
-  alphaG1: hexToBuf(fixture.alpha_g1),
-  betaG2: hexToBuf(fixture.beta_g2),
-  gammaG2: hexToBuf(fixture.gamma_g2),
-  deltaG2: hexToBuf(fixture.delta_g2),
-  gammaAbc: fixture.gamma_abc.map((entry: string) => hexToBuf(entry)),
-  proof: hexToBuf(fixture.proof),
-  publicInputs: Buffer.concat(
-    fixture.public_inputs.map((entry: string) => hexToBuf(entry))
-  ),
+const zero32 = () => Buffer.alloc(32);
+const u64ToBytes32 = (value: bigint) => {
+  const out = Buffer.alloc(32);
+  out.writeBigUInt64BE(value, 24);
+  return out;
 };
+const u32ToBytes32 = (value: number) => {
+  const out = Buffer.alloc(32);
+  out.writeUInt32BE(value, 28);
+  return out;
+};
+const makePublicInputs = (params: {
+  root: Buffer;
+  identityRoot: Buffer;
+  nullifiers: Buffer[];
+  outputCommitments: Buffer[];
+  outputEnabled: number[];
+  amountOut: bigint;
+  feeAmount: bigint;
+  circuitId: number;
+}) => {
+  const {
+    root,
+    identityRoot,
+    nullifiers,
+    outputCommitments,
+    outputEnabled,
+    amountOut,
+    feeAmount,
+    circuitId,
+  } = params;
+  const chunks = [
+    root,
+    identityRoot,
+    ...nullifiers,
+    ...outputCommitments,
+    ...outputEnabled.map((value) => u64ToBytes32(BigInt(value))),
+    u64ToBytes32(amountOut),
+    u64ToBytes32(feeAmount),
+    u32ToBytes32(circuitId),
+  ];
+  return Buffer.concat(chunks);
+};
+
+const dummyG1 = Buffer.alloc(64);
+const dummyG2 = Buffer.alloc(128);
+const dummyGammaAbc = [Buffer.alloc(64)];
+const dummyProof = Buffer.alloc(32);
 
 describe("veilpay", () => {
   const provider = anchor.AnchorProvider.local();
@@ -60,10 +92,29 @@ describe("veilpay", () => {
   let vaultPda: PublicKey;
   let shieldedPda: PublicKey;
   let nullifierPda: PublicKey;
+  let identityRegistryPda: PublicKey;
   let vaultAta: PublicKey;
   let userAta: PublicKey;
   let verifierKeyPda: PublicKey;
   const relayer = Keypair.generate();
+
+  const getRoots = async () => {
+    const shielded = await program.account.shieldedState.fetch(shieldedPda);
+    const identity = await program.account.identityRegistry.fetch(identityRegistryPda);
+    const rootBytes =
+      Buffer.from(
+        (shielded.merkleRoot as number[] | undefined) ??
+          (shielded.merkle_root as number[] | undefined) ??
+          []
+      );
+    const identityRootBytes =
+      Buffer.from(
+        (identity.merkleRoot as number[] | undefined) ??
+          (identity.merkle_root as number[] | undefined) ??
+          []
+      );
+    return { rootBytes, identityRootBytes };
+  };
 
   it("initializes config and registry", async () => {
     const [configPda] = PublicKey.findProgramAddressSync(
@@ -73,6 +124,10 @@ describe("veilpay", () => {
 
     const [vkRegistryPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("vk_registry")],
+      program.programId
+    );
+    [identityRegistryPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("identity_registry")],
       program.programId
     );
 
@@ -119,12 +174,12 @@ describe("veilpay", () => {
       await verifierProgram.methods
         .initializeVerifierKey({
           keyId,
-          alphaG1: groth16.alphaG1,
-          betaG2: groth16.betaG2,
-          gammaG2: groth16.gammaG2,
-          deltaG2: groth16.deltaG2,
-          publicInputsLen: fixture.public_inputs.length,
-          gammaAbc: groth16.gammaAbc,
+          alphaG1: dummyG1,
+          betaG2: dummyG2,
+          gammaG2: dummyG2,
+          deltaG2: dummyG2,
+          publicInputsLen: 13,
+          gammaAbc: dummyGammaAbc,
           mock: true,
         })
         .accounts({
@@ -136,11 +191,23 @@ describe("veilpay", () => {
     }
 
     await verifierProgram.methods
-      .verifyGroth16(groth16.proof, groth16.publicInputs)
+      .verifyGroth16(dummyProof, Buffer.concat(Array.from({ length: 13 }, () => zero32())))
       .accounts({
         verifierKey: verifierKeyPda,
       })
       .rpc();
+
+    const identityInfo = await provider.connection.getAccountInfo(identityRegistryPda);
+    if (!identityInfo) {
+      await program.methods
+        .initializeIdentityRegistry()
+        .accounts({
+          identityRegistry: identityRegistryPda,
+          admin: provider.wallet.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+    }
 
     const config = await program.account.config.fetch(configPda);
     assert.equal(config.feeBps, 25);
@@ -258,20 +325,32 @@ describe("veilpay", () => {
       recipient.publicKey
     );
 
+    const { rootBytes, identityRootBytes } = await getRoots();
+    const publicInputs = makePublicInputs({
+      root: rootBytes,
+      identityRoot: identityRootBytes,
+      nullifiers: [buf(NULLIFIER), zero32(), zero32(), zero32()],
+      outputCommitments: [zero32(), zero32()],
+      outputEnabled: [0, 0],
+      amountOut: 100_000n,
+      feeAmount: 0n,
+      circuitId: 0,
+    });
+
     await program.methods
       .withdraw({
         amount: new anchor.BN(100_000),
-        proof: groth16.proof,
-        publicInputs: groth16.publicInputs,
-        nullifier: buf(NULLIFIER),
-        root: buf(NEW_ROOT),
+        proof: dummyProof,
+        publicInputs,
         relayerFeeBps: 0,
+        newRoot: buf(NEW_ROOT),
       })
       .accounts({
         config: configPda,
         vault: vaultPda,
         vaultAta,
         shieldedState: shieldedPda,
+        identityRegistry: identityRegistryPda,
         nullifierSet: nullifierPda,
         recipientAta,
         relayerFeeAta: null,
@@ -311,20 +390,32 @@ describe("veilpay", () => {
     feeNullifier[0] = 0;
     feeNullifier[4] = 9;
 
+    const { rootBytes, identityRootBytes } = await getRoots();
+    const publicInputs = makePublicInputs({
+      root: rootBytes,
+      identityRoot: identityRootBytes,
+      nullifiers: [buf(feeNullifier), zero32(), zero32(), zero32()],
+      outputCommitments: [zero32(), zero32()],
+      outputEnabled: [0, 0],
+      amountOut: 100_000n,
+      feeAmount: 250n,
+      circuitId: 0,
+    });
+
     await program.methods
       .withdraw({
         amount: new anchor.BN(100_000),
-        proof: groth16.proof,
-        publicInputs: groth16.publicInputs,
-        nullifier: buf(feeNullifier),
-        root: buf(NEW_ROOT),
+        proof: dummyProof,
+        publicInputs,
         relayerFeeBps: 25,
+        newRoot: buf(NEW_ROOT),
       })
       .accounts({
         config: configPda,
         vault: vaultPda,
         vaultAta,
         shieldedState: shieldedPda,
+        identityRegistry: identityRegistryPda,
         nullifierSet: nullifierPda,
         recipientAta,
         relayerFeeAta: relayerAta,
@@ -356,20 +447,31 @@ describe("veilpay", () => {
 
     let threw = false;
     try {
+      const { rootBytes, identityRootBytes } = await getRoots();
+      const publicInputs = makePublicInputs({
+        root: rootBytes,
+        identityRoot: identityRootBytes,
+        nullifiers: [buf(NULLIFIER), zero32(), zero32(), zero32()],
+        outputCommitments: [zero32(), zero32()],
+        outputEnabled: [0, 0],
+        amountOut: 10_000n,
+        feeAmount: 0n,
+        circuitId: 0,
+      });
       await program.methods
         .withdraw({
           amount: new anchor.BN(10_000),
-          proof: groth16.proof,
-          publicInputs: groth16.publicInputs,
-          nullifier: buf(NULLIFIER),
-          root: buf(NEW_ROOT),
+          proof: dummyProof,
+          publicInputs,
           relayerFeeBps: 0,
+          newRoot: buf(NEW_ROOT),
         })
         .accounts({
           config: configPda,
           vault: vaultPda,
           vaultAta,
           shieldedState: shieldedPda,
+          identityRegistry: identityRegistryPda,
           nullifierSet: nullifierPda,
           recipientAta,
           relayerFeeAta: null,
@@ -404,20 +506,31 @@ describe("veilpay", () => {
 
     let threw = false;
     try {
+      const { identityRootBytes } = await getRoots();
+      const publicInputs = makePublicInputs({
+        root: buf(ROOT),
+        identityRoot: identityRootBytes,
+        nullifiers: [buf(newNullifier), zero32(), zero32(), zero32()],
+        outputCommitments: [zero32(), zero32()],
+        outputEnabled: [0, 0],
+        amountOut: 10_000n,
+        feeAmount: 0n,
+        circuitId: 0,
+      });
       await program.methods
       .withdraw({
         amount: new anchor.BN(10_000),
-        proof: groth16.proof,
-        publicInputs: groth16.publicInputs,
-        nullifier: buf(newNullifier),
-        root: buf(ROOT),
+        proof: dummyProof,
+        publicInputs,
         relayerFeeBps: 0,
+        newRoot: buf(NEW_ROOT),
       })
         .accounts({
           config: configPda,
           vault: vaultPda,
           vaultAta,
           shieldedState: shieldedPda,
+          identityRegistry: identityRegistryPda,
           nullifierSet: nullifierPda,
           recipientAta,
           relayerFeeAta: null,
@@ -477,14 +590,25 @@ describe("veilpay", () => {
     newNullifier[0] = 0;
     newNullifier[4] = 7;
 
+    const { rootBytes, identityRootBytes } = await getRoots();
+    const publicInputs = makePublicInputs({
+      root: rootBytes,
+      identityRoot: identityRootBytes,
+      nullifiers: [buf(newNullifier), zero32(), zero32(), zero32()],
+      outputCommitments: [zero32(), zero32()],
+      outputEnabled: [0, 0],
+      amountOut: 50_000n,
+      feeAmount: 0n,
+      circuitId: 0,
+    });
+
     await program.methods
       .settleAuthorization({
         amount: new anchor.BN(50_000),
-        proof: groth16.proof,
-        publicInputs: groth16.publicInputs,
-        nullifier: buf(newNullifier),
-        root: buf(NEW_ROOT),
+        proof: dummyProof,
+        publicInputs,
         relayerFeeBps: 0,
+        newRoot: buf(NEW_ROOT),
       })
       .accounts({
         config: configPda,
@@ -492,6 +616,7 @@ describe("veilpay", () => {
         vault: vaultPda,
         vaultAta,
         shieldedState: shieldedPda,
+        identityRegistry: identityRegistryPda,
         nullifierSet: nullifierPda,
         recipientAta,
         relayerFeeAta: null,
@@ -518,19 +643,28 @@ describe("veilpay", () => {
     const internalRoot = new Uint8Array(32);
     internalRoot[0] = 55;
 
+    const { rootBytes, identityRootBytes } = await getRoots();
+    const internalInputs = makePublicInputs({
+      root: rootBytes,
+      identityRoot: identityRootBytes,
+      nullifiers: [buf(internalNullifier), zero32(), zero32(), zero32()],
+      outputCommitments: [zero32(), zero32()],
+      outputEnabled: [1, 0],
+      amountOut: 0n,
+      feeAmount: 0n,
+      circuitId: 0,
+    });
+
     await program.methods
       .internalTransfer({
-        proof: groth16.proof,
-        publicInputs: groth16.publicInputs,
-        nullifier: buf(internalNullifier),
-        root: buf(NEW_ROOT),
+        proof: dummyProof,
+        publicInputs: internalInputs,
         newRoot: buf(internalRoot),
-        ciphertextNew: buf(CIPHERTEXT),
-        recipientTagHash: buf(new Uint8Array(32)),
       })
       .accounts({
         config: configPda,
         shieldedState: shieldedPda,
+        identityRegistry: identityRegistryPda,
         nullifierSet: nullifierPda,
         verifierProgram: verifierProgram.programId,
         verifierKey: verifierKeyPda,
@@ -553,20 +687,31 @@ describe("veilpay", () => {
       recipient.publicKey
     );
 
+    const externalInputs = makePublicInputs({
+      root: buf(internalRoot),
+      identityRoot: identityRootBytes,
+      nullifiers: [buf(externalNullifier), zero32(), zero32(), zero32()],
+      outputCommitments: [zero32(), zero32()],
+      outputEnabled: [0, 0],
+      amountOut: 25_000n,
+      feeAmount: 0n,
+      circuitId: 0,
+    });
+
     await program.methods
       .externalTransfer({
         amount: new anchor.BN(25_000),
-        proof: groth16.proof,
-        publicInputs: groth16.publicInputs,
-        nullifier: buf(externalNullifier),
-        root: buf(internalRoot),
+        proof: dummyProof,
+        publicInputs: externalInputs,
         relayerFeeBps: 0,
+        newRoot: buf(NEW_ROOT),
       })
       .accounts({
         config: configPda,
         vault: vaultPda,
         vaultAta,
         shieldedState: shieldedPda,
+        identityRegistry: identityRegistryPda,
         nullifierSet: nullifierPda,
         destinationAta: recipientAta,
         relayerFeeAta: null,

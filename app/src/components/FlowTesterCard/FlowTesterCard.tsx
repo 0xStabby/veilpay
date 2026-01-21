@@ -200,6 +200,7 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
                         nextNullifier,
                         onStatus,
                         onDebit,
+                        onRootChange: handleRootUpdate,
                     });
                     runningBalance -= useAmount;
                     if (onRecord) {
@@ -287,6 +288,7 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
                         intentHash: createResult.intentHash,
                         onStatus,
                         onDebit,
+                        onRootChange: handleRootUpdate,
                     });
                     runningBalance -= useAmount;
                     if (onRecord) {
@@ -379,6 +381,7 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
                         nextNullifier,
                         onStatus,
                         onDebit,
+                        onRootChange: handleRootUpdate,
                     });
                     runningBalance -= useAmount;
                     if (onRecord) {

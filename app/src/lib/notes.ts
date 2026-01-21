@@ -16,6 +16,8 @@ export type NoteRecord = {
     c2Amount: string;
     c2Randomness: string;
     encRandomness: string;
+    recipientPubkeyX: string;
+    recipientPubkeyY: string;
     leafIndex: number;
     spent: boolean;
 };
@@ -86,6 +88,33 @@ export function findSpendableNote(mint: PublicKey, amount?: bigint): NoteRecord 
         return notes[0] ?? null;
     }
     return notes.find((note) => BigInt(note.amount) === amount) ?? null;
+}
+
+export function listSpendableNotes(mint: PublicKey): NoteRecord[] {
+    return loadNotes(mint).filter((note) => !note.spent);
+}
+
+export function sumSpendableNotes(mint: PublicKey): bigint {
+    return listSpendableNotes(mint).reduce((sum, note) => sum + BigInt(note.amount), 0n);
+}
+
+export function selectNotesForAmount(
+    mint: PublicKey,
+    amount: bigint,
+    maxInputs = 4
+): { notes: NoteRecord[]; total: bigint } {
+    const available = listSpendableNotes(mint).sort(
+        (a, b) => Number(BigInt(a.amount) - BigInt(b.amount))
+    );
+    const selected: NoteRecord[] = [];
+    let total = 0n;
+    for (const note of available) {
+        if (selected.length >= maxInputs) break;
+        selected.push(note);
+        total += BigInt(note.amount);
+        if (total >= amount) break;
+    }
+    return { notes: selected, total };
 }
 
 export function markNoteSpent(mint: PublicKey, noteId: string) {
@@ -196,6 +225,7 @@ export async function createNote(params: {
     const tagHash = await recipientTagHash(recipient);
     const commitment = await computeCommitment(amount, randomness, tagHash);
     const encryption = await encryptNotePayload({ recipient, amount, randomness });
+    const recipientPubkey = await getRecipientKeypair(recipient);
 
     const note: NoteRecord = {
         id: `${mint.toBase58()}:${leafIndex}`,
@@ -210,6 +240,8 @@ export async function createNote(params: {
         c2Amount: encryption.c2Amount.toString(),
         c2Randomness: encryption.c2Randomness.toString(),
         encRandomness: encryption.encRandomness.toString(),
+        recipientPubkeyX: recipientPubkey.pubkey[0].toString(),
+        recipientPubkeyY: recipientPubkey.pubkey[1].toString(),
         leafIndex,
         spent: false,
     };

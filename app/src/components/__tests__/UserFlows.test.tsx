@@ -47,6 +47,7 @@ describe('User flow cards', () => {
                 mintDecimals={decimals}
                 shieldedBalance={balance}
                 onDebit={() => undefined}
+                onRootChange={() => undefined}
             />
         );
 

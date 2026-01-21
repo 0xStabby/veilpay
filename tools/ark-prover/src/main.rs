@@ -107,15 +107,35 @@ fn run() -> Result<()> {
 
     let expected_inputs = [
         "root",
-        "nullifier",
-        "recipient_tag_hash",
-        "ciphertext_commitment",
+        "identity_root",
+        "nullifier[0]",
+        "nullifier[1]",
+        "nullifier[2]",
+        "nullifier[3]",
+        "output_commitment[0]",
+        "output_commitment[1]",
+        "output_enabled[0]",
+        "output_enabled[1]",
+        "amount_out",
+        "fee_amount",
         "circuit_id",
     ];
     for (index, name) in expected_inputs.iter().enumerate() {
-        let value = input_obj
-            .get(*name)
-            .ok_or_else(|| anyhow!("missing input {name}"))?;
+        let value = if let Some((base, idx)) = name.split_once('[') {
+            let idx = idx.trim_end_matches(']').parse::<usize>()?;
+            let array = input_obj
+                .get(base)
+                .ok_or_else(|| anyhow!("missing input {base}"))?
+                .as_array()
+                .ok_or_else(|| anyhow!("input {base} must be array"))?;
+            array
+                .get(idx)
+                .ok_or_else(|| anyhow!("missing input {base}[{idx}]"))?
+        } else {
+            input_obj
+                .get(*name)
+                .ok_or_else(|| anyhow!("missing input {name}"))?
+        };
         let big = parse_big(value)?;
         let fr = Fr::from_be_bytes_mod_order(&big.to_bytes_be());
         if public_inputs

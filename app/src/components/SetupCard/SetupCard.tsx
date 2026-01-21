@@ -7,6 +7,7 @@ import styles from './SetupCard.module.css';
 import {
     airdropSol,
     initializeConfig,
+    initializeIdentityRegistry,
     initializeMintState,
     initializeVerifierKey,
     initializeVkRegistry,
@@ -63,6 +64,13 @@ export const SetupCard: FC<SetupCardProps> = ({
         if (!verifierProgram || !publicKey) return;
         setBusy(true);
         await initializeVerifierKey({ program: verifierProgram, admin: publicKey, onStatus });
+        setBusy(false);
+    };
+
+    const handleInitializeIdentityRegistry = async () => {
+        if (!veilpayProgram || !publicKey) return;
+        setBusy(true);
+        await initializeIdentityRegistry({ program: veilpayProgram, admin: publicKey, onStatus });
         setBusy(false);
     };
 
@@ -132,6 +140,9 @@ export const SetupCard: FC<SetupCardProps> = ({
                 </button>
                 <button className={styles.button} onClick={handleInitializeVkRegistry} disabled={!publicKey || busy}>
                     Initialize VK registry
+                </button>
+                <button className={styles.button} onClick={handleInitializeIdentityRegistry} disabled={!publicKey || busy}>
+                    Initialize identity registry
                 </button>
                 <button className={styles.button} onClick={handleInitializeVerifierKey} disabled={!publicKey || busy}>
                     Initialize verifier key

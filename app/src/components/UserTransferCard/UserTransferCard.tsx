@@ -39,6 +39,7 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
     embedded = false,
 }) => {
     const [internalRecipient, setInternalRecipient] = useState('');
+    const [internalAmount, setInternalAmount] = useState('250000');
     const [externalRecipient, setExternalRecipient] = useState('');
     const [externalAmount, setExternalAmount] = useState('250000');
     const [busy, setBusy] = useState(false);
@@ -79,6 +80,8 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
                 verifierProgram,
                 mint: parsedMint,
                 recipient: parsedInternalRecipient,
+                amount: internalAmount,
+                mintDecimals: mintDecimals ?? undefined,
                 root,
                 nextNullifier,
                 onStatus,
@@ -132,6 +135,7 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
                 nextNullifier,
                 onStatus,
                 onDebit,
+                onRootChange,
             });
             if (onRecord) {
                 const { createTransactionRecord } = await import('../../lib/transactions');
@@ -175,6 +179,19 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
             </header>
             <div className={styles.column}>
                 <h3>Internal</h3>
+                <label className={styles.label}>
+                    Amount (tokens)
+                    <input value={internalAmount} onChange={(event) => setInternalAmount(event.target.value)} />
+                </label>
+                {mintDecimals !== null && (
+                    <button
+                        type="button"
+                        className={styles.balanceButton}
+                        onClick={() => setInternalAmount(formatTokenAmount(shieldedBalance, mintDecimals))}
+                    >
+                        VeilPay balance: {formatTokenAmount(shieldedBalance, mintDecimals)}
+                    </button>
+                )}
                 <label className={styles.label}>
                     Recipient wallet
                     <input value={internalRecipient} onChange={(event) => setInternalRecipient(event.target.value)} />

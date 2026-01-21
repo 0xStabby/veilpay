@@ -2,7 +2,15 @@ import { useEffect, useState } from 'react';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { getAccount, getAssociatedTokenAddress, getMint } from '@solana/spl-token';
 import { Program } from '@coral-xyz/anchor';
-import { deriveConfig, deriveNullifierSet, deriveShielded, deriveVault, deriveVkRegistry, deriveVerifierKey } from '../lib/pda';
+import {
+    deriveConfig,
+    deriveIdentityRegistry,
+    deriveNullifierSet,
+    deriveShielded,
+    deriveVault,
+    deriveVkRegistry,
+    deriveVerifierKey,
+} from '../lib/pda';
 import { VEILPAY_PROGRAM_ID, VERIFIER_PROGRAM_ID, WSOL_MINT } from '../lib/config';
 
 type ChecklistItem = {
@@ -88,6 +96,16 @@ export function useAdminChecklist(params: {
                 id: 'vk-registry',
                 label: 'Initialize VK registry',
                 done: vkRegistryOk,
+            });
+
+            const identityRegistryPda = veilpayProgram ? deriveIdentityRegistry(veilpayProgram.programId) : null;
+            const identityRegistryOk = identityRegistryPda
+                ? await connection.getAccountInfo(identityRegistryPda).then((info) => !!info).catch(() => false)
+                : false;
+            items.push({
+                id: 'identity-registry',
+                label: 'Initialize identity registry',
+                done: identityRegistryOk,
             });
 
             const verifierKeyPda = verifierProgram ? deriveVerifierKey(verifierProgram.programId, 0) : null;

@@ -7,7 +7,7 @@ use solana_bn254::prelude::{
 
 declare_id!("CKzPKEVD9Bq5Q4iJzALC1Zuk66wwGwK52XsKmFDELYZe");
 
-const MAX_PUBLIC_INPUTS: usize = 8;
+const MAX_PUBLIC_INPUTS: usize = 16;
 
 #[program]
 pub mod verifier {
@@ -21,22 +21,23 @@ pub mod verifier {
             args.gamma_abc.len() <= MAX_PUBLIC_INPUTS + 1,
             VerifierError::TooManyInputs
         );
-        require!(
-            args.public_inputs_len as usize + 1 == args.gamma_abc.len(),
-            VerifierError::InvalidInputCount
-        );
+        if args.mock {
+            require!(args.public_inputs_len as usize <= MAX_PUBLIC_INPUTS, VerifierError::InvalidInputCount);
+            require!(!args.gamma_abc.is_empty(), VerifierError::InvalidInputCount);
+        } else {
+            require!(
+                args.public_inputs_len as usize + 1 == args.gamma_abc.len(),
+                VerifierError::InvalidInputCount
+            );
+        }
 
         let key = &mut ctx.accounts.verifier_key;
-        key.alpha_g1 = to_fixed_64(&args.alpha_g1)?;
-        key.beta_g2 = to_fixed_128(&args.beta_g2)?;
-        key.gamma_g2 = to_fixed_128(&args.gamma_g2)?;
-        key.delta_g2 = to_fixed_128(&args.delta_g2)?;
+        key.alpha_g1 = args.alpha_g1;
+        key.beta_g2 = args.beta_g2;
+        key.gamma_g2 = args.gamma_g2;
+        key.delta_g2 = args.delta_g2;
         key.public_inputs_len = args.public_inputs_len;
-        key.gamma_abc = args
-            .gamma_abc
-            .into_iter()
-            .map(|v| to_fixed_64(&v))
-            .collect::<Result<Vec<[u8; 64]>>>()?;
+        key.gamma_abc = args.gamma_abc;
         key.mock = args.mock;
         key.bump = ctx.bumps.verifier_key;
         Ok(())
@@ -53,7 +54,6 @@ pub mod verifier {
             VerifierError::InvalidInputCount
         );
         if key.mock {
-            let _ = parse_proof(&proof)?;
             return Ok(());
         }
 
@@ -118,12 +118,12 @@ pub struct VerifierKey {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct InitializeVerifierKeyArgs {
     pub key_id: u32,
-    pub alpha_g1: Vec<u8>,
-    pub beta_g2: Vec<u8>,
-    pub gamma_g2: Vec<u8>,
-    pub delta_g2: Vec<u8>,
+    pub alpha_g1: [u8; 64],
+    pub beta_g2: [u8; 128],
+    pub gamma_g2: [u8; 128],
+    pub delta_g2: [u8; 128],
     pub public_inputs_len: u32,
-    pub gamma_abc: Vec<Vec<u8>>,
+    pub gamma_abc: Vec<[u8; 64]>,
     pub mock: bool,
 }
 

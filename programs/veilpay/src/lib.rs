@@ -6,6 +6,9 @@ declare_id!("4C6H1aqxks1AgjtsLPbNrDXFsb6DwQ6c1Jhw2ZugTLv2");
 
 const MAX_ALLOWLIST: usize = 32;
 const MAX_CIRCUITS: usize = 8;
+const MAX_INPUTS: usize = 4;
+const MAX_OUTPUTS: usize = 2;
+const PUBLIC_INPUTS_LEN: usize = 13;
 const MAX_ROOT_HISTORY: usize = 32;
 const MAX_VK_ENTRIES: usize = 16;
 const NULLIFIER_BITS: usize = 8192;
@@ -64,6 +67,23 @@ pub mod veilpay {
         let registry = &mut ctx.accounts.vk_registry;
         registry.entries = Vec::new();
         registry.bump = ctx.bumps.vk_registry;
+        Ok(())
+    }
+
+    pub fn initialize_identity_registry(ctx: Context<InitializeIdentityRegistry>) -> Result<()> {
+        let registry = &mut ctx.accounts.identity_registry;
+        registry.merkle_root = ZERO_ROOT;
+        registry.commitment_count = 0;
+        registry.bump = ctx.bumps.identity_registry;
+        Ok(())
+    }
+
+    pub fn register_identity(ctx: Context<RegisterIdentity>, args: RegisterIdentityArgs) -> Result<()> {
+        let _commitment = to_fixed_32(&args.commitment)?;
+        let new_root = to_fixed_32(&args.new_root)?;
+        let registry = &mut ctx.accounts.identity_registry;
+        registry.commitment_count = registry.commitment_count.saturating_add(1);
+        registry.merkle_root = new_root;
         Ok(())
     }
 
@@ -169,7 +189,10 @@ pub mod veilpay {
         Ok(())
     }
 
-    pub fn withdraw(ctx: Context<Withdraw>, args: WithdrawArgs) -> Result<()> {
+    pub fn withdraw<'info>(
+        ctx: Context<'_, '_, 'info, 'info, Withdraw<'info>>,
+        args: WithdrawArgs,
+    ) -> Result<()> {
         require!(!ctx.accounts.config.paused, VeilpayError::ProtocolPaused);
         require!(
             args.relayer_fee_bps <= ctx.accounts.config.relayer_fee_bps_max,
@@ -189,12 +212,35 @@ pub mod veilpay {
             args.proof.clone(),
             args.public_inputs.clone(),
         )?;
-        let root = to_fixed_32(&args.root)?;
-        let nullifier = to_fixed_32(&args.nullifier)?;
-        require!(root_known(&ctx.accounts.shielded_state, root), VeilpayError::UnknownRoot);
-        mark_nullifier(&mut ctx.accounts.nullifier_set, nullifier)?;
-
+        let parsed = parse_public_inputs(&args.public_inputs)?;
+        require!(
+            parsed.amount_out == args.amount,
+            VeilpayError::AmountMismatch
+        );
+        require!(
+            parsed.output_enabled[0] == 0,
+            VeilpayError::InvalidOutputFlags
+        );
+        require!(
+            ctx.accounts.config.circuit_ids.contains(&parsed.circuit_id),
+            VeilpayError::CircuitNotAllowed
+        );
+        require!(
+            parsed.identity_root == ctx.accounts.identity_registry.merkle_root,
+            VeilpayError::IdentityRootMismatch
+        );
+        require!(
+            root_known(&ctx.accounts.shielded_state, parsed.root),
+            VeilpayError::UnknownRoot
+        );
         let (net_amount, fee_amount) = split_relayer_fee(args.amount, args.relayer_fee_bps)?;
+        require!(fee_amount == parsed.fee_amount, VeilpayError::FeeMismatch);
+        mark_nullifiers(
+            &mut ctx.accounts.nullifier_set,
+            ctx.remaining_accounts,
+            &parsed.nullifiers,
+        )?;
+
         let bump_seed = [ctx.accounts.vault.bump];
         let mint_key = ctx.accounts.mint.key();
         let vault_seeds: &[&[u8]] = &[b"vault", mint_key.as_ref(), &bump_seed];
@@ -241,6 +287,13 @@ pub mod veilpay {
             .checked_add(args.amount)
             .ok_or(VeilpayError::MathOverflow)?;
         vault.nonce = vault.nonce.saturating_add(1);
+
+        if parsed.output_enabled[1] == 1 {
+            let new_root = to_fixed_32(&args.new_root)?;
+            let shielded = &mut ctx.accounts.shielded_state;
+            shielded.commitment_count = shielded.commitment_count.saturating_add(1);
+            append_root(shielded, new_root);
+        }
         Ok(())
     }
 
@@ -270,7 +323,10 @@ pub mod veilpay {
         Ok(())
     }
 
-    pub fn settle_authorization(ctx: Context<SettleAuthorization>, args: SettleAuthorizationArgs) -> Result<()> {
+    pub fn settle_authorization<'info>(
+        ctx: Context<'_, '_, 'info, 'info, SettleAuthorization<'info>>,
+        args: SettleAuthorizationArgs,
+    ) -> Result<()> {
         require!(!ctx.accounts.config.paused, VeilpayError::ProtocolPaused);
         require!(
             args.relayer_fee_bps <= ctx.accounts.config.relayer_fee_bps_max,
@@ -300,15 +356,38 @@ pub mod veilpay {
             args.proof.clone(),
             args.public_inputs.clone(),
         )?;
-        let root = to_fixed_32(&args.root)?;
-        let nullifier = to_fixed_32(&args.nullifier)?;
-        require!(root_known(&ctx.accounts.shielded_state, root), VeilpayError::UnknownRoot);
-        mark_nullifier(&mut ctx.accounts.nullifier_set, nullifier)?;
+        let parsed = parse_public_inputs(&args.public_inputs)?;
+        require!(
+            parsed.amount_out == args.amount,
+            VeilpayError::AmountMismatch
+        );
+        require!(
+            parsed.output_enabled[0] == 0,
+            VeilpayError::InvalidOutputFlags
+        );
+        require!(
+            ctx.accounts.config.circuit_ids.contains(&parsed.circuit_id),
+            VeilpayError::CircuitNotAllowed
+        );
+        require!(
+            parsed.identity_root == ctx.accounts.identity_registry.merkle_root,
+            VeilpayError::IdentityRootMismatch
+        );
+        require!(
+            root_known(&ctx.accounts.shielded_state, parsed.root),
+            VeilpayError::UnknownRoot
+        );
+        let (net_amount, fee_amount) = split_relayer_fee(args.amount, args.relayer_fee_bps)?;
+        require!(fee_amount == parsed.fee_amount, VeilpayError::FeeMismatch);
+        mark_nullifiers(
+            &mut ctx.accounts.nullifier_set,
+            ctx.remaining_accounts,
+            &parsed.nullifiers,
+        )?;
 
         let auth = &mut ctx.accounts.authorization;
         auth.status = AuthorizationStatus::Settled as u8;
 
-        let (net_amount, fee_amount) = split_relayer_fee(args.amount, args.relayer_fee_bps)?;
         let bump_seed = [ctx.accounts.vault.bump];
         let mint_key = ctx.accounts.mint.key();
         let vault_seeds: &[&[u8]] = &[b"vault", mint_key.as_ref(), &bump_seed];
@@ -355,10 +434,20 @@ pub mod veilpay {
             .checked_add(args.amount)
             .ok_or(VeilpayError::MathOverflow)?;
         vault.nonce = vault.nonce.saturating_add(1);
+
+        if parsed.output_enabled[1] == 1 {
+            let new_root = to_fixed_32(&args.new_root)?;
+            let shielded = &mut ctx.accounts.shielded_state;
+            shielded.commitment_count = shielded.commitment_count.saturating_add(1);
+            append_root(shielded, new_root);
+        }
         Ok(())
     }
 
-    pub fn internal_transfer(ctx: Context<InternalTransfer>, args: InternalTransferArgs) -> Result<()> {
+    pub fn internal_transfer<'info>(
+        ctx: Context<'_, '_, 'info, 'info, InternalTransfer<'info>>,
+        args: InternalTransferArgs,
+    ) -> Result<()> {
         require!(!ctx.accounts.config.paused, VeilpayError::ProtocolPaused);
         require!(
             ctx.accounts.config.mint_allowlist.contains(&ctx.accounts.mint.key()),
@@ -370,20 +459,43 @@ pub mod veilpay {
             args.proof.clone(),
             args.public_inputs.clone(),
         )?;
-        let root = to_fixed_32(&args.root)?;
-        let new_root = to_fixed_32(&args.new_root)?;
-        let nullifier = to_fixed_32(&args.nullifier)?;
-        let _ciphertext = to_fixed_128(&args.ciphertext_new)?;
-        let _recipient_tag = to_fixed_32(&args.recipient_tag_hash)?;
-        require!(root_known(&ctx.accounts.shielded_state, root), VeilpayError::UnknownRoot);
-        mark_nullifier(&mut ctx.accounts.nullifier_set, nullifier)?;
+        let parsed = parse_public_inputs(&args.public_inputs)?;
+        require!(parsed.amount_out == 0, VeilpayError::InvalidOutputFlags);
+        require!(parsed.fee_amount == 0, VeilpayError::InvalidOutputFlags);
+        require!(
+            parsed.output_enabled[0] == 1,
+            VeilpayError::InvalidOutputFlags
+        );
+        require!(
+            ctx.accounts.config.circuit_ids.contains(&parsed.circuit_id),
+            VeilpayError::CircuitNotAllowed
+        );
+        require!(
+            parsed.identity_root == ctx.accounts.identity_registry.merkle_root,
+            VeilpayError::IdentityRootMismatch
+        );
+        require!(
+            root_known(&ctx.accounts.shielded_state, parsed.root),
+            VeilpayError::UnknownRoot
+        );
+        mark_nullifiers(
+            &mut ctx.accounts.nullifier_set,
+            ctx.remaining_accounts,
+            &parsed.nullifiers,
+        )?;
         let shielded = &mut ctx.accounts.shielded_state;
-        shielded.commitment_count = shielded.commitment_count.saturating_add(1);
+        let new_root = to_fixed_32(&args.new_root)?;
+        let output_count = (parsed.output_enabled[0] + parsed.output_enabled[1]) as u64;
+        require!(output_count > 0, VeilpayError::InvalidOutputFlags);
+        shielded.commitment_count = shielded.commitment_count.saturating_add(output_count);
         append_root(shielded, new_root);
         Ok(())
     }
 
-    pub fn external_transfer(ctx: Context<ExternalTransfer>, args: ExternalTransferArgs) -> Result<()> {
+    pub fn external_transfer<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ExternalTransfer<'info>>,
+        args: ExternalTransferArgs,
+    ) -> Result<()> {
         require!(!ctx.accounts.config.paused, VeilpayError::ProtocolPaused);
         require!(
             args.relayer_fee_bps <= ctx.accounts.config.relayer_fee_bps_max,
@@ -403,12 +515,35 @@ pub mod veilpay {
             args.proof.clone(),
             args.public_inputs.clone(),
         )?;
-        let root = to_fixed_32(&args.root)?;
-        let nullifier = to_fixed_32(&args.nullifier)?;
-        require!(root_known(&ctx.accounts.shielded_state, root), VeilpayError::UnknownRoot);
-        mark_nullifier(&mut ctx.accounts.nullifier_set, nullifier)?;
-
+        let parsed = parse_public_inputs(&args.public_inputs)?;
+        require!(
+            parsed.amount_out == args.amount,
+            VeilpayError::AmountMismatch
+        );
+        require!(
+            parsed.output_enabled[0] == 0,
+            VeilpayError::InvalidOutputFlags
+        );
+        require!(
+            ctx.accounts.config.circuit_ids.contains(&parsed.circuit_id),
+            VeilpayError::CircuitNotAllowed
+        );
+        require!(
+            parsed.identity_root == ctx.accounts.identity_registry.merkle_root,
+            VeilpayError::IdentityRootMismatch
+        );
+        require!(
+            root_known(&ctx.accounts.shielded_state, parsed.root),
+            VeilpayError::UnknownRoot
+        );
         let (net_amount, fee_amount) = split_relayer_fee(args.amount, args.relayer_fee_bps)?;
+        require!(fee_amount == parsed.fee_amount, VeilpayError::FeeMismatch);
+        mark_nullifiers(
+            &mut ctx.accounts.nullifier_set,
+            ctx.remaining_accounts,
+            &parsed.nullifiers,
+        )?;
+
         let bump_seed = [ctx.accounts.vault.bump];
         let mint_key = ctx.accounts.mint.key();
         let vault_seeds: &[&[u8]] = &[b"vault", mint_key.as_ref(), &bump_seed];
@@ -455,6 +590,13 @@ pub mod veilpay {
             .checked_add(args.amount)
             .ok_or(VeilpayError::MathOverflow)?;
         vault.nonce = vault.nonce.saturating_add(1);
+
+        if parsed.output_enabled[1] == 1 {
+            let new_root = to_fixed_32(&args.new_root)?;
+            let shielded = &mut ctx.accounts.shielded_state;
+            shielded.commitment_count = shielded.commitment_count.saturating_add(1);
+            append_root(shielded, new_root);
+        }
         Ok(())
     }
 }
@@ -494,6 +636,29 @@ pub struct InitializeVkRegistry<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct InitializeIdentityRegistry<'info> {
+    #[account(
+        init,
+        payer = admin,
+        space = 8 + IdentityRegistry::INIT_SPACE,
+        seeds = [b"identity_registry"],
+        bump
+    )]
+    pub identity_registry: Account<'info, IdentityRegistry>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct RegisterIdentity<'info> {
+    #[account(mut, seeds = [b"identity_registry"], bump = identity_registry.bump)]
+    pub identity_registry: Account<'info, IdentityRegistry>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
 }
 
 #[derive(Accounts)]
@@ -585,6 +750,8 @@ pub struct Withdraw<'info> {
     pub vault_ata: Box<Account<'info, TokenAccount>>,
     #[account(seeds = [b"shielded", mint.key().as_ref()], bump = shielded_state.bump)]
     pub shielded_state: Box<Account<'info, ShieldedState>>,
+    #[account(seeds = [b"identity_registry"], bump = identity_registry.bump)]
+    pub identity_registry: Box<Account<'info, IdentityRegistry>>,
     #[account(mut)]
     pub nullifier_set: Box<Account<'info, NullifierSet>>,
     #[account(mut)]
@@ -627,6 +794,8 @@ pub struct SettleAuthorization<'info> {
     pub vault_ata: Box<Account<'info, TokenAccount>>,
     #[account(seeds = [b"shielded", mint.key().as_ref()], bump = shielded_state.bump)]
     pub shielded_state: Box<Account<'info, ShieldedState>>,
+    #[account(seeds = [b"identity_registry"], bump = identity_registry.bump)]
+    pub identity_registry: Box<Account<'info, IdentityRegistry>>,
     #[account(mut)]
     pub nullifier_set: Box<Account<'info, NullifierSet>>,
     #[account(mut)]
@@ -645,6 +814,8 @@ pub struct InternalTransfer<'info> {
     pub config: Account<'info, Config>,
     #[account(mut, seeds = [b"shielded", mint.key().as_ref()], bump = shielded_state.bump)]
     pub shielded_state: Box<Account<'info, ShieldedState>>,
+    #[account(seeds = [b"identity_registry"], bump = identity_registry.bump)]
+    pub identity_registry: Box<Account<'info, IdentityRegistry>>,
     #[account(mut)]
     pub nullifier_set: Box<Account<'info, NullifierSet>>,
     pub verifier_program: Program<'info, verifier::program::Verifier>,
@@ -662,6 +833,8 @@ pub struct ExternalTransfer<'info> {
     pub vault_ata: Box<Account<'info, TokenAccount>>,
     #[account(seeds = [b"shielded", mint.key().as_ref()], bump = shielded_state.bump)]
     pub shielded_state: Box<Account<'info, ShieldedState>>,
+    #[account(seeds = [b"identity_registry"], bump = identity_registry.bump)]
+    pub identity_registry: Box<Account<'info, IdentityRegistry>>,
     #[account(mut)]
     pub nullifier_set: Box<Account<'info, NullifierSet>>,
     #[account(mut)]
@@ -695,10 +868,9 @@ pub struct DepositArgs {
 pub struct WithdrawArgs {
     pub amount: u64,
     pub proof: Vec<u8>,
-    pub nullifier: Vec<u8>,
-    pub root: Vec<u8>,
     pub public_inputs: Vec<u8>,
     pub relayer_fee_bps: u16,
+    pub new_root: Vec<u8>,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -717,31 +889,31 @@ pub struct CreateAuthorizationArgs {
 pub struct SettleAuthorizationArgs {
     pub amount: u64,
     pub proof: Vec<u8>,
-    pub nullifier: Vec<u8>,
-    pub root: Vec<u8>,
     pub public_inputs: Vec<u8>,
     pub relayer_fee_bps: u16,
+    pub new_root: Vec<u8>,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct InternalTransferArgs {
     pub proof: Vec<u8>,
-    pub nullifier: Vec<u8>,
-    pub root: Vec<u8>,
-    pub new_root: Vec<u8>,
-    pub ciphertext_new: Vec<u8>,
-    pub recipient_tag_hash: Vec<u8>,
     pub public_inputs: Vec<u8>,
+    pub new_root: Vec<u8>,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct ExternalTransferArgs {
     pub amount: u64,
     pub proof: Vec<u8>,
-    pub nullifier: Vec<u8>,
-    pub root: Vec<u8>,
     pub public_inputs: Vec<u8>,
     pub relayer_fee_bps: u16,
+    pub new_root: Vec<u8>,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct RegisterIdentityArgs {
+    pub commitment: Vec<u8>,
+    pub new_root: Vec<u8>,
 }
 
 #[account]
@@ -783,6 +955,14 @@ pub struct ShieldedState {
     pub commitment_count: u64,
     pub circuit_id: u32,
     pub version: u32,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct IdentityRegistry {
+    pub merkle_root: [u8; 32],
+    pub commitment_count: u64,
     pub bump: u8,
 }
 
@@ -858,6 +1038,115 @@ fn to_fixed_128(bytes: &[u8]) -> Result<[u8; 128]> {
     let mut out = [0u8; 128];
     out.copy_from_slice(bytes);
     Ok(out)
+}
+
+#[derive(Clone)]
+struct ParsedPublicInputs {
+    root: [u8; 32],
+    identity_root: [u8; 32],
+    nullifiers: [[u8; 32]; MAX_INPUTS],
+    output_commitments: [[u8; 32]; MAX_OUTPUTS],
+    output_enabled: [u8; MAX_OUTPUTS],
+    amount_out: u64,
+    fee_amount: u64,
+    circuit_id: u32,
+}
+
+fn parse_public_inputs(bytes: &[u8]) -> Result<ParsedPublicInputs> {
+    require!(
+        bytes.len() == PUBLIC_INPUTS_LEN * 32,
+        VeilpayError::InvalidPublicInputs
+    );
+    let chunks: Vec<[u8; 32]> = bytes
+        .chunks(32)
+        .map(|chunk| {
+            let mut out = [0u8; 32];
+            out.copy_from_slice(chunk);
+            out
+        })
+        .collect();
+    let root = chunks[0];
+    let identity_root = chunks[1];
+    let mut nullifiers = [[0u8; 32]; MAX_INPUTS];
+    for i in 0..MAX_INPUTS {
+        nullifiers[i] = chunks[2 + i];
+    }
+    let mut output_commitments = [[0u8; 32]; MAX_OUTPUTS];
+    for i in 0..MAX_OUTPUTS {
+        output_commitments[i] = chunks[2 + MAX_INPUTS + i];
+    }
+    let mut output_enabled = [0u8; MAX_OUTPUTS];
+    for i in 0..MAX_OUTPUTS {
+        output_enabled[i] = parse_u8(&chunks[2 + MAX_INPUTS + MAX_OUTPUTS + i])?;
+    }
+    let amount_out = parse_u64(&chunks[2 + MAX_INPUTS + MAX_OUTPUTS + MAX_OUTPUTS])?;
+    let fee_amount = parse_u64(&chunks[2 + MAX_INPUTS + MAX_OUTPUTS + MAX_OUTPUTS + 1])?;
+    let circuit_id = parse_u32(&chunks[2 + MAX_INPUTS + MAX_OUTPUTS + MAX_OUTPUTS + 2])?;
+    Ok(ParsedPublicInputs {
+        root,
+        identity_root,
+        nullifiers,
+        output_commitments,
+        output_enabled,
+        amount_out,
+        fee_amount,
+        circuit_id,
+    })
+}
+
+fn parse_u64(bytes: &[u8; 32]) -> Result<u64> {
+    if bytes[..24].iter().any(|b| *b != 0) {
+        return Err(error!(VeilpayError::InvalidPublicInputs));
+    }
+    Ok(u64::from_be_bytes(bytes[24..].try_into().unwrap()))
+}
+
+fn parse_u32(bytes: &[u8; 32]) -> Result<u32> {
+    if bytes[..28].iter().any(|b| *b != 0) {
+        return Err(error!(VeilpayError::InvalidPublicInputs));
+    }
+    Ok(u32::from_be_bytes(bytes[28..].try_into().unwrap()))
+}
+
+fn parse_u8(bytes: &[u8; 32]) -> Result<u8> {
+    let value = parse_u64(bytes)?;
+    require!(value <= 1, VeilpayError::InvalidPublicInputs);
+    Ok(value as u8)
+}
+
+fn mark_nullifiers<'info>(
+    primary: &mut Account<'info, NullifierSet>,
+    remaining: &'info [AccountInfo<'info>],
+    nullifiers: &[[u8; 32]; MAX_INPUTS],
+) -> Result<()> {
+    for nullifier in nullifiers {
+        if is_zero_32(nullifier) {
+            continue;
+        }
+        let (chunk_index, _) = nullifier_position(nullifier);
+        if primary.chunk_index == chunk_index {
+            mark_nullifier(primary, *nullifier)?;
+            continue;
+        }
+        let mut matched: Option<Account<NullifierSet>> = None;
+        for info in remaining {
+            if !info.is_writable {
+                continue;
+            }
+            let set = Account::<NullifierSet>::try_from(info)?;
+            if set.chunk_index == chunk_index {
+                matched = Some(set);
+                break;
+            }
+        }
+        let mut set = matched.ok_or(VeilpayError::MissingNullifierAccount)?;
+        mark_nullifier(&mut set, *nullifier)?;
+    }
+    Ok(())
+}
+
+fn is_zero_32(value: &[u8; 32]) -> bool {
+    value.iter().all(|b| *b == 0)
 }
 
 fn root_known(state: &ShieldedState, root: [u8; 32]) -> bool {
@@ -943,6 +1232,8 @@ pub enum VeilpayError {
     InvalidVaultAuthority,
     #[msg("Unknown root")]
     UnknownRoot,
+    #[msg("Identity root mismatch")]
+    IdentityRootMismatch,
     #[msg("Authorization not open")]
     AuthorizationNotOpen,
     #[msg("Authorization expired")]
@@ -957,4 +1248,16 @@ pub enum VeilpayError {
     InvalidRelayerFeeAccount,
     #[msg("Relayer fee exceeds amount")]
     RelayerFeeExceedsAmount,
+    #[msg("Invalid public inputs")]
+    InvalidPublicInputs,
+    #[msg("Circuit not allowed")]
+    CircuitNotAllowed,
+    #[msg("Amount mismatch")]
+    AmountMismatch,
+    #[msg("Fee mismatch")]
+    FeeMismatch,
+    #[msg("Invalid output flags")]
+    InvalidOutputFlags,
+    #[msg("Missing nullifier account")]
+    MissingNullifierAccount,
 }
