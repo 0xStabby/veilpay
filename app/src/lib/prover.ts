@@ -36,6 +36,10 @@ export async function computeCommitment(
     return await poseidonHash([amount, randomness, recipientTagHash]);
 }
 
+export async function computeIdentityCommitment(identitySecret: bigint): Promise<bigint> {
+    return await poseidonHash([identitySecret]);
+}
+
 export const bigIntToBytes32 = (value: bigint): Uint8Array => {
     let hex = value.toString(16);
     if (hex.length > 64) {
@@ -84,9 +88,17 @@ export async function preflightVerify(
 export function formatPublicSignals(publicSignals: string[]): string {
     const labels = [
         'root',
-        'nullifier',
-        'recipient_tag_hash',
-        'ciphertext_commitment',
+        'identity_root',
+        'nullifier_0',
+        'nullifier_1',
+        'nullifier_2',
+        'nullifier_3',
+        'output_commitment_0',
+        'output_commitment_1',
+        'output_enabled_0',
+        'output_enabled_1',
+        'amount_out',
+        'fee_amount',
         'circuit_id',
     ];
     return labels

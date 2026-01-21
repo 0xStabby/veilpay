@@ -583,6 +583,8 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                     verifierProgram: programsA.verifier,
                     mint: parsedMint,
                     recipient: walletB.publicKey,
+                    amount: spendAmountString,
+                    mintDecimals,
                     root: rootRef.current,
                     nextNullifier,
                     onStatus,
@@ -630,6 +632,10 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                     intentHash: createResult.intentHash,
                     onStatus,
                     onDebit: () => undefined,
+                    onRootChange: (next) => {
+                        rootRef.current = next;
+                        onRootChange(next);
+                    },
                 });
                 await recordTx('wallet-b:auth-settle', settleResult.signature, true, {
                     mint: parsedMint.toBase58(),
@@ -647,6 +653,8 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                     verifierProgram: programsB.verifier,
                     mint: parsedMint,
                     recipient: walletC.publicKey,
+                    amount: spendAmountString,
+                    mintDecimals,
                     root: rootRef.current,
                     nextNullifier,
                     onStatus,
@@ -676,6 +684,10 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                     nextNullifier,
                     onStatus,
                     onDebit: () => undefined,
+                    onRootChange: (next) => {
+                        rootRef.current = next;
+                        onRootChange(next);
+                    },
                 });
                 await recordTx('wallet-c:withdraw', result.signature, true, {
                     mint: parsedMint.toBase58(),
@@ -700,6 +712,10 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                     nextNullifier,
                     onStatus,
                     onDebit: () => undefined,
+                    onRootChange: (next) => {
+                        rootRef.current = next;
+                        onRootChange(next);
+                    },
                 });
                 await recordTx('wallet-b:external', result.signature, true, {
                     mint: parsedMint.toBase58(),

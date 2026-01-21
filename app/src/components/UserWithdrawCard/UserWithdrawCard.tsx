@@ -18,6 +18,7 @@ type UserWithdrawCardProps = {
     mintDecimals: number | null;
     shieldedBalance: bigint;
     onDebit: (amount: bigint) => void;
+    onRootChange: (next: Uint8Array) => void;
     onRecord?: (record: import('../../lib/transactions').TransactionRecord) => string;
     onRecordUpdate?: (id: string, patch: import('../../lib/transactions').TransactionRecordPatch) => void;
     embedded?: boolean;
@@ -33,6 +34,7 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
     mintDecimals,
     shieldedBalance,
     onDebit,
+    onRootChange,
     onRecord,
     onRecordUpdate,
     embedded = false,
@@ -74,6 +76,7 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
                 nextNullifier,
                 onStatus,
                 onDebit,
+                onRootChange,
             });
             if (onRecord) {
                 const { createTransactionRecord } = await import('../../lib/transactions');

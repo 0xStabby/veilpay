@@ -12,6 +12,7 @@ import {
   eciesEncrypt,
   eciesDecrypt,
 } from "../sdk/src/notes";
+import { buildBabyjub } from "circomlibjs";
 
 describe("ecies privacy", () => {
   const buildDir = path.join(process.cwd(), "circuits", "build");
@@ -50,27 +51,77 @@ describe("ecies privacy", () => {
     const commitment = await computeCommitment(amount, randomness, recipientTagHash);
     const { root, pathElements, pathIndices } = await getMerklePath([commitment], 0);
     const nullifier = await poseidonHash([senderSecret, leafIndex]);
-    const enc = await eciesEncrypt({ recipientPubkey: pubkey, amount, randomness });
+    const babyjub = await buildBabyjub();
+    const FIELD_MODULUS = BigInt(
+      "21888242871839275222246405745257275088548364400416034343698204186575808495617"
+    );
+    const modField = (value: bigint) => {
+      const mod = value % FIELD_MODULUS;
+      return mod >= 0n ? mod : mod + FIELD_MODULUS;
+    };
+    const encRandomness = 424242n;
+    const c1Point = babyjub.mulPointEscalar(babyjub.Base8, encRandomness);
+    const c1x = BigInt(babyjub.F.toObject(c1Point[0]));
+    const c1y = BigInt(babyjub.F.toObject(c1Point[1]));
+    const sharedPoint = babyjub.mulPointEscalar(
+      [babyjub.F.e(pubkey[0]), babyjub.F.e(pubkey[1])],
+      encRandomness
+    );
+    const sharedX = BigInt(babyjub.F.toObject(sharedPoint[0]));
+    const sharedY = BigInt(babyjub.F.toObject(sharedPoint[1]));
+    const maskAmount = await poseidonHash([sharedX, sharedY, 0n]);
+    const maskRandomness = await poseidonHash([sharedX, sharedY, 1n]);
+    const c2Amount = modField(amount + maskAmount);
+    const c2Randomness = modField(randomness + maskRandomness);
+
+    const identitySecret = 222222n;
+    const identityCommitment = await poseidonHash([identitySecret]);
+    const {
+      root: identityRoot,
+      pathElements: identityPathElements,
+      pathIndices: identityPathIndices,
+    } = await getMerklePath([identityCommitment], 0);
 
     const input = {
       root: root.toString(),
-      nullifier: nullifier.toString(),
-      recipient_tag_hash: recipientTagHash.toString(),
-      ciphertext_commitment: commitment.toString(),
+      identity_root: identityRoot.toString(),
+      nullifier: [nullifier.toString(), "0", "0", "0"],
+      output_commitment: [commitment.toString(), "0"],
+      output_enabled: [1, 0],
+      amount_out: "0",
+      fee_amount: "0",
       circuit_id: "0",
-      amount: amount.toString(),
-      randomness: randomness.toString(),
-      sender_secret: senderSecret.toString(),
-      leaf_index: leafIndex.toString(),
-      path_elements: pathElements.map((value) => value.toString()),
-      path_index: pathIndices,
-      recipient_pubkey_x: pubkey[0].toString(),
-      recipient_pubkey_y: pubkey[1].toString(),
-      enc_randomness: enc.encRandomness.toString(),
-      c1x: enc.c1x.toString(),
-      c1y: enc.c1y.toString(),
-      c2_amount: enc.c2Amount.toString(),
-      c2_randomness: enc.c2Randomness.toString(),
+      input_enabled: [1, 0, 0, 0],
+      input_amount: [amount.toString(), "0", "0", "0"],
+      input_randomness: [randomness.toString(), "0", "0", "0"],
+      input_sender_secret: [senderSecret.toString(), "0", "0", "0"],
+      input_leaf_index: [leafIndex.toString(), "0", "0", "0"],
+      input_recipient_tag_hash: [recipientTagHash.toString(), "0", "0", "0"],
+      input_path_elements: [
+        pathElements.map((value) => value.toString()),
+        pathElements.map(() => "0"),
+        pathElements.map(() => "0"),
+        pathElements.map(() => "0"),
+      ],
+      input_path_index: [
+        pathIndices,
+        pathIndices.map(() => 0),
+        pathIndices.map(() => 0),
+        pathIndices.map(() => 0),
+      ],
+      identity_secret: identitySecret.toString(),
+      identity_path_elements: identityPathElements.map((value) => value.toString()),
+      identity_path_index: identityPathIndices,
+      output_amount: [amount.toString(), "0"],
+      output_randomness: [randomness.toString(), "0"],
+      output_recipient_tag_hash: [recipientTagHash.toString(), "0"],
+      output_recipient_pubkey_x: [pubkey[0].toString(), pubkey[0].toString()],
+      output_recipient_pubkey_y: [pubkey[1].toString(), pubkey[1].toString()],
+      output_enc_randomness: [encRandomness.toString(), "0"],
+      output_c1x: [c1x.toString(), "0"],
+      output_c1y: [c1y.toString(), "0"],
+      output_c2_amount: [c2Amount.toString(), "0"],
+      output_c2_randomness: [c2Randomness.toString(), "0"],
     };
 
     const { proof, publicSignals } = await snarkjs.groth16.fullProve(
@@ -84,7 +135,10 @@ describe("ecies privacy", () => {
 
     const badInput = {
       ...input,
-      c2_amount: (BigInt(input.c2_amount) + 1n).toString(),
+      output_c2_amount: [
+        (BigInt(input.output_c2_amount[0]) + 1n).toString(),
+        input.output_c2_amount[1],
+      ],
     };
     let badVerified = false;
     try {

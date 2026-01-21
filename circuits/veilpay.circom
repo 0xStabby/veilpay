@@ -6,88 +6,20 @@ include "babyjub.circom";
 include "escalarmulfix.circom";
 include "escalarmulany.circom";
 
-// Proof circuit that binds public inputs to private values and checks Merkle membership.
-template Veilpay() {
-    var MERKLE_DEPTH = 20;
-    signal input root;
-    signal input nullifier;
-    signal input recipient_tag_hash;
-    signal input ciphertext_commitment;
-    signal input circuit_id;
+template MerkleRoot(depth) {
+    signal input leaf;
+    signal input path_elements[depth];
+    signal input path_index[depth];
+    signal output root;
 
-    signal input amount;
-    signal input randomness;
-    signal input sender_secret;
-    signal input leaf_index;
-    signal input path_elements[MERKLE_DEPTH];
-    signal input path_index[MERKLE_DEPTH];
-    signal input recipient_pubkey_x;
-    signal input recipient_pubkey_y;
-    signal input enc_randomness;
-    signal input c1x;
-    signal input c1y;
-    signal input c2_amount;
-    signal input c2_randomness;
-
-    component amountBits = Num2Bits(64);
-    amountBits.in <== amount;
-
-    component nullifierHash = Poseidon(2);
-    nullifierHash.inputs[0] <== sender_secret;
-    nullifierHash.inputs[1] <== leaf_index;
-    nullifierHash.out === nullifier;
-
-    component commitmentHash = Poseidon(3);
-    commitmentHash.inputs[0] <== amount;
-    commitmentHash.inputs[1] <== randomness;
-    commitmentHash.inputs[2] <== recipient_tag_hash;
-    commitmentHash.out === ciphertext_commitment;
-
-    component recipientCheck = BabyCheck();
-    recipientCheck.x <== recipient_pubkey_x;
-    recipientCheck.y <== recipient_pubkey_y;
-
-    component encBits = Num2Bits(253);
-    encBits.in <== enc_randomness;
-
-    var BASE8[2] = [
-        5299619240641551281634865583518297030282874472190772894086521144482721001553,
-        16950150798460657717958625567821834550301663161624707787222815936182638968203
-    ];
-    component c1Mul = EscalarMulFix(253, BASE8);
-    for (var j = 0; j < 253; j++) {
-        c1Mul.e[j] <== encBits.out[j];
-    }
-    c1Mul.out[0] === c1x;
-    c1Mul.out[1] === c1y;
-
-    component sharedMul = EscalarMulAny(253);
-    for (var k = 0; k < 253; k++) {
-        sharedMul.e[k] <== encBits.out[k];
-    }
-    sharedMul.p[0] <== recipient_pubkey_x;
-    sharedMul.p[1] <== recipient_pubkey_y;
-
-    component maskAmount = Poseidon(3);
-    maskAmount.inputs[0] <== sharedMul.out[0];
-    maskAmount.inputs[1] <== sharedMul.out[1];
-    maskAmount.inputs[2] <== 0;
-    c2_amount === amount + maskAmount.out;
-
-    component maskRandomness = Poseidon(3);
-    maskRandomness.inputs[0] <== sharedMul.out[0];
-    maskRandomness.inputs[1] <== sharedMul.out[1];
-    maskRandomness.inputs[2] <== 1;
-    c2_randomness === randomness + maskRandomness.out;
-
-    signal current[MERKLE_DEPTH + 1];
-    current[0] <== ciphertext_commitment;
-    component idxBits[MERKLE_DEPTH];
-    component nodeHash[MERKLE_DEPTH];
-    signal bit[MERKLE_DEPTH];
-    signal left[MERKLE_DEPTH];
-    signal right[MERKLE_DEPTH];
-    for (var i = 0; i < MERKLE_DEPTH; i++) {
+    signal current[depth + 1];
+    current[0] <== leaf;
+    component idxBits[depth];
+    component nodeHash[depth];
+    signal bit[depth];
+    signal left[depth];
+    signal right[depth];
+    for (var i = 0; i < depth; i++) {
         idxBits[i] = Num2Bits(1);
         idxBits[i].in <== path_index[i];
         bit[i] <== idxBits[i].out[0];
@@ -100,20 +32,185 @@ template Veilpay() {
         nodeHash[i].inputs[1] <== right[i];
         current[i + 1] <== nodeHash[i].out;
     }
-    current[MERKLE_DEPTH] === root;
+    root <== current[depth];
+}
 
-    // Bind remaining public inputs to the constraint system.
-    signal root_check;
-    root_check <== root + 0;
+template Veilpay() {
+    var MERKLE_DEPTH = 20;
+    var IDENTITY_DEPTH = 20;
+    var MAX_INPUTS = 4;
+    var MAX_OUTPUTS = 2;
+
+    signal input root;
+    signal input identity_root;
+    signal input nullifier[MAX_INPUTS];
+    signal input output_commitment[MAX_OUTPUTS];
+    signal input output_enabled[MAX_OUTPUTS];
+    signal input amount_out;
+    signal input fee_amount;
+    signal input circuit_id;
+
+    signal input input_enabled[MAX_INPUTS];
+    signal input input_amount[MAX_INPUTS];
+    signal input input_randomness[MAX_INPUTS];
+    signal input input_sender_secret[MAX_INPUTS];
+    signal input input_leaf_index[MAX_INPUTS];
+    signal input input_path_elements[MAX_INPUTS][MERKLE_DEPTH];
+    signal input input_path_index[MAX_INPUTS][MERKLE_DEPTH];
+    signal input input_recipient_tag_hash[MAX_INPUTS];
+
+    signal input identity_secret;
+    signal input identity_path_elements[IDENTITY_DEPTH];
+    signal input identity_path_index[IDENTITY_DEPTH];
+
+    signal input output_amount[MAX_OUTPUTS];
+    signal input output_randomness[MAX_OUTPUTS];
+    signal input output_recipient_tag_hash[MAX_OUTPUTS];
+    signal input output_recipient_pubkey_x[MAX_OUTPUTS];
+    signal input output_recipient_pubkey_y[MAX_OUTPUTS];
+    signal input output_enc_randomness[MAX_OUTPUTS];
+    signal input output_c1x[MAX_OUTPUTS];
+    signal input output_c1y[MAX_OUTPUTS];
+    signal input output_c2_amount[MAX_OUTPUTS];
+    signal input output_c2_randomness[MAX_OUTPUTS];
+
+    component outBits = Num2Bits(64);
+    outBits.in <== amount_out;
+    component feeBits = Num2Bits(64);
+    feeBits.in <== fee_amount;
+
+    var BASE8[2] = [
+        5299619240641551281634865583518297030282874472190772894086521144482721001553,
+        16950150798460657717958625567821834550301663161624707787222815936182638968203
+    ];
+
+    // Identity membership
+    component identityCommitment = Poseidon(1);
+    identityCommitment.inputs[0] <== identity_secret;
+    component identityRoot = MerkleRoot(IDENTITY_DEPTH);
+    identityRoot.leaf <== identityCommitment.out;
+    for (var id = 0; id < IDENTITY_DEPTH; id++) {
+        identityRoot.path_elements[id] <== identity_path_elements[id];
+        identityRoot.path_index[id] <== identity_path_index[id];
+    }
+    identityRoot.root === identity_root;
+
+    // Inputs
+    component inputBits[MAX_INPUTS];
+    component nullifierHash[MAX_INPUTS];
+    component inputCommitment[MAX_INPUTS];
+    component inputRoot[MAX_INPUTS];
+    signal root_check[MAX_INPUTS];
+    signal total_in[MAX_INPUTS + 1];
+    total_in[0] <== 0;
+    for (var i = 0; i < MAX_INPUTS; i++) {
+        input_enabled[i] * (input_enabled[i] - 1) === 0;
+        inputBits[i] = Num2Bits(64);
+        inputBits[i].in <== input_amount[i];
+
+        nullifierHash[i] = Poseidon(2);
+        nullifierHash[i].inputs[0] <== input_sender_secret[i];
+        nullifierHash[i].inputs[1] <== input_leaf_index[i];
+        nullifier[i] === input_enabled[i] * nullifierHash[i].out;
+
+        inputCommitment[i] = Poseidon(3);
+        inputCommitment[i].inputs[0] <== input_amount[i];
+        inputCommitment[i].inputs[1] <== input_randomness[i];
+        inputCommitment[i].inputs[2] <== input_recipient_tag_hash[i];
+
+        inputRoot[i] = MerkleRoot(MERKLE_DEPTH);
+        inputRoot[i].leaf <== inputCommitment[i].out;
+        for (var d = 0; d < MERKLE_DEPTH; d++) {
+            inputRoot[i].path_elements[d] <== input_path_elements[i][d];
+            inputRoot[i].path_index[d] <== input_path_index[i][d];
+        }
+        root_check[i] <== input_enabled[i] * (inputRoot[i].root - root);
+        root_check[i] === 0;
+
+        total_in[i + 1] <== total_in[i] + input_enabled[i] * input_amount[i];
+    }
+
+    // Outputs
+    component outputBits[MAX_OUTPUTS];
+    component outputCommitment[MAX_OUTPUTS];
+    component recipientCheck[MAX_OUTPUTS];
+    component encBits[MAX_OUTPUTS];
+    component c1Mul[MAX_OUTPUTS];
+    signal c1x_check[MAX_OUTPUTS];
+    signal c1y_check[MAX_OUTPUTS];
+    component sharedMul[MAX_OUTPUTS];
+    component maskAmount[MAX_OUTPUTS];
+    component maskRandomness[MAX_OUTPUTS];
+    signal c2_amount_check[MAX_OUTPUTS];
+    signal c2_randomness_check[MAX_OUTPUTS];
+    signal total_out[MAX_OUTPUTS + 1];
+    total_out[0] <== amount_out + fee_amount;
+    for (var j = 0; j < MAX_OUTPUTS; j++) {
+        output_enabled[j] * (output_enabled[j] - 1) === 0;
+        outputBits[j] = Num2Bits(64);
+        outputBits[j].in <== output_amount[j];
+
+        outputCommitment[j] = Poseidon(3);
+        outputCommitment[j].inputs[0] <== output_amount[j];
+        outputCommitment[j].inputs[1] <== output_randomness[j];
+        outputCommitment[j].inputs[2] <== output_recipient_tag_hash[j];
+        output_commitment[j] === output_enabled[j] * outputCommitment[j].out;
+
+        recipientCheck[j] = BabyCheck();
+        recipientCheck[j].x <== output_recipient_pubkey_x[j];
+        recipientCheck[j].y <== output_recipient_pubkey_y[j];
+
+        encBits[j] = Num2Bits(253);
+        encBits[j].in <== output_enc_randomness[j];
+        c1Mul[j] = EscalarMulFix(253, BASE8);
+        for (var k = 0; k < 253; k++) {
+            c1Mul[j].e[k] <== encBits[j].out[k];
+        }
+        c1x_check[j] <== output_enabled[j] * (output_c1x[j] - c1Mul[j].out[0]);
+        c1y_check[j] <== output_enabled[j] * (output_c1y[j] - c1Mul[j].out[1]);
+        c1x_check[j] === 0;
+        c1y_check[j] === 0;
+
+        sharedMul[j] = EscalarMulAny(253);
+        for (var s = 0; s < 253; s++) {
+            sharedMul[j].e[s] <== encBits[j].out[s];
+        }
+        sharedMul[j].p[0] <== output_recipient_pubkey_x[j];
+        sharedMul[j].p[1] <== output_recipient_pubkey_y[j];
+
+        maskAmount[j] = Poseidon(3);
+        maskAmount[j].inputs[0] <== sharedMul[j].out[0];
+        maskAmount[j].inputs[1] <== sharedMul[j].out[1];
+        maskAmount[j].inputs[2] <== 0;
+        maskRandomness[j] = Poseidon(3);
+        maskRandomness[j].inputs[0] <== sharedMul[j].out[0];
+        maskRandomness[j].inputs[1] <== sharedMul[j].out[1];
+        maskRandomness[j].inputs[2] <== 1;
+
+        c2_amount_check[j] <== output_enabled[j] * (output_c2_amount[j] - (output_amount[j] + maskAmount[j].out));
+        c2_randomness_check[j] <== output_enabled[j] * (output_c2_randomness[j] - (output_randomness[j] + maskRandomness[j].out));
+        c2_amount_check[j] === 0;
+        c2_randomness_check[j] === 0;
+
+        total_out[j + 1] <== total_out[j] + output_enabled[j] * output_amount[j];
+    }
+
+    total_in[MAX_INPUTS] === total_out[MAX_OUTPUTS];
+
+    signal final_root_check;
+    final_root_check <== root + 0;
     signal id_check;
-    id_check <== circuit_id + root_check;
-    id_check === circuit_id + root_check;
+    id_check <== circuit_id + final_root_check;
+    id_check === circuit_id + final_root_check;
 }
 
 component main { public [
     root,
+    identity_root,
     nullifier,
-    recipient_tag_hash,
-    ciphertext_commitment,
+    output_commitment,
+    output_enabled,
+    amount_out,
+    fee_amount,
     circuit_id
 ] } = Veilpay();

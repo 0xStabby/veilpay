@@ -20,6 +20,7 @@ export type UserAuthorizationCardProps = {
     mintDecimals: number | null;
     shieldedBalance: bigint;
     onDebit: (amount: bigint) => void;
+    onRootChange: (next: Uint8Array) => void;
     onRecord?: (record: import('../../lib/transactions').TransactionRecord) => string;
     onRecordUpdate?: (id: string, patch: import('../../lib/transactions').TransactionRecordPatch) => void;
     embedded?: boolean;
@@ -35,6 +36,7 @@ export const UserAuthorizationCard: FC<UserAuthorizationCardProps> = ({
     mintDecimals,
     shieldedBalance,
     onDebit,
+    onRootChange,
     onRecord,
     onRecordUpdate,
     embedded = false,
@@ -130,6 +132,7 @@ export const UserAuthorizationCard: FC<UserAuthorizationCardProps> = ({
                 intentHash,
                 onStatus,
                 onDebit,
+                onRootChange,
             });
             if (onRecord) {
                 const { createTransactionRecord } = await import('../../lib/transactions');

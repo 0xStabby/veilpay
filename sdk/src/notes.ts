@@ -9,6 +9,8 @@ export type Note = {
   amount: bigint;
   randomness: bigint;
   recipientTagHash: bigint;
+  recipientPubkeyX: bigint;
+  recipientPubkeyY: bigint;
   commitment: bigint;
   senderSecret: bigint;
   c1x: bigint;
@@ -143,6 +145,8 @@ export async function createNote(params: {
     amount,
     randomness,
     recipientTagHash: tagHash,
+    recipientPubkeyX: pubkey[0],
+    recipientPubkeyY: pubkey[1],
     commitment,
     senderSecret,
     c1x: encryption.c1x,

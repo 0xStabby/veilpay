@@ -1,1 +1,0 @@
-export { TransferCard } from './TransferCard';

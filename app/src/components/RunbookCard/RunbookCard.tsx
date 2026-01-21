@@ -8,6 +8,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import {
     airdropSol,
     initializeConfig,
+    initializeIdentityRegistry,
     initializeMintState,
     initializeVerifierKey,
     initializeVkRegistry,
@@ -82,6 +83,10 @@ export const RunbookCard: FC<RunbookCardProps> = ({
             {
                 id: 'vk-registry',
                 run: () => initializeVkRegistry({ program: veilpayProgram, admin: publicKey, onStatus }),
+            },
+            {
+                id: 'identity-registry',
+                run: () => initializeIdentityRegistry({ program: veilpayProgram, admin: publicKey, onStatus }),
             },
             {
                 id: 'verifier-key',

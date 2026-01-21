@@ -5,13 +5,13 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 CIRCUIT_DIR="$ROOT_DIR/circuits"
 BUILD_DIR="$CIRCUIT_DIR/build"
 PUBLIC_DIR="$ROOT_DIR/app/public/prover"
-PTAU="$CIRCUIT_DIR/powersOfTau28_hez_final_15.ptau"
+PTAU="$CIRCUIT_DIR/powersOfTau28_hez_final_17.ptau"
 
 mkdir -p "$BUILD_DIR" "$PUBLIC_DIR"
 
 if [ ! -f "$PTAU" ]; then
   echo "Downloading powers of tau..."
-  curl -L -o "$PTAU" https://storage.googleapis.com/zkevm/ptau/powersOfTau28_hez_final_15.ptau
+  curl -L -o "$PTAU" https://storage.googleapis.com/zkevm/ptau/powersOfTau28_hez_final_17.ptau
 fi
 
 pnpm exec circom2 "$CIRCUIT_DIR/veilpay.circom" --r1cs --wasm --sym -l node_modules/circomlib/circuits -o "$BUILD_DIR"

@@ -11,7 +11,15 @@ import {
   getAssociatedTokenAddress,
   getMint,
 } from "@solana/spl-token";
-import { deriveConfig, deriveNullifierSet, deriveShielded, deriveVault, deriveVkRegistry, deriveVerifierKey } from "../sdk/src/pda";
+import {
+  deriveConfig,
+  deriveIdentityRegistry,
+  deriveNullifierSet,
+  deriveShielded,
+  deriveVault,
+  deriveVkRegistry,
+  deriveVerifierKey,
+} from "../sdk/src/pda";
 
 type EnvMap = Record<string, string>;
 
@@ -159,6 +167,7 @@ async function main() {
 
   const config = deriveConfig(veilpayProgram.programId);
   const vkRegistry = deriveVkRegistry(veilpayProgram.programId);
+  const identityRegistry = deriveIdentityRegistry(veilpayProgram.programId);
   const configInfo = await connection.getAccountInfo(config);
   if (!configInfo) {
     console.log("Initializing config...");
@@ -201,6 +210,25 @@ async function main() {
     console.log("VK registry initialized.");
   } else {
     console.log("VK registry already initialized.");
+  }
+
+  const identityRegistryInfo = await connection.getAccountInfo(identityRegistry);
+  if (!identityRegistryInfo) {
+    console.log("Initializing identity registry...");
+    const sig = await sendWithLogs("initializeIdentityRegistry", () =>
+      veilpayProgram.methods
+        .initializeIdentityRegistry()
+        .accounts({
+          identityRegistry,
+          admin: wallet.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc()
+    );
+    await confirmFinalized(connection, sig);
+    console.log("Identity registry initialized.");
+  } else {
+    console.log("Identity registry already initialized.");
   }
 
   const verifierKeyPda = deriveVerifierKey(verifierProgram.programId, 0);

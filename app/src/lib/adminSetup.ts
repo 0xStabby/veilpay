@@ -10,7 +10,15 @@ import {
     getMint,
 } from '@solana/spl-token';
 import { AIRDROP_URL } from './config';
-import { deriveConfig, deriveNullifierSet, deriveShielded, deriveVault, deriveVkRegistry, deriveVerifierKey } from './pda';
+import {
+    deriveConfig,
+    deriveIdentityRegistry,
+    deriveNullifierSet,
+    deriveShielded,
+    deriveVault,
+    deriveVkRegistry,
+    deriveVerifierKey,
+} from './pda';
 import { verifierKeyFixture } from './fixtures';
 import { parseTokenAmount } from './amount';
 
@@ -111,6 +119,31 @@ export async function initializeVkRegistry(params: {
         return true;
     } catch (error) {
         onStatus(`VK registry failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+        return false;
+    }
+}
+
+export async function initializeIdentityRegistry(params: {
+    program: Program;
+    admin: PublicKey;
+    onStatus: StatusHandler;
+}): Promise<boolean> {
+    const { program, admin, onStatus } = params;
+    try {
+        onStatus('Initializing identity registry...');
+        const identityRegistry = deriveIdentityRegistry(program.programId);
+        await program.methods
+            .initializeIdentityRegistry()
+            .accounts({
+                identityRegistry,
+                admin,
+                systemProgram: SystemProgram.programId,
+            })
+            .rpc();
+        onStatus('Identity registry initialized.');
+        return true;
+    } catch (error) {
+        onStatus(`Identity registry failed: ${error instanceof Error ? error.message : 'unknown error'}`);
         return false;
     }
 }

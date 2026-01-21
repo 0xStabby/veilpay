@@ -5,6 +5,7 @@ export const seeds = {
   vkRegistry: () => [Buffer.from("vk_registry")],
   vault: (mint: PublicKey) => [Buffer.from("vault"), mint.toBuffer()],
   shielded: (mint: PublicKey) => [Buffer.from("shielded"), mint.toBuffer()],
+  identityRegistry: () => [Buffer.from("identity_registry")],
   nullifierSet: (mint: PublicKey, chunkIndex: number) => [
     Buffer.from("nullifier_set"),
     mint.toBuffer(),
@@ -31,6 +32,10 @@ export function deriveVault(programId: PublicKey, mint: PublicKey): PublicKey {
 
 export function deriveShielded(programId: PublicKey, mint: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync(seeds.shielded(mint), programId)[0];
+}
+
+export function deriveIdentityRegistry(programId: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(seeds.identityRegistry(), programId)[0];
 }
 
 export function deriveNullifierSet(programId: PublicKey, mint: PublicKey, chunkIndex: number): PublicKey {

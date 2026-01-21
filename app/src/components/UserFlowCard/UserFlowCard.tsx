@@ -93,6 +93,7 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
                         mintDecimals={mintDecimals}
                         shieldedBalance={shieldedBalance}
                         onDebit={onDebit}
+                        onRootChange={onRootChange}
                         onRecord={onRecord}
                         onRecordUpdate={onRecordUpdate}
                     />
@@ -109,6 +110,7 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
                         mintDecimals={mintDecimals}
                         shieldedBalance={shieldedBalance}
                         onDebit={onDebit}
+                        onRootChange={onRootChange}
                         onRecord={onRecord}
                         onRecordUpdate={onRecordUpdate}
                     />

@@ -1,1 +1,0 @@
-export { DepositCard } from './DepositCard';
