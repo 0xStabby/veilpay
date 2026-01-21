@@ -1,6 +1,13 @@
 import express, { type Express } from "express";
 import cors from "cors";
-import { Connection, PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
+import {
+  Connection,
+  Keypair,
+  PublicKey,
+  SendTransactionError,
+  Transaction,
+  VersionedTransaction,
+} from "@solana/web3.js";
 import { z } from "zod";
 import nacl from "tweetnacl";
 import path from "path";
@@ -143,6 +150,39 @@ const executeSchema = z.object({
 });
 
 const connection = new Connection(process.env.RELAYER_RPC_URL || "http://127.0.0.1:8899", "confirmed");
+let cachedRelayerKeypair: Keypair | null = null;
+
+async function loadRelayerKeypair(): Promise<Keypair> {
+  if (cachedRelayerKeypair) {
+    return cachedRelayerKeypair;
+  }
+  const relayerKeypairPath = process.env.RELAYER_KEYPAIR || "";
+  if (!relayerKeypairPath) {
+    throw new Error("RELAYER_KEYPAIR not configured");
+  }
+  const secret = JSON.parse(await readFile(relayerKeypairPath, "utf8"));
+  if (!Array.isArray(secret)) {
+    throw new Error("RELAYER_KEYPAIR must be a JSON array");
+  }
+  cachedRelayerKeypair = Keypair.fromSecretKey(Uint8Array.from(secret));
+  return cachedRelayerKeypair;
+}
+
+function assertAllowedPrograms(programIds: PublicKey[]) {
+  const allowedProgramIds = (process.env.RELAYER_ALLOWED_PROGRAMS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((value) => new PublicKey(value));
+  if (allowedProgramIds.length === 0) {
+    throw new Error("RELAYER_ALLOWED_PROGRAMS not configured");
+  }
+  for (const programId of programIds) {
+    if (!allowedProgramIds.some((allowed) => allowed.equals(programId))) {
+      throw new Error(`Program not allowed: ${programId.toBase58()}`);
+    }
+  }
+}
 
 app.post("/execute", async (req, res) => {
   const parsed = executeSchema.safeParse(req.body);
@@ -165,6 +205,83 @@ app.post("/execute", async (req, res) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Execution failed";
     res.status(500).json({ error: message });
+  }
+});
+
+app.post("/execute-relayed", async (req, res) => {
+  const parsed = executeSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  try {
+    const relayerKeypair = await loadRelayerKeypair();
+    const txBytes = Buffer.from(parsed.data.transaction, "base64");
+    let signature: string;
+    try {
+      const tx = Transaction.from(txBytes);
+      const { blockhash } = await connection.getLatestBlockhash();
+      tx.recentBlockhash = blockhash;
+      const message = tx.compileMessage();
+      if (message.header.numRequiredSignatures !== 1) {
+        throw new Error("Unexpected required signer count");
+      }
+      const feePayer = tx.feePayer ?? message.accountKeys[0];
+      if (!feePayer || !feePayer.equals(relayerKeypair.publicKey)) {
+        throw new Error("Fee payer mismatch");
+      }
+      const feePayerBalance = await connection.getBalance(feePayer);
+      if (feePayerBalance === 0) {
+        throw new Error(
+          `Fee payer has no balance on ${connection.rpcEndpoint}: ${feePayer.toBase58()}`
+        );
+      }
+      assertAllowedPrograms(tx.instructions.map((ix) => ix.programId));
+      tx.sign(relayerKeypair);
+      signature = await connection.sendRawTransaction(tx.serialize());
+    } catch {
+      const tx = VersionedTransaction.deserialize(txBytes);
+      const { blockhash } = await connection.getLatestBlockhash();
+      tx.message.recentBlockhash = blockhash;
+      if (tx.message.header.numRequiredSignatures !== 1) {
+        throw new Error("Unexpected required signer count");
+      }
+      const feePayer = tx.message.staticAccountKeys[0];
+      if (!feePayer.equals(relayerKeypair.publicKey)) {
+        throw new Error("Fee payer mismatch");
+      }
+      const feePayerBalance = await connection.getBalance(feePayer);
+      if (feePayerBalance === 0) {
+        throw new Error(
+          `Fee payer has no balance on ${connection.rpcEndpoint}: ${feePayer.toBase58()}`
+        );
+      }
+      const programIds = tx.message.compiledInstructions.map(
+        (ix) => tx.message.staticAccountKeys[ix.programIdIndex]
+      );
+      assertAllowedPrograms(programIds);
+      tx.sign([relayerKeypair]);
+      signature = await connection.sendRawTransaction(tx.serialize());
+    }
+    await connection.confirmTransaction(signature, "confirmed");
+    res.json({ signature });
+  } catch (error) {
+    let message = error instanceof Error ? error.message : "Execution failed";
+    let logs: string[] | undefined;
+    if (error instanceof SendTransactionError) {
+      try {
+        logs = await error.getLogs(connection);
+      } catch {
+        logs = undefined;
+      }
+    } else if (error && typeof (error as any).getLogs === "function") {
+      try {
+        logs = await (error as any).getLogs(connection);
+      } catch {
+        logs = undefined;
+      }
+    }
+    res.status(500).json({ error: message, logs });
   }
 });
 

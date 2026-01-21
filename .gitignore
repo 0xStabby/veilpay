@@ -23,3 +23,5 @@ circuits/powersOfTau*.ptau
 .env*.local
 *.sym
 terraform.tfstate
+
+**/*keypair.json

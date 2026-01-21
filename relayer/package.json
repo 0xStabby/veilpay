@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "dev": "RELAYER_ENV=devnet ts-node src/index.ts",
+    "dev": "ts-node src/index.ts",
     "test": "node -e \"console.log('relayer tests placeholder')\""
   },
   "keywords": [],
