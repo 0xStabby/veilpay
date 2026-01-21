@@ -31,10 +31,17 @@ import {
     bigIntToBytes32,
 } from './prover';
 import { ensureNullifierSets } from './nullifier';
-import { LUT_ADDRESS, RELAYER_TRUSTED, RELAYER_URL, VERIFIER_PROGRAM_ID } from './config';
-import { submitViaRelayer } from './relayer';
+import {
+    LUT_ADDRESS,
+    RELAYER_FEE_BPS,
+    RELAYER_PUBKEY,
+    RELAYER_TRUSTED,
+    RELAYER_URL,
+    VERIFIER_PROGRAM_ID,
+} from './config';
+import { submitViaRelayer, submitViaRelayerUnsigned } from './relayer';
 import { checkVerifierKeyMatch } from './verifierKey';
-import { parseTokenAmount } from './amount';
+import { formatTokenAmount, parseTokenAmount } from './amount';
 import { buildMerkleTree, getMerklePath, MERKLE_DEPTH } from './merkle';
 import {
     addNote,
@@ -65,6 +72,17 @@ const MAX_INPUTS = 4;
 const MAX_OUTPUTS = 2;
 const ZERO_PATH_ELEMENTS = Array.from({ length: MERKLE_DEPTH }, () => '0');
 const ZERO_PATH_INDEX = Array.from({ length: MERKLE_DEPTH }, () => 0);
+
+const computeRelayerFee = (amount: bigint, feeBps: number) => {
+    if (feeBps <= 0) {
+        return 0n;
+    }
+    const fee = (amount * BigInt(feeBps)) / 10_000n;
+    if (fee >= amount) {
+        throw new Error('Relayer fee exceeds amount.');
+    }
+    return fee;
+};
 
 const getEnvLookupTable = async (
     provider: AnchorProvider,
@@ -416,7 +434,7 @@ export async function runDepositFlow(params: {
     const vaultAta = await getAssociatedTokenAddress(mint, vault, true);
     const userAta = await getAssociatedTokenAddress(mint, provider.wallet.publicKey);
 
-    const baseUnits = parseTokenAmount(amount, mintDecimals);
+    let baseUnits = parseTokenAmount(amount, mintDecimals);
     const commitments = getCommitmentsWithSync(mint, commitmentCount, onStatus);
     const leafIndex = Number(commitmentCount);
     const { root: currentRoot } = await buildMerkleTree(commitments);
@@ -497,7 +515,7 @@ export async function runWithdrawFlow(params: {
     const recipientAta = await ensureAta(provider, mint, recipient);
     const verifierKey = deriveVerifierKey(VERIFIER_PROGRAM_ID, 0);
 
-    const baseUnits = parseTokenAmount(amount, mintDecimals);
+    let baseUnits = parseTokenAmount(amount, mintDecimals);
     const { notes: inputNotes, total } = selectNotesForAmount(mint, baseUnits, MAX_INPUTS);
     if (inputNotes.length === 0 || total < baseUnits) {
         throw new Error('Insufficient shielded balance for that amount.');
@@ -515,9 +533,9 @@ export async function runWithdrawFlow(params: {
     }
 
     const feeAmount = 0n;
-    const changeAmount = total - baseUnits - feeAmount;
+    const changeAmount = total - baseUnits;
     if (changeAmount < 0n) {
-        throw new Error('Insufficient shielded balance for fee.');
+        throw new Error('Insufficient shielded balance for that amount.');
     }
 
     const outputNotes: Array<NoteRecord | null> = [null, null];
@@ -792,7 +810,7 @@ export async function runSettleAuthorizationFlow(params: {
     const recipientAta = await ensureAta(provider, mint, payee);
     const verifierKey = deriveVerifierKey(VERIFIER_PROGRAM_ID, 0);
 
-    const baseUnits = parseTokenAmount(amount, mintDecimals);
+    let baseUnits = parseTokenAmount(amount, mintDecimals);
     const { notes: inputNotes, total } = selectNotesForAmount(mint, baseUnits, MAX_INPUTS);
     if (inputNotes.length === 0 || total < baseUnits) {
         throw new Error('Insufficient shielded balance for that amount.');
@@ -809,7 +827,27 @@ export async function runSettleAuthorizationFlow(params: {
         throw new Error('On-chain root does not match local note store.');
     }
 
-    const feeAmount = 0n;
+    if (!RELAYER_PUBKEY) {
+        throw new Error('Missing relayer public key for relayed external transfers.');
+    }
+    const relayerFeeBps = RELAYER_FEE_BPS;
+    if (!Number.isInteger(relayerFeeBps) || relayerFeeBps < 0 || relayerFeeBps > 10_000) {
+        throw new Error('Invalid relayer fee bps.');
+    }
+    const requiredWithFee = baseUnits + computeRelayerFee(baseUnits, relayerFeeBps);
+    if (total < requiredWithFee && relayerFeeBps > 0) {
+        const maxAmount = (total * 10_000n) / (10_000n + BigInt(relayerFeeBps));
+        if (maxAmount <= 0n) {
+            throw new Error('Insufficient shielded balance for fee.');
+        }
+        if (maxAmount < baseUnits) {
+            onStatus(
+                `Reducing external transfer amount to ${formatTokenAmount(maxAmount, mintDecimals)} to cover relayer fee.`
+            );
+            baseUnits = maxAmount;
+        }
+    }
+    const feeAmount = computeRelayerFee(baseUnits, relayerFeeBps);
     const changeAmount = total - baseUnits - feeAmount;
     if (changeAmount < 0n) {
         throw new Error('Insufficient shielded balance for fee.');
@@ -1158,11 +1196,9 @@ export async function runExternalTransferFlow(params: {
     const destinationAta = await ensureAta(provider, mint, recipient);
     const verifierKey = deriveVerifierKey(VERIFIER_PROGRAM_ID, 0);
 
-    const baseUnits = parseTokenAmount(amount, mintDecimals);
-    const { notes: inputNotes, total } = selectNotesForAmount(mint, baseUnits, MAX_INPUTS);
-    if (inputNotes.length === 0 || total < baseUnits) {
-        throw new Error('Insufficient shielded balance for that amount.');
-    }
+    let baseUnits = parseTokenAmount(amount, mintDecimals);
+    let inputNotes: NoteRecord[] = [];
+    let total = 0n;
     inputNotes.forEach(assertCiphertextFields);
     const commitments = getCommitmentsWithSync(mint, commitmentCount, onStatus);
     const { root: derivedRoot } = await buildMerkleTree(commitments);
@@ -1175,7 +1211,36 @@ export async function runExternalTransferFlow(params: {
         throw new Error('On-chain root does not match local note store.');
     }
 
-    const feeAmount = 0n;
+    if (!RELAYER_PUBKEY) {
+        throw new Error('Missing relayer public key for relayed external transfers.');
+    }
+    const relayerFeeBps = RELAYER_FEE_BPS;
+    if (!Number.isInteger(relayerFeeBps) || relayerFeeBps < 0 || relayerFeeBps > 10_000) {
+        throw new Error('Invalid relayer fee bps.');
+    }
+    let selectionTarget = baseUnits + computeRelayerFee(baseUnits, relayerFeeBps);
+    ({ notes: inputNotes, total } = selectNotesForAmount(mint, selectionTarget, MAX_INPUTS));
+    if (inputNotes.length === 0) {
+        throw new Error('Insufficient shielded balance for that amount.');
+    }
+    if (total < selectionTarget) {
+        const maxAmount = (total * 10_000n) / (10_000n + BigInt(relayerFeeBps));
+        if (maxAmount <= 0n) {
+            throw new Error('Insufficient shielded balance for fee.');
+        }
+        if (maxAmount < baseUnits) {
+            onStatus(
+                `Reducing external transfer amount to ${formatTokenAmount(maxAmount, mintDecimals)} to cover relayer fee.`
+            );
+            baseUnits = maxAmount;
+        }
+        selectionTarget = baseUnits + computeRelayerFee(baseUnits, relayerFeeBps);
+        ({ notes: inputNotes, total } = selectNotesForAmount(mint, selectionTarget, MAX_INPUTS));
+    }
+    if (total < selectionTarget) {
+        throw new Error('Insufficient shielded balance for fee.');
+    }
+    const feeAmount = computeRelayerFee(baseUnits, relayerFeeBps);
     const changeAmount = total - baseUnits - feeAmount;
     if (changeAmount < 0n) {
         throw new Error('Insufficient shielded balance for fee.');
@@ -1235,12 +1300,20 @@ export async function runExternalTransferFlow(params: {
     }
     onStatus('Verifier key matches. Submitting to relayer...');
 
+    const relayerFeeAta = relayerFeeBps > 0 ? await getAssociatedTokenAddress(mint, RELAYER_PUBKEY) : null;
+    if (relayerFeeAta) {
+        const relayerFeeAccount = await provider.connection.getAccountInfo(relayerFeeAta);
+        if (!relayerFeeAccount) {
+            throw new Error('Relayer fee ATA missing on-chain.');
+        }
+    }
+
     const ix = await program.methods
         .externalTransfer({
             amount: new BN(baseUnits.toString()),
             proof: Buffer.from(proofBytes),
             publicInputs: Buffer.from(publicInputsBytes),
-            relayerFeeBps: 0,
+            relayerFeeBps,
             newRoot: Buffer.from(newRootBytes),
         })
         .accounts({
@@ -1251,7 +1324,7 @@ export async function runExternalTransferFlow(params: {
             identityRegistry: deriveIdentityRegistry(program.programId),
             nullifierSet: nullifierSets[0],
             destinationAta,
-            relayerFeeAta: destinationAta,
+            relayerFeeAta,
             verifierProgram: VERIFIER_PROGRAM_ID,
             verifierKey,
             mint,
@@ -1266,7 +1339,7 @@ export async function runExternalTransferFlow(params: {
         )
         .instruction();
 
-    const lookupTable = await getEnvLookupTable(provider, [
+    const lookupTableAddresses = [
         config,
         vault,
         vaultAta,
@@ -1278,16 +1351,20 @@ export async function runExternalTransferFlow(params: {
         mint,
         TOKEN_PROGRAM_ID,
         ...nullifierSets,
-    ]);
+    ];
+    if (relayerFeeAta) {
+        lookupTableAddresses.push(relayerFeeAta);
+    }
+    const lookupTable = await getEnvLookupTable(provider, lookupTableAddresses);
     if (lookupTable) {
         const { blockhash } = await provider.connection.getLatestBlockhash();
         const message = new TransactionMessage({
-            payerKey: provider.wallet.publicKey,
+            payerKey: RELAYER_PUBKEY,
             recentBlockhash: blockhash,
             instructions: [ix],
         }).compileToV0Message([lookupTable]);
         const tx = new VersionedTransaction(message);
-        const relayerResult = await submitViaRelayer(provider, tx);
+        const relayerResult = await submitViaRelayerUnsigned(provider, tx);
         inputNotes.forEach((note) => markNoteSpent(mint, note.id));
         outputNotes.forEach((note, index) => {
             if (note && outputEnabled[index]) {
@@ -1306,7 +1383,9 @@ export async function runExternalTransferFlow(params: {
         };
     }
 
-    const relayerResult = await submitViaRelayer(provider, new Transaction().add(ix));
+    const legacyTx = new Transaction().add(ix);
+    legacyTx.feePayer = RELAYER_PUBKEY;
+    const relayerResult = await submitViaRelayerUnsigned(provider, legacyTx);
     inputNotes.forEach((note) => markNoteSpent(mint, note.id));
     outputNotes.forEach((note, index) => {
         if (note && outputEnabled[index]) {
