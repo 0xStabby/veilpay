@@ -19,7 +19,7 @@ VeilPay is a Solana privacy-preserving payments protocol that uses escrow vaults
 pnpm install
 ```
 
-2) Configure app env (example in `app/.env.dev`):
+2) Configure app env (example in `app/.env.devnet`):
 ```
 VITE_RPC_ENDPOINT=...
 VITE_RELAYER_URL=...
@@ -30,7 +30,7 @@ VITE_AIRDROP_URL=...   # optional, faucet link
 
 3) Run the app:
 ```
-pnpm --filter app dev --mode dev
+pnpm --filter app dev --mode devnet
 ```
 
 ## User guide (app)

@@ -1,14 +1,21 @@
-import { Transaction } from '@solana/web3.js';
+import { Transaction, VersionedTransaction } from '@solana/web3.js';
 import { Buffer } from 'buffer';
 import { AnchorProvider } from '@coral-xyz/anchor';
 import { RELAYER_URL } from './config';
 
-export async function submitViaRelayer(provider: AnchorProvider, transaction: Transaction) {
+export async function submitViaRelayer(
+    provider: AnchorProvider,
+    transaction: Transaction | VersionedTransaction
+) {
     const { blockhash } = await provider.connection.getLatestBlockhash();
-    transaction.recentBlockhash = blockhash;
-    transaction.feePayer = provider.wallet.publicKey;
+    if (transaction instanceof VersionedTransaction) {
+        transaction.message.recentBlockhash = blockhash;
+    } else {
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = provider.wallet.publicKey;
+    }
 
-    const signed = await provider.wallet.signTransaction(transaction);
+    const signed = await provider.wallet.signTransaction(transaction as any);
     const payload = {
         transaction: Buffer.from(signed.serialize()).toString('base64'),
     };

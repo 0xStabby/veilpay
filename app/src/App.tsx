@@ -19,7 +19,7 @@ import styles from './App.module.css';
 
 const App = () => {
     const { connection, veilpayProgram, verifierProgram, wallet } = usePrograms();
-    const [status, setStatus] = useState('');
+    const [statusLines, setStatusLines] = useState<string[]>([]);
     const [mintAddress, setMintAddress] = useState(() => WSOL_MINT.toBase58());
     const [root, setRoot] = useState(() => randomBytes(32));
     const [view, setView] = useState<'user' | 'admin' | 'tx' | 'multi'>('user');
@@ -67,6 +67,17 @@ const App = () => {
     useEffect(() => {
         localStorage.setItem('veilpay.txlog', JSON.stringify(txLog));
     }, [txLog]);
+
+    useEffect(() => {
+        if (mintLoading) {
+            setStatusLines((prev) => [...prev, 'Loading mint info...'].slice(-200));
+        }
+    }, [mintLoading]);
+
+    const handleStatus = (message: string) => {
+        if (!message) return;
+        setStatusLines((prev) => [...prev, message].slice(-200));
+    };
 
     const handleRecord = (record: TransactionRecord) => {
         setTxLog((prev) => [record, ...prev]);
@@ -124,7 +135,7 @@ const App = () => {
                         Multi-Wallet Test
                     </button>
                 </div>
-                <StatusBanner status={mintLoading ? 'Loading mint info...' : status} />
+                <StatusBanner lines={statusLines} />
                 {view === 'admin' ? (
                     <section className={styles.grid}>
                         {connection && (
@@ -132,7 +143,7 @@ const App = () => {
                                 connection={connection}
                                 veilpayProgram={veilpayProgram}
                                 verifierProgram={verifierProgram}
-                                onStatus={setStatus}
+                                onStatus={handleStatus}
                                 mintAddress={mintAddress}
                                 onMintChange={setMintAddress}
                             />
@@ -144,7 +155,7 @@ const App = () => {
                             verifierProgram={verifierProgram}
                             mintAddress={mintAddress}
                             onMintChange={setMintAddress}
-                            onStatus={setStatus}
+                            onStatus={handleStatus}
                         />
                     </section>
                 ) : view === 'tx' ? (
@@ -166,7 +177,7 @@ const App = () => {
                             root={root}
                             onRootChange={setRoot}
                             nextNullifier={next}
-                            onStatus={setStatus}
+                            onStatus={handleStatus}
                             onRecord={handleRecord}
                             onRecordUpdate={handleRecordUpdate}
                             onWalletLabels={setMultiWalletLabels}
@@ -178,7 +189,7 @@ const App = () => {
                             veilpayProgram={veilpayProgram}
                             verifierProgram={verifierProgram}
                             mintAddress={mintAddress}
-                            onStatus={setStatus}
+                            onStatus={handleStatus}
                             onRootChange={setRoot}
                             root={root}
                             nextNullifier={next}

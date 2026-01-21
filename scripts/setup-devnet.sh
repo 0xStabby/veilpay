@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-ROOT_ENV_FILE="$ROOT_DIR/.env.dev"
-APP_ENV_FILE="$ROOT_DIR/app/.env.dev"
+ROOT_ENV_FILE="$ROOT_DIR/.env.devnet"
+APP_ENV_FILE="$ROOT_DIR/app/.env.devnet"
 RESET_KEYS=0
 RUN_ADMIN_BOOTSTRAP=1
 SKIP_PROGRAM_CLOSE=0
@@ -172,7 +172,7 @@ if [[ "$RUN_RELAYER_PROVISION" == "1" ]]; then
   fi
 fi
 
-RELAYER_DOMAIN="$(rg -n "^RELAYER_DOMAIN=" "$ROOT_DIR/relayer/.env.dev" | head -n1 | cut -d= -f2-)"
+RELAYER_DOMAIN="$(rg -n "^RELAYER_DOMAIN=" "$ROOT_DIR/relayer/.env.devnet" | head -n1 | cut -d= -f2-)"
 if [[ -n "$RELAYER_DOMAIN" ]]; then
   ensure_env "VITE_RELAYER_URL" "https://${RELAYER_DOMAIN}"
 fi

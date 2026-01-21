@@ -70,6 +70,61 @@
       ]
     },
     {
+      "name": "set_verifier_key_gamma_abc",
+      "accounts": [
+        {
+          "name": "verifier_key",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "admin",
+          "isMut": false,
+          "isSigner": true
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "SetVerifierKeyGammaAbcArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "initialize_verifier_key_header",
+      "accounts": [
+        {
+          "name": "verifier_key",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "admin",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "system_program",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "InitializeVerifierKeyHeaderArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "verify_groth16",
       "discriminator": [
         228,
@@ -261,6 +316,93 @@
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitializeVerifierKeyHeaderArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "key_id",
+            "type": "u32"
+          },
+          {
+            "name": "alpha_g1",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "beta_g2",
+            "type": {
+              "array": [
+                "u8",
+                128
+              ]
+            }
+          },
+          {
+            "name": "gamma_g2",
+            "type": {
+              "array": [
+                "u8",
+                128
+              ]
+            }
+          },
+          {
+            "name": "delta_g2",
+            "type": {
+              "array": [
+                "u8",
+                128
+              ]
+            }
+          },
+          {
+            "name": "public_inputs_len",
+            "type": "u32"
+          },
+          {
+            "name": "gamma_abc_len",
+            "type": "u32"
+          },
+          {
+            "name": "mock",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SetVerifierKeyGammaAbcArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "key_id",
+            "type": "u32"
+          },
+          {
+            "name": "start_index",
+            "type": "u32"
+          },
+          {
+            "name": "gamma_abc",
+            "type": {
+              "vec": {
+                "array": [
+                  "u8",
+                  64
+                ]
+              }
+            }
           }
         ]
       }

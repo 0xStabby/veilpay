@@ -1,6 +1,6 @@
 import express, { type Express } from "express";
 import cors from "cors";
-import { Connection, PublicKey, Transaction } from "@solana/web3.js";
+import { Connection, PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
 import { z } from "zod";
 import nacl from "tweetnacl";
 import path from "path";
@@ -152,8 +152,14 @@ app.post("/execute", async (req, res) => {
   }
   try {
     const txBytes = Buffer.from(parsed.data.transaction, "base64");
-    const tx = Transaction.from(txBytes);
-    const signature = await connection.sendRawTransaction(tx.serialize());
+    let signature: string;
+    try {
+      const tx = Transaction.from(txBytes);
+      signature = await connection.sendRawTransaction(tx.serialize());
+    } catch {
+      const tx = VersionedTransaction.deserialize(txBytes);
+      signature = await connection.sendRawTransaction(tx.serialize());
+    }
     await connection.confirmTransaction(signature, "confirmed");
     res.json({ signature });
   } catch (error) {

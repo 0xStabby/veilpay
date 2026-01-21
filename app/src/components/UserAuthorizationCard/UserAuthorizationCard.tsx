@@ -77,6 +77,7 @@ export const UserAuthorizationCard: FC<UserAuthorizationCardProps> = ({
                 signMessage,
                 payee: parsedPayee,
                 amount,
+                mintDecimals,
                 expirySlots,
                 onStatus,
             });

@@ -43,13 +43,13 @@ const hex = (bytes) => Buffer.from(bytes).toString("hex");
 
 async function main() {
   const rootDir = process.cwd();
-  const env = loadEnv(path.join(rootDir, ".env.dev"));
+  const env = loadEnv(path.join(rootDir, ".env.devnet"));
   const rpc =
     process.env.ANCHOR_PROVIDER_URL ||
     env.RPC_URL ||
     env.VITE_RPC_ENDPOINT;
   if (!rpc) {
-    throw new Error("Missing RPC_URL or VITE_RPC_ENDPOINT in .env.dev.");
+    throw new Error("Missing RPC_URL or VITE_RPC_ENDPOINT in .env.devnet.");
   }
 
   const verifierIdlPath = path.join(rootDir, "target", "idl", "verifier.json");

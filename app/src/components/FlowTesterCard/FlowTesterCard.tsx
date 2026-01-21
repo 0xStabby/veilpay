@@ -245,6 +245,7 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
                         signMessage,
                         payee: parsedRecipient,
                         amount: amountString,
+                        mintDecimals,
                         expirySlots: '200',
                         onStatus,
                     });
