@@ -467,6 +467,35 @@
           }
         },
         {
+          "name": "identity_registry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  100,
+                  101,
+                  110,
+                  116,
+                  105,
+                  116,
+                  121,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "nullifier_set",
           "writable": true
         },
@@ -594,6 +623,61 @@
           }
         }
       ]
+    },
+    {
+      "name": "initialize_identity_registry",
+      "discriminator": [
+        141,
+        80,
+        35,
+        207,
+        147,
+        35,
+        120,
+        236
+      ],
+      "accounts": [
+        {
+          "name": "identity_registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  100,
+                  101,
+                  110,
+                  116,
+                  105,
+                  116,
+                  121,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
     },
     {
       "name": "initialize_mint_state",
@@ -1033,6 +1117,35 @@
           }
         },
         {
+          "name": "identity_registry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  100,
+                  101,
+                  110,
+                  116,
+                  105,
+                  116,
+                  121,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "nullifier_set",
           "writable": true
         },
@@ -1053,6 +1166,66 @@
           "type": {
             "defined": {
               "name": "InternalTransferArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "register_identity",
+      "discriminator": [
+        164,
+        118,
+        227,
+        177,
+        47,
+        176,
+        187,
+        248
+      ],
+      "accounts": [
+        {
+          "name": "identity_registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  100,
+                  101,
+                  110,
+                  116,
+                  105,
+                  116,
+                  121,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "RegisterIdentityArgs"
             }
           }
         }
@@ -1262,6 +1435,35 @@
           }
         },
         {
+          "name": "identity_registry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  100,
+                  101,
+                  110,
+                  116,
+                  105,
+                  116,
+                  121,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "nullifier_set",
           "writable": true
         },
@@ -1419,6 +1621,35 @@
           }
         },
         {
+          "name": "identity_registry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  100,
+                  101,
+                  110,
+                  116,
+                  105,
+                  116,
+                  121,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "nullifier_set",
           "writable": true
         },
@@ -1483,6 +1714,19 @@
         250,
         204,
         130
+      ]
+    },
+    {
+      "name": "IdentityRegistry",
+      "discriminator": [
+        115,
+        237,
+        146,
+        250,
+        180,
+        186,
+        44,
+        23
       ]
     },
     {
@@ -1609,38 +1853,73 @@
     },
     {
       "code": 6011,
+      "name": "IdentityRootMismatch",
+      "msg": "Identity root mismatch"
+    },
+    {
+      "code": 6012,
       "name": "AuthorizationNotOpen",
       "msg": "Authorization not open"
     },
     {
-      "code": 6012,
+      "code": 6013,
       "name": "AuthorizationExpired",
       "msg": "Authorization expired"
     },
     {
-      "code": 6013,
+      "code": 6014,
       "name": "InvalidByteLength",
       "msg": "Invalid byte length"
     },
     {
-      "code": 6014,
+      "code": 6015,
       "name": "InvalidProof",
       "msg": "Invalid proof"
     },
     {
-      "code": 6015,
+      "code": 6016,
       "name": "MissingRelayerFeeAccount",
       "msg": "Missing relayer fee account"
     },
     {
-      "code": 6016,
+      "code": 6017,
       "name": "InvalidRelayerFeeAccount",
       "msg": "Invalid relayer fee account"
     },
     {
-      "code": 6017,
+      "code": 6018,
       "name": "RelayerFeeExceedsAmount",
       "msg": "Relayer fee exceeds amount"
+    },
+    {
+      "code": 6019,
+      "name": "InvalidPublicInputs",
+      "msg": "Invalid public inputs"
+    },
+    {
+      "code": 6020,
+      "name": "CircuitNotAllowed",
+      "msg": "Circuit not allowed"
+    },
+    {
+      "code": 6021,
+      "name": "AmountMismatch",
+      "msg": "Amount mismatch"
+    },
+    {
+      "code": 6022,
+      "name": "FeeMismatch",
+      "msg": "Fee mismatch"
+    },
+    {
+      "code": 6023,
+      "name": "InvalidOutputFlags",
+      "msg": "Invalid output flags"
+    },
+    {
+      "code": 6024,
+      "name": "MissingNullifierAccount",
+      "msg": "Missing nullifier account"
     }
   ],
   "types": [
@@ -1838,20 +2117,41 @@
             "type": "bytes"
           },
           {
-            "name": "nullifier",
-            "type": "bytes"
-          },
-          {
-            "name": "root",
-            "type": "bytes"
-          },
-          {
             "name": "public_inputs",
             "type": "bytes"
           },
           {
             "name": "relayer_fee_bps",
             "type": "u16"
+          },
+          {
+            "name": "new_root",
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IdentityRegistry",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "merkle_root",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "commitment_count",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }
@@ -1898,27 +2198,11 @@
             "type": "bytes"
           },
           {
-            "name": "nullifier",
-            "type": "bytes"
-          },
-          {
-            "name": "root",
+            "name": "public_inputs",
             "type": "bytes"
           },
           {
             "name": "new_root",
-            "type": "bytes"
-          },
-          {
-            "name": "ciphertext_new",
-            "type": "bytes"
-          },
-          {
-            "name": "recipient_tag_hash",
-            "type": "bytes"
-          },
-          {
-            "name": "public_inputs",
             "type": "bytes"
           }
         ]
@@ -1958,6 +2242,22 @@
       }
     },
     {
+      "name": "RegisterIdentityArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "commitment",
+            "type": "bytes"
+          },
+          {
+            "name": "new_root",
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
       "name": "SettleAuthorizationArgs",
       "type": {
         "kind": "struct",
@@ -1971,20 +2271,16 @@
             "type": "bytes"
           },
           {
-            "name": "nullifier",
-            "type": "bytes"
-          },
-          {
-            "name": "root",
-            "type": "bytes"
-          },
-          {
             "name": "public_inputs",
             "type": "bytes"
           },
           {
             "name": "relayer_fee_bps",
             "type": "u16"
+          },
+          {
+            "name": "new_root",
+            "type": "bytes"
           }
         ]
       }
@@ -2209,20 +2505,16 @@
             "type": "bytes"
           },
           {
-            "name": "nullifier",
-            "type": "bytes"
-          },
-          {
-            "name": "root",
-            "type": "bytes"
-          },
-          {
             "name": "public_inputs",
             "type": "bytes"
           },
           {
             "name": "relayer_fee_bps",
             "type": "u16"
+          },
+          {
+            "name": "new_root",
+            "type": "bytes"
           }
         ]
       }

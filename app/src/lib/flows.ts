@@ -1,7 +1,13 @@
 import { Buffer } from 'buffer';
 import { BN, Program } from '@coral-xyz/anchor';
 import type { AnchorProvider } from '@coral-xyz/anchor';
-import { PublicKey, Transaction } from '@solana/web3.js';
+import {
+    AddressLookupTableAccount,
+    PublicKey,
+    Transaction,
+    TransactionMessage,
+    VersionedTransaction,
+} from '@solana/web3.js';
 import {
     TOKEN_PROGRAM_ID,
     createAssociatedTokenAccountInstruction,
@@ -25,7 +31,7 @@ import {
     bigIntToBytes32,
 } from './prover';
 import { ensureNullifierSets } from './nullifier';
-import { RELAYER_TRUSTED, RELAYER_URL, VERIFIER_PROGRAM_ID } from './config';
+import { LUT_ADDRESS, RELAYER_TRUSTED, RELAYER_URL, VERIFIER_PROGRAM_ID } from './config';
 import { submitViaRelayer } from './relayer';
 import { checkVerifierKeyMatch } from './verifierKey';
 import { parseTokenAmount } from './amount';
@@ -36,9 +42,10 @@ import {
     createNote,
     type NoteRecord,
     getRecipientKeypair,
-    listCommitments,
+    loadNotes,
     listSpendableNotes,
     markNoteSpent,
+    saveNotes,
     recipientTagHash,
     selectNotesForAmount,
 } from './notes';
@@ -59,6 +66,20 @@ const MAX_OUTPUTS = 2;
 const ZERO_PATH_ELEMENTS = Array.from({ length: MERKLE_DEPTH }, () => '0');
 const ZERO_PATH_INDEX = Array.from({ length: MERKLE_DEPTH }, () => 0);
 
+const getEnvLookupTable = async (
+    provider: AnchorProvider,
+    _addresses: PublicKey[]
+): Promise<AddressLookupTableAccount | null> => {
+    if (!LUT_ADDRESS) {
+        return null;
+    }
+    const existing = await provider.connection.getAddressLookupTable(new PublicKey(LUT_ADDRESS));
+    if (!existing.value) {
+        throw new Error('Lookup table not found for LUT_ADDRESS.');
+    }
+    return existing.value;
+};
+
 const padArray = <T,>(values: T[], length: number, filler: T): T[] => {
     const out = values.slice(0, length);
     while (out.length < length) {
@@ -73,6 +94,27 @@ const padMatrix = <T,>(rows: T[][], length: number, filler: T[]): T[][] => {
         out.push(filler.slice());
     }
     return out;
+};
+
+const getCommitmentsWithSync = (
+    mint: PublicKey,
+    commitmentCount: bigint,
+    onStatus?: StatusHandler
+): bigint[] => {
+    const expected = Number(commitmentCount);
+    const notes = loadNotes(mint).sort((a, b) => a.leafIndex - b.leafIndex);
+    if (notes.length > expected) {
+        onStatus?.('Local note store ahead of chain. Trimming to on-chain commitment count.');
+        const trimmed = notes.slice(0, expected);
+        saveNotes(mint, trimmed);
+        return trimmed.map((note) => BigInt(note.commitment));
+    }
+    if (notes.length !== expected) {
+        throw new Error(
+            `Local note store is out of sync with on-chain commitment count (local=${notes.length}, on-chain=${expected}).`
+        );
+    }
+    return notes.map((note) => BigInt(note.commitment));
 };
 
 const getProvider = (program: Program): AnchorProvider => {
@@ -188,9 +230,9 @@ async function buildSpendProofInput(params: {
     outputEnabled: number[];
     amountOut: bigint;
     feeAmount: bigint;
+    commitments: bigint[];
 }) {
-    const { program, mint, owner, inputNotes, outputNotes, outputEnabled, amountOut, feeAmount } = params;
-    const commitments = listCommitments(mint);
+    const { program, mint, owner, inputNotes, outputNotes, outputEnabled, amountOut, feeAmount, commitments } = params;
     const { root: derivedRoot } = await buildMerkleTree(commitments);
     const derivedRootBytes = bigIntToBytes32(derivedRoot);
 
@@ -375,11 +417,8 @@ export async function runDepositFlow(params: {
     const userAta = await getAssociatedTokenAddress(mint, provider.wallet.publicKey);
 
     const baseUnits = parseTokenAmount(amount, mintDecimals);
-    const commitments = listCommitments(mint);
+    const commitments = getCommitmentsWithSync(mint, commitmentCount, onStatus);
     const leafIndex = Number(commitmentCount);
-    if (commitments.length !== leafIndex) {
-        throw new Error('Local note store is out of sync with on-chain commitment count.');
-    }
     const { root: currentRoot } = await buildMerkleTree(commitments);
     const currentRootBytes = bigIntToBytes32(currentRoot);
     if (!bytesEqual(rootBytes, currentRootBytes)) {
@@ -464,14 +503,12 @@ export async function runWithdrawFlow(params: {
         throw new Error('Insufficient shielded balance for that amount.');
     }
     inputNotes.forEach(assertCiphertextFields);
-    const commitments = listCommitments(mint);
-    if (commitments.length !== Number(commitmentCount)) {
-        throw new Error('Local note store is out of sync with on-chain commitment count.');
-    }
+    const commitments = getCommitmentsWithSync(mint, commitmentCount, onStatus);
     const { root: derivedRoot } = await buildMerkleTree(commitments);
     const derivedRootBytes = bigIntToBytes32(derivedRoot);
     if (!bytesEqual(root, derivedRootBytes)) {
-        throw new Error('Selected notes do not match the provided root.');
+        onStatus('Provided root does not match local notes; using on-chain root.');
+        onRootChange?.(derivedRootBytes);
     }
     if (!bytesEqual(rootBytes, derivedRootBytes)) {
         throw new Error('On-chain root does not match local note store.');
@@ -516,6 +553,7 @@ export async function runWithdrawFlow(params: {
         outputEnabled,
         amountOut: baseUnits,
         feeAmount,
+        commitments,
     });
     const { proofBytes: proofBytesOut, publicInputsBytes: publicInputsBytesOut, publicSignals: publicSignalsOut, proof: proofOut } =
         await generateProof(built.input);
@@ -569,6 +607,46 @@ export async function runWithdrawFlow(params: {
         )
         .instruction();
 
+    const lookupTable = await getEnvLookupTable(provider, [
+        config,
+        vault,
+        vaultAta,
+        shieldedState,
+        deriveIdentityRegistry(program.programId),
+        nullifierSets[0],
+        recipientAta,
+        verifierKey,
+        VERIFIER_PROGRAM_ID,
+        mint,
+        TOKEN_PROGRAM_ID,
+    ]);
+    if (lookupTable) {
+        const { blockhash } = await provider.connection.getLatestBlockhash();
+        const message = new TransactionMessage({
+            payerKey: provider.wallet.publicKey,
+            recentBlockhash: blockhash,
+            instructions: [ix],
+        }).compileToV0Message([lookupTable]);
+        const tx = new VersionedTransaction(message);
+        const relayerResult = await submitViaRelayer(provider, tx);
+        inputNotes.forEach((note) => markNoteSpent(mint, note.id));
+        outputNotes.forEach((note, index) => {
+            if (note && outputEnabled[index]) {
+                addNote(mint, note);
+            }
+        });
+        if (outputEnabled.some((flag) => flag === 1)) {
+            onRootChange?.(newRootBytes);
+        }
+        onDebit(baseUnits);
+        onStatus('Withdraw complete.');
+        return {
+            signature: relayerResult.signature,
+            amountBaseUnits: baseUnits,
+            nullifier: built.nullifierValues[0] ?? 0n,
+        };
+    }
+
     const relayerResult = await submitViaRelayer(provider, new Transaction().add(ix));
     inputNotes.forEach((note) => markNoteSpent(mint, note.id));
     outputNotes.forEach((note, index) => {
@@ -595,6 +673,7 @@ export async function runCreateAuthorizationFlow(params: {
     signMessage: (message: Uint8Array) => Promise<Uint8Array>;
     payee: PublicKey;
     amount: string;
+    mintDecimals: number;
     expirySlots: string;
     onStatus: StatusHandler;
 }): Promise<{
@@ -603,8 +682,8 @@ export async function runCreateAuthorizationFlow(params: {
     expirySlot: bigint;
     amountCiphertext: Uint8Array;
 }> {
-    const { program, mint, payer, signMessage, payee, amount: _amount, expirySlots, onStatus } = params;
-    const amountValue = BigInt(_amount);
+    const { program, mint, payer, signMessage, payee, amount: _amount, mintDecimals, expirySlots, onStatus } = params;
+    const amountValue = parseTokenAmount(_amount, mintDecimals);
     const { ciphertext: amountCiphertext, payeeTagHash } = await buildAmountCiphertext({
         payee,
         amount: amountValue,
@@ -650,7 +729,7 @@ export async function runCreateAuthorizationFlow(params: {
     const signature = await program.methods
         .createAuthorization({
             intentHash: Buffer.from(intentHashBytes),
-            payeeTagHash: Buffer.from(payeeTagHash),
+            payeeTagHash: Buffer.from(bigIntToBytes32(payeeTagHash)),
             mint,
             amountCiphertext: Buffer.from(amountCiphertext),
             expirySlot: new BN(expirySlot.toString()),
@@ -719,14 +798,12 @@ export async function runSettleAuthorizationFlow(params: {
         throw new Error('Insufficient shielded balance for that amount.');
     }
     inputNotes.forEach(assertCiphertextFields);
-    const commitments = listCommitments(mint);
-    if (commitments.length !== Number(commitmentCount)) {
-        throw new Error('Local note store is out of sync with on-chain commitment count.');
-    }
+    const commitments = getCommitmentsWithSync(mint, commitmentCount, onStatus);
     const { root: derivedRoot } = await buildMerkleTree(commitments);
     const derivedRootBytes = bigIntToBytes32(derivedRoot);
     if (!bytesEqual(root, derivedRootBytes)) {
-        throw new Error('Selected notes do not match the provided root.');
+        onStatus('Provided root does not match local notes; using on-chain root.');
+        onRootChange?.(derivedRootBytes);
     }
     if (!bytesEqual(rootBytes, derivedRootBytes)) {
         throw new Error('On-chain root does not match local note store.');
@@ -771,6 +848,7 @@ export async function runSettleAuthorizationFlow(params: {
         outputEnabled,
         amountOut: baseUnits,
         feeAmount,
+        commitments,
     });
     const { proofBytes, publicInputsBytes, publicSignals, proof } = await generateProof(built.input);
     const nullifierSets = await ensureNullifierSets(program, mint, built.nullifierValues);
@@ -823,6 +901,47 @@ export async function runSettleAuthorizationFlow(params: {
         )
         .instruction();
 
+    const lookupTable = await getEnvLookupTable(provider, [
+        config,
+        authorization,
+        vault,
+        vaultAta,
+        shieldedState,
+        deriveIdentityRegistry(program.programId),
+        recipientAta,
+        verifierKey,
+        VERIFIER_PROGRAM_ID,
+        mint,
+        TOKEN_PROGRAM_ID,
+        ...nullifierSets,
+    ]);
+    if (lookupTable) {
+        const { blockhash } = await provider.connection.getLatestBlockhash();
+        const message = new TransactionMessage({
+            payerKey: provider.wallet.publicKey,
+            recentBlockhash: blockhash,
+            instructions: [ix],
+        }).compileToV0Message([lookupTable]);
+        const tx = new VersionedTransaction(message);
+        const relayerResult = await submitViaRelayer(provider, tx);
+        inputNotes.forEach((note) => markNoteSpent(mint, note.id));
+        outputNotes.forEach((note, index) => {
+            if (note && outputEnabled[index]) {
+                addNote(mint, note);
+            }
+        });
+        if (outputEnabled.some((flag) => flag === 1)) {
+            onRootChange?.(newRootBytes);
+        }
+        onDebit(baseUnits);
+        onStatus('Authorization settled.');
+        return {
+            signature: relayerResult.signature,
+            amountBaseUnits: baseUnits,
+            nullifier: built.nullifierValues[0] ?? 0n,
+        };
+    }
+
     const relayerResult = await submitViaRelayer(provider, new Transaction().add(ix));
     inputNotes.forEach((note) => markNoteSpent(mint, note.id));
     outputNotes.forEach((note, index) => {
@@ -872,14 +991,12 @@ export async function runInternalTransferFlow(params: {
     const { shieldedState, rootBytes, commitmentCount } = await fetchShieldedState(program, mint);
     await ensureIdentityRegistered(program, provider.wallet.publicKey, onStatus);
     const verifierKey = deriveVerifierKey(VERIFIER_PROGRAM_ID, 0);
-    const commitments = listCommitments(mint);
-    if (commitments.length !== Number(commitmentCount)) {
-        throw new Error('Local note store is out of sync with on-chain commitment count.');
-    }
+    const commitments = getCommitmentsWithSync(mint, commitmentCount, onStatus);
     const { root: derivedRoot } = await buildMerkleTree(commitments);
     const derivedRootBytes = bigIntToBytes32(derivedRoot);
     if (!bytesEqual(root, derivedRootBytes)) {
-        throw new Error('Selected notes do not match the provided root.');
+        onStatus('Provided root does not match local notes; using on-chain root.');
+        onRootChange?.(derivedRootBytes);
     }
     if (!bytesEqual(rootBytes, derivedRootBytes)) {
         throw new Error('On-chain root does not match local note store.');
@@ -949,6 +1066,7 @@ export async function runInternalTransferFlow(params: {
         outputEnabled,
         amountOut: 0n,
         feeAmount: 0n,
+        commitments,
     });
     const { proofBytes, publicInputsBytes, publicSignals, proof } = await generateProof(built.input);
     const nullifierSets = await ensureNullifierSets(program, mint, built.nullifierValues);
@@ -1046,14 +1164,12 @@ export async function runExternalTransferFlow(params: {
         throw new Error('Insufficient shielded balance for that amount.');
     }
     inputNotes.forEach(assertCiphertextFields);
-    const commitments = listCommitments(mint);
-    if (commitments.length !== Number(commitmentCount)) {
-        throw new Error('Local note store is out of sync with on-chain commitment count.');
-    }
+    const commitments = getCommitmentsWithSync(mint, commitmentCount, onStatus);
     const { root: derivedRoot } = await buildMerkleTree(commitments);
     const derivedRootBytes = bigIntToBytes32(derivedRoot);
     if (!bytesEqual(root, derivedRootBytes)) {
-        throw new Error('Selected notes do not match the provided root.');
+        onStatus('Provided root does not match local notes; using on-chain root.');
+        onRootChange?.(derivedRootBytes);
     }
     if (!bytesEqual(rootBytes, derivedRootBytes)) {
         throw new Error('On-chain root does not match local note store.');
@@ -1098,6 +1214,7 @@ export async function runExternalTransferFlow(params: {
         outputEnabled,
         amountOut: baseUnits,
         feeAmount,
+        commitments,
     });
     const { proofBytes, publicInputsBytes, publicSignals, proof } = await generateProof(built.input);
     const nullifierSets = await ensureNullifierSets(program, mint, built.nullifierValues);
@@ -1148,6 +1265,46 @@ export async function runExternalTransferFlow(params: {
             }))
         )
         .instruction();
+
+    const lookupTable = await getEnvLookupTable(provider, [
+        config,
+        vault,
+        vaultAta,
+        shieldedState,
+        deriveIdentityRegistry(program.programId),
+        destinationAta,
+        verifierKey,
+        VERIFIER_PROGRAM_ID,
+        mint,
+        TOKEN_PROGRAM_ID,
+        ...nullifierSets,
+    ]);
+    if (lookupTable) {
+        const { blockhash } = await provider.connection.getLatestBlockhash();
+        const message = new TransactionMessage({
+            payerKey: provider.wallet.publicKey,
+            recentBlockhash: blockhash,
+            instructions: [ix],
+        }).compileToV0Message([lookupTable]);
+        const tx = new VersionedTransaction(message);
+        const relayerResult = await submitViaRelayer(provider, tx);
+        inputNotes.forEach((note) => markNoteSpent(mint, note.id));
+        outputNotes.forEach((note, index) => {
+            if (note && outputEnabled[index]) {
+                addNote(mint, note);
+            }
+        });
+        if (outputEnabled.some((flag) => flag === 1)) {
+            onRootChange?.(newRootBytes);
+        }
+        onDebit(baseUnits);
+        onStatus('External transfer complete.');
+        return {
+            signature: relayerResult.signature,
+            amountBaseUnits: baseUnits,
+            nullifier: built.nullifierValues[0] ?? 0n,
+        };
+    }
 
     const relayerResult = await submitViaRelayer(provider, new Transaction().add(ix));
     inputNotes.forEach((note) => markNoteSpent(mint, note.id));

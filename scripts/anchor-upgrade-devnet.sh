@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_ENV_FILE="${1:-app/.env.dev}"
+APP_ENV_FILE="${1:-app/.env.devnet}"
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 VEILPAY_IDL_SOURCE="$ROOT_DIR/target/idl/veilpay.json"
 VEILPAY_IDL_DEST="$ROOT_DIR/app/src/idl/veilpay.json"

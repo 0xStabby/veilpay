@@ -2,7 +2,15 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import * as anchor from "@coral-xyz/anchor";
-import { Connection, Keypair, PublicKey, SendTransactionError, SystemProgram, Transaction } from "@solana/web3.js";
+import {
+  AddressLookupTableProgram,
+  Connection,
+  Keypair,
+  PublicKey,
+  SendTransactionError,
+  SystemProgram,
+  Transaction,
+} from "@solana/web3.js";
 import {
   NATIVE_MINT,
   createAssociatedTokenAccountInstruction,
@@ -10,6 +18,7 @@ import {
   getAccount,
   getAssociatedTokenAddress,
   getMint,
+  TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import {
   deriveConfig,
@@ -23,7 +32,7 @@ import {
 
 type EnvMap = Record<string, string>;
 
-const DEFAULT_ENV_PATH = path.resolve(process.cwd(), ".env.dev");
+const DEFAULT_ENV_PATH = path.resolve(process.cwd(), ".env.devnet");
 const DEFAULT_WRAP_AMOUNT = "1";
 
 const loadEnv = (filePath: string): EnvMap => {
@@ -42,6 +51,56 @@ const loadEnv = (filePath: string): EnvMap => {
   return out;
 };
 
+const upsertEnv = (filePath: string, key: string, value: string) => {
+  const lines = fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8").split(/\r?\n/) : [];
+  let found = false;
+  const nextLines = lines.map((line) => {
+    if (!line.trim() || line.trim().startsWith("#")) return line;
+    const [k] = line.split("=");
+    if (k === key) {
+      found = true;
+      return `${key}=${value}`;
+    }
+    return line;
+  });
+  if (!found) {
+    nextLines.push(`${key}=${value}`);
+  }
+  fs.writeFileSync(filePath, nextLines.filter((line) => line !== undefined).join("\n"));
+};
+
+const createLookupTable = async (
+  connection: Connection,
+  payer: PublicKey,
+  send: (tx: Transaction) => Promise<string>
+) => {
+  const commitments: Array<Parameters<typeof connection.getLatestBlockhashAndContext>[0]> = [
+    "finalized",
+    "confirmed",
+    "processed",
+  ];
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const commitment = commitments[attempt % commitments.length];
+    try {
+      const { context } = await connection.getLatestBlockhashAndContext(commitment);
+      const [createIx, lookupTableAddress] = AddressLookupTableProgram.createLookupTable({
+        authority: payer,
+        payer,
+        recentSlot: context.slot,
+      });
+      const sig = await send(new Transaction().add(createIx));
+      await confirmFinalized(connection, sig);
+      return lookupTableAddress;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes("not a recent slot")) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+  }
+  throw new Error("Failed to create lookup table (slot too old).");
+};
 const loadKeypair = (): Keypair => {
   const walletPath =
     process.env.ANCHOR_WALLET ||
@@ -241,16 +300,16 @@ async function main() {
     }
     const fixture = JSON.parse(fs.readFileSync(fixturePath, "utf8"));
     const gammaAbc = fixture.gamma_abc.map((entry: string) => hexToBuffer(entry));
-    const sig = await sendWithLogs("initializeVerifierKey", () =>
+    const sig = await sendWithLogs("initializeVerifierKeyHeader", () =>
       verifierProgram.methods
-        .initializeVerifierKey({
+        .initializeVerifierKeyHeader({
           keyId: 0,
           alphaG1: hexToBuffer(fixture.alpha_g1),
           betaG2: hexToBuffer(fixture.beta_g2),
           gammaG2: hexToBuffer(fixture.gamma_g2),
           deltaG2: hexToBuffer(fixture.delta_g2),
           publicInputsLen: gammaAbc.length - 1,
-          gammaAbc,
+          gammaAbcLen: gammaAbc.length,
           mock: false,
         })
         .accounts({
@@ -261,6 +320,24 @@ async function main() {
         .rpc()
     );
     await confirmFinalized(connection, sig);
+    const chunkSize = 6;
+    for (let start = 0; start < gammaAbc.length; start += chunkSize) {
+      const chunk = gammaAbc.slice(start, start + chunkSize);
+      const chunkSig = await sendWithLogs("setVerifierKeyGammaAbc", () =>
+        verifierProgram.methods
+          .setVerifierKeyGammaAbc({
+            keyId: 0,
+            startIndex: start,
+            gammaAbc: chunk,
+          })
+          .accounts({
+            verifierKey: verifierKeyPda,
+            admin: wallet.publicKey,
+          })
+          .rpc()
+      );
+      await confirmFinalized(connection, chunkSig);
+    }
     console.log("Verifier key initialized.");
   } else {
     const fixturePath = path.resolve(process.cwd(), "app", "src", "fixtures", "verifier_key.json");
@@ -392,6 +469,47 @@ async function main() {
     }
   } else {
     console.log("Skipping WSOL wrap (amount is 0).");
+  }
+
+  console.log("Ensuring lookup table for veilpay...");
+  const lutAddresses = [
+    config,
+    vault,
+    shieldedState,
+    deriveIdentityRegistry(veilpayProgram.programId),
+    deriveVerifierKey(verifierProgram.programId, 0),
+    verifierProgram.programId,
+    mint,
+    TOKEN_PROGRAM_ID,
+  ];
+  const lutFromEnv = env.VITE_LUT_ADDRESS;
+  const existingLut = lutFromEnv
+    ? await connection
+        .getAddressLookupTable(new PublicKey(lutFromEnv))
+        .catch(() => ({ value: null }))
+    : { value: null };
+  if (!existingLut.value) {
+    const lutAddress = await createLookupTable(connection, wallet.publicKey, sendTransactionLikeWallet);
+    const chunkSize = 20;
+    for (let i = 0; i < lutAddresses.length; i += chunkSize) {
+      const chunk = lutAddresses.slice(i, i + chunkSize);
+      const extendIx = AddressLookupTableProgram.extendLookupTable({
+        lookupTable: lutAddress,
+        authority: wallet.publicKey,
+        payer: wallet.publicKey,
+        addresses: chunk,
+      });
+      const sig = await sendTransactionLikeWallet(new Transaction().add(extendIx));
+      await confirmFinalized(connection, sig);
+    }
+    console.log(`Lookup table created: ${lutAddress.toBase58()}`);
+    const appEnvPath = path.resolve(process.cwd(), "app", ".env");
+    if (fs.existsSync(appEnvPath)) {
+      upsertEnv(appEnvPath, "VITE_LUT_ADDRESS", lutAddress.toBase58());
+    }
+    upsertEnv(envPath, "VITE_LUT_ADDRESS", lutAddress.toBase58());
+  } else {
+    console.log("Lookup table already present.");
   }
 
   console.log("Admin bootstrap complete.");
