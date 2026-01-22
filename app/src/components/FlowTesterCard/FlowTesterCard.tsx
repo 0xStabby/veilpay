@@ -6,14 +6,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import styles from './FlowTesterCard.module.css';
 import { formatTokenAmount, parseTokenAmount } from '../../lib/amount';
 import { Buffer } from 'buffer';
-import {
-    runCreateAuthorizationFlow,
-    runDepositFlow,
-    runExternalTransferFlow,
-    runInternalTransferFlow,
-    runSettleAuthorizationFlow,
-    runWithdrawFlow,
-} from '../../lib/flows';
+import { runDepositFlow, runExternalTransferFlow, runInternalTransferFlow, runWithdrawFlow } from '../../lib/flows';
 
 type FlowStatus = 'idle' | 'running' | 'success' | 'error';
 
@@ -52,13 +45,12 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
     onRecord,
     onRecordUpdate,
 }) => {
-    const { publicKey, signMessage } = useWallet();
+    const { publicKey } = useWallet();
     const [amount, setAmount] = useState(DEFAULT_AMOUNT);
     const [recipient, setRecipient] = useState('');
     const [selected, setSelected] = useState(() => ({
         deposit: true,
         withdraw: true,
-        authorization: true,
         internal: true,
         external: true,
     }));
@@ -107,8 +99,8 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
 
     const runAll = async () => {
         if (!veilpayProgram || !parsedMint || mintDecimals === null || !parsedRecipient) return;
-        if (!publicKey || !signMessage) {
-            onStatus('Connect a wallet that supports message signing.');
+        if (!publicKey) {
+            onStatus('Connect a wallet first.');
             return;
         }
         const requestedAmount = parseTokenAmount(amount, mintDecimals);
@@ -224,96 +216,6 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
                             const txDetails = await fetchTransactionDetails(
                                 veilpayProgram.provider.connection,
                                 result.signature
-                            );
-                            if (txDetails) {
-                                onRecordUpdate(recordId, { details: { tx: txDetails } });
-                            }
-                        }
-                    }
-                },
-            },
-            {
-                id: 'authorization',
-                label: 'Authorization',
-                type: 'debit' as const,
-                run: async () => {
-                    const { useAmount, amountString } = computeDebitAmount('Authorization');
-                    const createResult = await runCreateAuthorizationFlow({
-                        program: veilpayProgram,
-                        mint: parsedMint,
-                        payer: publicKey,
-                        signMessage,
-                        payee: parsedRecipient,
-                        amount: amountString,
-                        mintDecimals,
-                        expirySlots: '200',
-                        onStatus,
-                    });
-                    if (onRecord) {
-                        const { createTransactionRecord } = await import('../../lib/transactions');
-                        const recordId = onRecord(
-                            createTransactionRecord('authorization:create', {
-                                signature: createResult.signature,
-                                relayer: false,
-                                status: 'confirmed',
-                                details: {
-                                    mint: parsedMint.toBase58(),
-                                    payee: parsedRecipient.toBase58(),
-                                    amount: amountString,
-                                    expirySlot: createResult.expirySlot.toString(),
-                                    intentHash: Buffer.from(createResult.intentHash).toString('hex'),
-                                    amountCiphertext: Buffer.from(createResult.amountCiphertext).toString('base64'),
-                                },
-                            })
-                        );
-                        if (onRecordUpdate) {
-                            const { fetchTransactionDetails } = await import('../../lib/transactions');
-                            const txDetails = await fetchTransactionDetails(
-                                veilpayProgram.provider.connection,
-                                createResult.signature
-                            );
-                            if (txDetails) {
-                                onRecordUpdate(recordId, { details: { tx: txDetails } });
-                            }
-                        }
-                    }
-                    const settleResult = await runSettleAuthorizationFlow({
-                        program: veilpayProgram,
-                        verifierProgram,
-                        mint: parsedMint,
-                        payee: parsedRecipient,
-                        amount: amountString,
-                        mintDecimals,
-                        root: rootRef.current,
-                        nextNullifier,
-                        intentHash: createResult.intentHash,
-                        onStatus,
-                        onDebit,
-                        onRootChange: handleRootUpdate,
-                    });
-                    runningBalance -= useAmount;
-                    if (onRecord) {
-                        const { createTransactionRecord } = await import('../../lib/transactions');
-                        const recordId = onRecord(
-                            createTransactionRecord('authorization:settle', {
-                                signature: settleResult.signature,
-                                relayer: true,
-                                status: 'confirmed',
-                                details: {
-                                    mint: parsedMint.toBase58(),
-                                    payee: parsedRecipient.toBase58(),
-                                    amount: amountString,
-                                    amountBaseUnits: settleResult.amountBaseUnits.toString(),
-                                    nullifier: settleResult.nullifier.toString(),
-                                    intentHash: Buffer.from(createResult.intentHash).toString('hex'),
-                                },
-                            })
-                        );
-                        if (onRecordUpdate) {
-                            const { fetchTransactionDetails } = await import('../../lib/transactions');
-                            const txDetails = await fetchTransactionDetails(
-                                veilpayProgram.provider.connection,
-                                settleResult.signature
                             );
                             if (txDetails) {
                                 onRecordUpdate(recordId, { details: { tx: txDetails } });
@@ -467,7 +369,6 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
                 {[
                     { id: 'deposit', label: 'Deposit' },
                     { id: 'withdraw', label: 'Withdraw' },
-                    { id: 'authorization', label: 'Authorization' },
                     { id: 'internal', label: 'Internal transfer' },
                     { id: 'external', label: 'External transfer' },
                 ].map((item) => {

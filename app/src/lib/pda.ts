@@ -11,7 +11,6 @@ export const seeds = {
         mint.toBuffer(),
         Buffer.from(new Uint8Array(new Uint32Array([chunkIndex]).buffer)),
     ],
-    authorization: (intentHash: Uint8Array) => [Buffer.from('auth'), Buffer.from(intentHash)],
     verifierKey: (keyId: number) => [
         Buffer.from('verifier_key'),
         Buffer.from(new Uint8Array(new Uint32Array([keyId]).buffer)),
@@ -40,10 +39,6 @@ export function deriveIdentityRegistry(programId: PublicKey): PublicKey {
 
 export function deriveNullifierSet(programId: PublicKey, mint: PublicKey, chunkIndex: number): PublicKey {
     return PublicKey.findProgramAddressSync(seeds.nullifierSet(mint, chunkIndex), programId)[0];
-}
-
-export function deriveAuthorization(programId: PublicKey, intentHash: Uint8Array): PublicKey {
-    return PublicKey.findProgramAddressSync(seeds.authorization(intentHash), programId)[0];
 }
 
 export function deriveVerifierKey(verifierProgramId: PublicKey, keyId: number): PublicKey {

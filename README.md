@@ -36,14 +36,13 @@ pnpm --filter app dev --mode devnet
 ## User guide (app)
 
 The app has two primary areas:
-- **User**: single-wallet deposit/withdraw/authorization/transfer flows (tabbed).
+- **User**: single-wallet deposit/withdraw/transfer flows (tabbed).
 - **Multi-Wallet Test**: generates local wallets to test unlinkability end-to-end.
 
 Recommended flow for users:
 1) **Deposit**: moves WSOL from your wallet into the shielded pool.
 2) **Withdraw**: pulls funds back to a public wallet address.
-3) **Authorization**: create a claimable invoice and settle it.
-4) **Transfers**: internal (VeilPay to VeilPay) or external (to any wallet).
+3) **Transfers**: internal (VeilPay to VeilPay) or external (to any wallet).
 
 Notes:
 - Proof generation runs in-browser and can take a few seconds.
@@ -91,8 +90,9 @@ const ix = await client.buildDepositIx({
 ### Relayer
 
 The relayer lives in `relayer/` and exposes:
-- `POST /intent` for authorization submissions
 - `GET /health` for health checks
+- `POST /execute-relayed` for relayer-signed transaction execution
+- `POST /proof` for proof generation
 
 Deploy scripts:
 - `./scripts/relayer-provision.sh`

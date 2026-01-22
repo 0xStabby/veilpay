@@ -26,17 +26,9 @@ import { formatTokenAmount, parseTokenAmount } from '../../lib/amount';
 import { AIRDROP_URL, IS_DEVNET, WSOL_MINT } from '../../lib/config';
 import { PubkeyBadge } from '../PubkeyBadge';
 import { wrapSolToWsol } from '../../lib/adminSetup';
-import {
-    runCreateAuthorizationFlow,
-    runDepositFlow,
-    runExternalTransferFlow,
-    runInternalTransferFlow,
-    runSettleAuthorizationFlow,
-    runWithdrawFlow,
-} from '../../lib/flows';
+import { runDepositFlow, runExternalTransferFlow, runInternalTransferFlow, runWithdrawFlow } from '../../lib/flows';
 import type { TransactionRecord, TransactionRecordPatch } from '../../lib/transactions';
 import { createTransactionRecord, fetchTransactionDetails } from '../../lib/transactions';
-import nacl from 'tweetnacl';
 
 type MultiWalletTesterCardProps = {
     connection: import('@solana/web3.js').Connection | null;
@@ -114,7 +106,6 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
         withdraw: true,
         internal: true,
         external: true,
-        authorization: true,
         wrapSol: true,
         fundWallets: true,
         cleanupWallets: true,
@@ -638,7 +629,7 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                     baseUnits = walletBalance;
                 }
             }
-            const spendSteps = ['withdraw', 'external', 'authorization'].filter(
+            const spendSteps = ['withdraw', 'external'].filter(
                 (key) => selected[key as keyof typeof selected]
             ).length;
             const perSpendRaw = spendSteps > 0 ? baseUnits / BigInt(spendSteps) : baseUnits;
@@ -696,51 +687,6 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                 setStatus('internal-a-b', 'success');
             }
 
-            if (selected.authorization) {
-                setStatus('authorization', 'running');
-                const createResult = await runCreateAuthorizationFlow({
-                    program: programsA.veilpay,
-                    mint: parsedMint,
-                    payer: walletA.publicKey,
-                    signMessage: async (message: Uint8Array) =>
-                        nacl.sign.detached(message, walletA.secretKey),
-                    payee: walletB.publicKey,
-                    amount: spendAmountString,
-                    mintDecimals,
-                    expirySlots: '200',
-                    onStatus: stepStatus('Auth A→B'),
-                });
-                await recordTx('wallet-a:auth-create', createResult.signature, false, {
-                    mint: parsedMint.toBase58(),
-                    payee: walletB.publicKey.toBase58(),
-                    amount: spendAmountString,
-                    wallet: walletA.publicKey.toBase58(),
-                });
-                const settleResult = await runSettleAuthorizationFlow({
-                    program: programsB.veilpay,
-                    verifierProgram: programsB.verifier,
-                    mint: parsedMint,
-                    payee: walletB.publicKey,
-                    amount: spendAmountString,
-                    mintDecimals,
-                    root: rootRef.current,
-                    nextNullifier,
-                    intentHash: createResult.intentHash,
-                    onStatus: stepStatus('Auth A→B'),
-                    onDebit: () => undefined,
-                    onRootChange: (next) => {
-                        rootRef.current = next;
-                        onRootChange(next);
-                    },
-                });
-                await recordTx('wallet-b:auth-settle', settleResult.signature, true, {
-                    mint: parsedMint.toBase58(),
-                    payee: walletB.publicKey.toBase58(),
-                    amount: spendAmountString,
-                    wallet: walletB.publicKey.toBase58(),
-                });
-                setStatus('authorization', 'success');
-            }
 
             if (selected.internal) {
                 setStatus('internal-b-c', 'running');
@@ -921,7 +867,6 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                         : []),
                     { id: 'deposit', label: 'Deposit A' },
                     { id: 'internal-a-b', label: 'Internal A→B', toggle: 'internal' },
-                    { id: 'authorization', label: 'Auth A→B', toggle: 'authorization' },
                     { id: 'internal-b-c', label: 'Internal B→C', toggle: 'internal' },
                     { id: 'withdraw', label: 'Withdraw C' },
                     { id: 'external', label: 'External B→C', toggle: 'external' },
@@ -975,9 +920,6 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                     Run multi-wallet flow
                 </button>
             </div>
-            <p className={styles.note}>
-                Uses local wallets for signing, so authorization flows are supported here as well.
-            </p>
         </section>
     );
 };

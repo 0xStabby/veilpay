@@ -4,7 +4,6 @@ import styles from './UserFlowCard.module.css';
 import type { Program } from '@coral-xyz/anchor';
 import { UserDepositCard } from '../UserDepositCard';
 import { UserWithdrawCard } from '../UserWithdrawCard';
-import { UserAuthorizationCard } from '../UserAuthorizationCard';
 import { UserTransferCard } from '../UserTransferCard';
 
 type UserFlowCardProps = {
@@ -24,7 +23,7 @@ type UserFlowCardProps = {
     onRecordUpdate?: (id: string, patch: import('../../lib/transactions').TransactionRecordPatch) => void;
 };
 
-type FlowTab = 'deposit' | 'withdraw' | 'authorization' | 'transfer';
+type FlowTab = 'deposit' | 'withdraw' | 'transfer';
 
 export const UserFlowCard: FC<UserFlowCardProps> = ({
     veilpayProgram,
@@ -50,9 +49,8 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
                 <div className={styles.tabs}>
                     {[
                         { id: 'deposit', label: 'Deposit' },
-                        { id: 'withdraw', label: 'Withdraw' },
-                        { id: 'authorization', label: 'Authorization' },
                         { id: 'transfer', label: 'Transfers' },
+                        { id: 'withdraw', label: 'Withdraw' },
                     ].map((tab) => (
                         <button
                             key={tab.id}
@@ -83,23 +81,6 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
                 )}
                 {activeTab === 'withdraw' && (
                     <UserWithdrawCard
-                        embedded
-                        veilpayProgram={veilpayProgram}
-                        verifierProgram={verifierProgram}
-                        mintAddress={mintAddress}
-                        onStatus={onStatus}
-                        root={root}
-                        nextNullifier={nextNullifier}
-                        mintDecimals={mintDecimals}
-                        shieldedBalance={shieldedBalance}
-                        onDebit={onDebit}
-                        onRootChange={onRootChange}
-                        onRecord={onRecord}
-                        onRecordUpdate={onRecordUpdate}
-                    />
-                )}
-                {activeTab === 'authorization' && (
-                    <UserAuthorizationCard
                         embedded
                         veilpayProgram={veilpayProgram}
                         verifierProgram={verifierProgram}

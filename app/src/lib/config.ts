@@ -27,7 +27,6 @@ export const LOCALNET_RPC = envString('VITE_RPC_ENDPOINT');
 export const RELAYER_URL = envString('VITE_RELAYER_URL');
 export const AIRDROP_URL = (import.meta.env.VITE_AIRDROP_URL as string | undefined) ?? '';
 export const IS_DEVNET = /devnet/i.test(LOCALNET_RPC);
-export const RELAYER_TRUSTED = (import.meta.env.VITE_RELAYER_TRUSTED as string | undefined) === 'true';
 export const LUT_ADDRESS = (import.meta.env.VITE_LUT_ADDRESS as string | undefined) ?? '';
 const relayerPubkey = (import.meta.env.VITE_RELAYER_PUBKEY as string | undefined)?.trim() ?? '';
 export const RELAYER_PUBKEY = relayerPubkey ? new PublicKey(relayerPubkey) : null;

@@ -93,116 +93,6 @@
       ]
     },
     {
-      "name": "create_authorization",
-      "discriminator": [
-        82,
-        105,
-        2,
-        148,
-        133,
-        5,
-        239,
-        196
-      ],
-      "accounts": [
-        {
-          "name": "config",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              },
-              {
-                "kind": "const",
-                "value": [
-                  47,
-                  106,
-                  106,
-                  81,
-                  214,
-                  244,
-                  0,
-                  0,
-                  41,
-                  55,
-                  253,
-                  245,
-                  77,
-                  228,
-                  75,
-                  93,
-                  242,
-                  189,
-                  134,
-                  24,
-                  71,
-                  209,
-                  208,
-                  207,
-                  90,
-                  9,
-                  60,
-                  108,
-                  23,
-                  64,
-                  28,
-                  47
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "authorization",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  97,
-                  117,
-                  116,
-                  104
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "args.intent_hash"
-              }
-            ]
-          }
-        },
-        {
-          "name": "payer",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "CreateAuthorizationArgs"
-            }
-          }
-        }
-      ]
-    },
-    {
       "name": "deposit",
       "discriminator": [
         242,
@@ -1313,196 +1203,6 @@
       ]
     },
     {
-      "name": "settle_authorization",
-      "discriminator": [
-        103,
-        204,
-        251,
-        47,
-        248,
-        172,
-        71,
-        113
-      ],
-      "accounts": [
-        {
-          "name": "config",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              },
-              {
-                "kind": "const",
-                "value": [
-                  47,
-                  106,
-                  106,
-                  81,
-                  214,
-                  244,
-                  0,
-                  0,
-                  41,
-                  55,
-                  253,
-                  245,
-                  77,
-                  228,
-                  75,
-                  93,
-                  242,
-                  189,
-                  134,
-                  24,
-                  71,
-                  209,
-                  208,
-                  207,
-                  90,
-                  9,
-                  60,
-                  108,
-                  23,
-                  64,
-                  28,
-                  47
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "authorization",
-          "writable": true
-        },
-        {
-          "name": "vault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "mint"
-              }
-            ]
-          }
-        },
-        {
-          "name": "vault_ata",
-          "writable": true
-        },
-        {
-          "name": "shielded_state",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  115,
-                  104,
-                  105,
-                  101,
-                  108,
-                  100,
-                  101,
-                  100
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "mint"
-              }
-            ]
-          }
-        },
-        {
-          "name": "identity_registry",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  105,
-                  100,
-                  101,
-                  110,
-                  116,
-                  105,
-                  116,
-                  121,
-                  95,
-                  114,
-                  101,
-                  103,
-                  105,
-                  115,
-                  116,
-                  114,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "nullifier_set",
-          "writable": true
-        },
-        {
-          "name": "recipient_ata",
-          "writable": true
-        },
-        {
-          "name": "relayer_fee_ata",
-          "writable": true,
-          "optional": true
-        },
-        {
-          "name": "verifier_program",
-          "address": "CKzPKEVD9Bq5Q4iJzALC1Zuk66wwGwK52XsKmFDELYZe"
-        },
-        {
-          "name": "verifier_key"
-        },
-        {
-          "name": "mint"
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        }
-      ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "SettleAuthorizationArgs"
-            }
-          }
-        }
-      ]
-    },
-    {
       "name": "withdraw",
       "discriminator": [
         183,
@@ -1691,19 +1391,6 @@
   ],
   "accounts": [
     {
-      "name": "Authorization",
-      "discriminator": [
-        3,
-        68,
-        168,
-        243,
-        195,
-        168,
-        32,
-        75
-      ]
-    },
-    {
       "name": "Config",
       "discriminator": [
         155,
@@ -1858,139 +1545,61 @@
     },
     {
       "code": 6012,
-      "name": "AuthorizationNotOpen",
-      "msg": "Authorization not open"
-    },
-    {
-      "code": 6013,
-      "name": "AuthorizationExpired",
-      "msg": "Authorization expired"
-    },
-    {
-      "code": 6014,
       "name": "InvalidByteLength",
       "msg": "Invalid byte length"
     },
     {
-      "code": 6015,
+      "code": 6013,
       "name": "InvalidProof",
       "msg": "Invalid proof"
     },
     {
-      "code": 6016,
+      "code": 6014,
       "name": "MissingRelayerFeeAccount",
       "msg": "Missing relayer fee account"
     },
     {
-      "code": 6017,
+      "code": 6015,
       "name": "InvalidRelayerFeeAccount",
       "msg": "Invalid relayer fee account"
     },
     {
-      "code": 6018,
+      "code": 6016,
       "name": "RelayerFeeExceedsAmount",
       "msg": "Relayer fee exceeds amount"
     },
     {
-      "code": 6019,
+      "code": 6017,
       "name": "InvalidPublicInputs",
       "msg": "Invalid public inputs"
     },
     {
-      "code": 6020,
+      "code": 6018,
       "name": "CircuitNotAllowed",
       "msg": "Circuit not allowed"
     },
     {
-      "code": 6021,
+      "code": 6019,
       "name": "AmountMismatch",
       "msg": "Amount mismatch"
     },
     {
-      "code": 6022,
+      "code": 6020,
       "name": "FeeMismatch",
       "msg": "Fee mismatch"
     },
     {
-      "code": 6023,
+      "code": 6021,
       "name": "InvalidOutputFlags",
       "msg": "Invalid output flags"
     },
     {
-      "code": 6024,
+      "code": 6022,
       "name": "MissingNullifierAccount",
       "msg": "Missing nullifier account"
     }
   ],
   "types": [
-    {
-      "name": "Authorization",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "intent_hash",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "payee_tag_hash",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "mint",
-            "type": "pubkey"
-          },
-          {
-            "name": "amount_ciphertext",
-            "type": {
-              "array": [
-                "u8",
-                128
-              ]
-            }
-          },
-          {
-            "name": "expiry_slot",
-            "type": "u64"
-          },
-          {
-            "name": "status",
-            "type": "u8"
-          },
-          {
-            "name": "circuit_id",
-            "type": "u32"
-          },
-          {
-            "name": "proof_hash",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "relayer_pubkey",
-            "type": "pubkey"
-          },
-          {
-            "name": "bump",
-            "type": "u8"
-          }
-        ]
-      }
-    },
     {
       "name": "Config",
       "type": {
@@ -2035,46 +1644,6 @@
           {
             "name": "bump",
             "type": "u8"
-          }
-        ]
-      }
-    },
-    {
-      "name": "CreateAuthorizationArgs",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "intent_hash",
-            "type": "bytes"
-          },
-          {
-            "name": "payee_tag_hash",
-            "type": "bytes"
-          },
-          {
-            "name": "mint",
-            "type": "pubkey"
-          },
-          {
-            "name": "amount_ciphertext",
-            "type": "bytes"
-          },
-          {
-            "name": "expiry_slot",
-            "type": "u64"
-          },
-          {
-            "name": "circuit_id",
-            "type": "u32"
-          },
-          {
-            "name": "proof_hash",
-            "type": "bytes"
-          },
-          {
-            "name": "relayer_pubkey",
-            "type": "pubkey"
           }
         ]
       }
@@ -2249,34 +1818,6 @@
           {
             "name": "commitment",
             "type": "bytes"
-          },
-          {
-            "name": "new_root",
-            "type": "bytes"
-          }
-        ]
-      }
-    },
-    {
-      "name": "SettleAuthorizationArgs",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "amount",
-            "type": "u64"
-          },
-          {
-            "name": "proof",
-            "type": "bytes"
-          },
-          {
-            "name": "public_inputs",
-            "type": "bytes"
-          },
-          {
-            "name": "relayer_fee_bps",
-            "type": "u16"
           },
           {
             "name": "new_root",
