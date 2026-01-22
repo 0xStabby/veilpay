@@ -297,153 +297,6 @@ pub mod veilpay {
         Ok(())
     }
 
-    pub fn create_authorization(
-        ctx: Context<CreateAuthorization>,
-        args: CreateAuthorizationArgs,
-    ) -> Result<()> {
-        require!(
-            ctx.accounts.config.mint_allowlist.contains(&args.mint),
-            VeilpayError::MintNotAllowed
-        );
-        let intent_hash = to_fixed_32(&args.intent_hash)?;
-        let payee_tag_hash = to_fixed_32(&args.payee_tag_hash)?;
-        let amount_ciphertext = to_fixed_128(&args.amount_ciphertext)?;
-        let proof_hash = to_fixed_32(&args.proof_hash)?;
-        let auth = &mut ctx.accounts.authorization;
-        auth.intent_hash = intent_hash;
-        auth.payee_tag_hash = payee_tag_hash;
-        auth.mint = args.mint;
-        auth.amount_ciphertext = amount_ciphertext;
-        auth.expiry_slot = args.expiry_slot;
-        auth.status = AuthorizationStatus::Open as u8;
-        auth.circuit_id = args.circuit_id;
-        auth.proof_hash = proof_hash;
-        auth.relayer_pubkey = args.relayer_pubkey;
-        auth.bump = ctx.bumps.authorization;
-        Ok(())
-    }
-
-    pub fn settle_authorization<'info>(
-        ctx: Context<'_, '_, 'info, 'info, SettleAuthorization<'info>>,
-        args: SettleAuthorizationArgs,
-    ) -> Result<()> {
-        require!(!ctx.accounts.config.paused, VeilpayError::ProtocolPaused);
-        require!(
-            args.relayer_fee_bps <= ctx.accounts.config.relayer_fee_bps_max,
-            VeilpayError::RelayerFeeTooHigh
-        );
-        require!(
-            ctx.accounts.config.mint_allowlist.contains(&ctx.accounts.mint.key()),
-            VeilpayError::MintNotAllowed
-        );
-        require!(
-            ctx.accounts.vault_ata.owner == ctx.accounts.vault.key(),
-            VeilpayError::InvalidVaultAuthority
-        );
-        require!(
-            ctx.accounts.authorization.status == AuthorizationStatus::Open as u8,
-            VeilpayError::AuthorizationNotOpen
-        );
-        let clock = Clock::get()?;
-        require!(
-            ctx.accounts.authorization.expiry_slot == 0
-                || clock.slot <= ctx.accounts.authorization.expiry_slot,
-            VeilpayError::AuthorizationExpired
-        );
-        verify_groth16(
-            &ctx.accounts.verifier_program,
-            &ctx.accounts.verifier_key,
-            args.proof.clone(),
-            args.public_inputs.clone(),
-        )?;
-        let parsed = parse_public_inputs(&args.public_inputs)?;
-        require!(
-            parsed.amount_out == args.amount,
-            VeilpayError::AmountMismatch
-        );
-        require!(
-            parsed.output_enabled[0] == 0,
-            VeilpayError::InvalidOutputFlags
-        );
-        require!(
-            ctx.accounts.config.circuit_ids.contains(&parsed.circuit_id),
-            VeilpayError::CircuitNotAllowed
-        );
-        require!(
-            parsed.identity_root == ctx.accounts.identity_registry.merkle_root,
-            VeilpayError::IdentityRootMismatch
-        );
-        require!(
-            root_known(&ctx.accounts.shielded_state, parsed.root),
-            VeilpayError::UnknownRoot
-        );
-        let (net_amount, fee_amount) = split_relayer_fee(args.amount, args.relayer_fee_bps)?;
-        require!(fee_amount == parsed.fee_amount, VeilpayError::FeeMismatch);
-        mark_nullifiers(
-            &mut ctx.accounts.nullifier_set,
-            ctx.remaining_accounts,
-            &parsed.nullifiers,
-        )?;
-
-        let auth = &mut ctx.accounts.authorization;
-        auth.status = AuthorizationStatus::Settled as u8;
-
-        let bump_seed = [ctx.accounts.vault.bump];
-        let mint_key = ctx.accounts.mint.key();
-        let vault_seeds: &[&[u8]] = &[b"vault", mint_key.as_ref(), &bump_seed];
-        let signer_seeds: &[&[&[u8]]] = &[vault_seeds];
-
-        if fee_amount > 0 {
-            let relayer_fee_ata = ctx
-                .accounts
-                .relayer_fee_ata
-                .as_ref()
-                .ok_or(VeilpayError::MissingRelayerFeeAccount)?;
-            require!(
-                relayer_fee_ata.mint == ctx.accounts.mint.key(),
-                VeilpayError::InvalidRelayerFeeAccount
-            );
-            let cpi_accounts = anchor_spl::token::Transfer {
-                from: ctx.accounts.vault_ata.to_account_info(),
-                to: relayer_fee_ata.to_account_info(),
-                authority: ctx.accounts.vault.to_account_info(),
-            };
-            let cpi_ctx = CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                cpi_accounts,
-                signer_seeds,
-            );
-            anchor_spl::token::transfer(cpi_ctx, fee_amount)?;
-        }
-
-        let cpi_accounts = anchor_spl::token::Transfer {
-            from: ctx.accounts.vault_ata.to_account_info(),
-            to: ctx.accounts.recipient_ata.to_account_info(),
-            authority: ctx.accounts.vault.to_account_info(),
-        };
-        let cpi_ctx = CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
-            cpi_accounts,
-            signer_seeds,
-        );
-        anchor_spl::token::transfer(cpi_ctx, net_amount)?;
-
-        let vault = &mut ctx.accounts.vault;
-        vault.total_withdrawn = vault
-            .total_withdrawn
-            .checked_add(args.amount)
-            .ok_or(VeilpayError::MathOverflow)?;
-        vault.nonce = vault.nonce.saturating_add(1);
-
-        if parsed.output_enabled[1] == 1 {
-            let new_root = to_fixed_32(&args.new_root)?;
-            let shielded = &mut ctx.accounts.shielded_state;
-            shielded.commitment_count = shielded.commitment_count.saturating_add(1);
-            append_root(shielded, new_root);
-        }
-        Ok(())
-    }
-
     pub fn internal_transfer<'info>(
         ctx: Context<'_, '_, 'info, 'info, InternalTransfer<'info>>,
         args: InternalTransferArgs,
@@ -765,50 +618,6 @@ pub struct Withdraw<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(args: CreateAuthorizationArgs)]
-pub struct CreateAuthorization<'info> {
-    #[account(seeds = [b"config", crate::ID.as_ref()], bump = config.bump)]
-    pub config: Account<'info, Config>,
-    #[account(
-        init,
-        payer = payer,
-        space = 8 + Authorization::INIT_SPACE,
-        seeds = [b"auth".as_ref(), args.intent_hash.as_slice()],
-        bump
-    )]
-    pub authorization: Box<Account<'info, Authorization>>,
-    #[account(mut)]
-    pub payer: Signer<'info>,
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct SettleAuthorization<'info> {
-    #[account(seeds = [b"config", crate::ID.as_ref()], bump = config.bump)]
-    pub config: Account<'info, Config>,
-    #[account(mut)]
-    pub authorization: Box<Account<'info, Authorization>>,
-    #[account(mut, seeds = [b"vault", mint.key().as_ref()], bump = vault.bump)]
-    pub vault: Account<'info, VaultPool>,
-    #[account(mut)]
-    pub vault_ata: Box<Account<'info, TokenAccount>>,
-    #[account(seeds = [b"shielded", mint.key().as_ref()], bump = shielded_state.bump)]
-    pub shielded_state: Box<Account<'info, ShieldedState>>,
-    #[account(seeds = [b"identity_registry"], bump = identity_registry.bump)]
-    pub identity_registry: Box<Account<'info, IdentityRegistry>>,
-    #[account(mut)]
-    pub nullifier_set: Box<Account<'info, NullifierSet>>,
-    #[account(mut)]
-    pub recipient_ata: Box<Account<'info, TokenAccount>>,
-    #[account(mut)]
-    pub relayer_fee_ata: Option<Box<Account<'info, TokenAccount>>>,
-    pub verifier_program: Program<'info, verifier::program::Verifier>,
-    pub verifier_key: Account<'info, verifier::VerifierKey>,
-    pub mint: Account<'info, Mint>,
-    pub token_program: Program<'info, Token>,
-}
-
-#[derive(Accounts)]
 pub struct InternalTransfer<'info> {
     #[account(seeds = [b"config", crate::ID.as_ref()], bump = config.bump)]
     pub config: Account<'info, Config>,
@@ -866,27 +675,6 @@ pub struct DepositArgs {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct WithdrawArgs {
-    pub amount: u64,
-    pub proof: Vec<u8>,
-    pub public_inputs: Vec<u8>,
-    pub relayer_fee_bps: u16,
-    pub new_root: Vec<u8>,
-}
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
-pub struct CreateAuthorizationArgs {
-    pub intent_hash: Vec<u8>,
-    pub payee_tag_hash: Vec<u8>,
-    pub mint: Pubkey,
-    pub amount_ciphertext: Vec<u8>,
-    pub expiry_slot: u64,
-    pub circuit_id: u32,
-    pub proof_hash: Vec<u8>,
-    pub relayer_pubkey: Pubkey,
-}
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
-pub struct SettleAuthorizationArgs {
     pub amount: u64,
     pub proof: Vec<u8>,
     pub public_inputs: Vec<u8>,
@@ -968,21 +756,6 @@ pub struct IdentityRegistry {
 
 #[account]
 #[derive(InitSpace)]
-pub struct Authorization {
-    pub intent_hash: [u8; 32],
-    pub payee_tag_hash: [u8; 32],
-    pub mint: Pubkey,
-    pub amount_ciphertext: [u8; 128],
-    pub expiry_slot: u64,
-    pub status: u8,
-    pub circuit_id: u32,
-    pub proof_hash: [u8; 32],
-    pub relayer_pubkey: Pubkey,
-    pub bump: u8,
-}
-
-#[account]
-#[derive(InitSpace)]
 pub struct NullifierSet {
     pub mint: Pubkey,
     pub chunk_index: u32,
@@ -1005,14 +778,6 @@ pub struct VkEntry {
     pub vk_account: Pubkey,
     pub vk_hash: [u8; 32],
     pub status: u8,
-}
-
-#[repr(u8)]
-pub enum AuthorizationStatus {
-    Open = 0,
-    Settled = 1,
-    Expired = 2,
-    Cancelled = 3,
 }
 
 fn append_root(state: &mut ShieldedState, new_root: [u8; 32]) {
@@ -1234,10 +999,6 @@ pub enum VeilpayError {
     UnknownRoot,
     #[msg("Identity root mismatch")]
     IdentityRootMismatch,
-    #[msg("Authorization not open")]
-    AuthorizationNotOpen,
-    #[msg("Authorization expired")]
-    AuthorizationExpired,
     #[msg("Invalid byte length")]
     InvalidByteLength,
     #[msg("Invalid proof")]

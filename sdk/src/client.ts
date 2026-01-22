@@ -1,8 +1,8 @@
-import { AnchorProvider, Program, Wallet } from "@coral-xyz/anchor";
+import { AnchorProvider, Program } from "@coral-xyz/anchor";
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import BN from "bn.js";
-import { Intent, TransferArgs } from "./types";
+import { TransferArgs } from "./types";
 
 export class VeilpayClient {
   readonly program: Program;
@@ -86,29 +86,5 @@ export class VeilpayClient {
       .instruction();
   }
 
-  async buildCreateAuthorizationIx(args: { intent: Intent; config: PublicKey; authorization: PublicKey }): Promise<TransactionInstruction> {
-    return await this.program.methods
-      .createAuthorization({
-        intentHash: Buffer.from(args.intent.intentHash),
-        payeeTagHash: Buffer.from(args.intent.payeeTagHash),
-        mint: args.intent.mint,
-        amountCiphertext: Buffer.from(args.intent.amountCiphertext),
-        expirySlot: new BN(args.intent.expirySlot.toString()),
-        circuitId: args.intent.circuitId,
-        proofHash: Buffer.from(args.intent.proofHash),
-        relayerPubkey: args.intent.relayerPubkey ?? PublicKey.default,
-      })
-      .accounts({
-        config: args.config,
-        authorization: args.authorization,
-        payer: this.provider.wallet.publicKey,
-      })
-      .instruction();
-  }
-
-  async signIntent(wallet: Wallet, domain: string, intentHash: Uint8Array): Promise<Uint8Array> {
-    const message = Buffer.concat([Buffer.from(domain), Buffer.from(intentHash)]);
-    const signature = await wallet.signMessage(message);
-    return signature;
-  }
+  
 }

@@ -7,7 +7,6 @@ This document explains what is (and is not) anonymous in the current app flows. 
 - **Deposits/withdrawals/transfers now use real note data and Merkle paths**, so proofs are tied to actual notes.
 - **Recipient tags are derived from secrets**, not public keys.
 - **External transfers are still public by design**, because the destination ATA is on‑chain.
-- **Authorization privacy depends on relayer trust**: if `VITE_RELAYER_TRUSTED=true`, the relayer does not receive payer identity; otherwise it does.
 - **Ciphertext encryption is still a lightweight symmetric scheme**, not full ElGamal, so the cryptographic privacy story is incomplete.
 
 ## What the current flows do
@@ -55,20 +54,6 @@ Key behaviors:
 
 Privacy impact:
 - **Not anonymous**. Destination ATA is public.
-
-### Authorization create / settle
-
-Key behaviors:
-- `payeeTagHash` is derived from the payee tag secret.
-- `amountCiphertext` is derived from the same secret.
-- If `RELAYER_TRUSTED=true`, the intent omits payer/signature.
-- Settlement still uses the payee ATA on‑chain.
-
-Privacy impact:
-- **Relayer privacy depends on trust mode**:
-  - trusted: relayer does not see payer identity.
-  - untrusted: relayer sees payer pubkey + signature.
-- **Recipient is still public** during settlement (ATA is on‑chain).
 
 ## What is still not fully privacy‑preserving
 

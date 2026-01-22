@@ -25,8 +25,6 @@ This document captures the concrete changes needed for VeilPay to deliver sender
 6) **Root history checks**
 - Flows verify the current root against on-chain state before proving.
 
-7) **Relayer policy toggle**
-- `RELAYER_TRUSTED=true` allows submitting intents without payer identity.
 
 ## Remaining / partial
 
@@ -38,9 +36,6 @@ This document captures the concrete changes needed for VeilPay to deliver sender
 - Secrets are local; there is no out-of-band exchange for unrelated wallets.
 - This needs a real key distribution mechanism for external recipients.
 
-3) **Relayer anonymity vs chain visibility**
-- Even in trusted relayer mode, the payer is still a signer on-chain.
-- A full anonymity scheme would require a different protocol (not just relayer changes).
 
 ## External transfer disclosure
 
@@ -50,5 +45,4 @@ This document captures the concrete changes needed for VeilPay to deliver sender
 ## Desired end‑state (privacy properties)
 
 - Observers cannot link deposits to withdrawals/transfers by tags or commitments.
-- Relayer (if untrusted) cannot link payer to authorization intent.
 - External recipients are public, but the source note is hidden.

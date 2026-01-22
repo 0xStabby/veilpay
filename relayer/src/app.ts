@@ -9,7 +9,6 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js";
 import { z } from "zod";
-import nacl from "tweetnacl";
 import path from "path";
 import os from "os";
 import { access, mkdtemp, readFile, rm, writeFile } from "fs/promises";
@@ -48,62 +47,6 @@ async function ensureExists(label: string, filePath: string) {
     throw new Error(`${label} not found: ${filePath}`);
   }
 }
-
-const intentSchema = z.object({
-  intentHash: z.string(),
-  mint: z.string(),
-  payeeTagHash: z.string(),
-  amountCiphertext: z.string(),
-  expirySlot: z.string(),
-  circuitId: z.number(),
-  proofHash: z.string(),
-  payer: z.string().optional(),
-  relayerPubkey: z.string().optional(),
-  signature: z.string().optional(),
-  domain: z.string().optional(),
-});
-
-app.post("/intent", (req, res) => {
-  const parsed = intentSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-  const trusted = process.env.RELAYER_TRUSTED === "true";
-  if (!trusted) {
-    if (!parsed.data.payer || !parsed.data.signature || !parsed.data.domain) {
-      res.status(400).json({ error: "Missing payer signature" });
-      return;
-    }
-    const intentHash = decodeBase64(parsed.data.intentHash, 32);
-    const signature = decodeBase64(parsed.data.signature, 64);
-    if (!intentHash || !signature) {
-      res.status(400).json({ error: "Invalid signature payload" });
-      return;
-    }
-    let payer: PublicKey;
-    try {
-      payer = new PublicKey(parsed.data.payer);
-    } catch {
-      res.status(400).json({ error: "Invalid payer" });
-      return;
-    }
-    const message = Buffer.concat([
-      Buffer.from(parsed.data.domain),
-      Buffer.from(intentHash),
-    ]);
-    const ok = nacl.sign.detached.verify(
-      message,
-      new Uint8Array(signature),
-      payer.toBytes()
-    );
-    if (!ok) {
-      res.status(401).json({ error: "Invalid signature" });
-      return;
-    }
-  }
-  res.json({ id: parsed.data.intentHash });
-});
 
 const proofSchema = z.object({
   input: z.record(z.string(), z.union([z.string(), z.number()])),
@@ -184,30 +127,6 @@ function assertAllowedPrograms(programIds: PublicKey[]) {
   }
 }
 
-app.post("/execute", async (req, res) => {
-  const parsed = executeSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-  try {
-    const txBytes = Buffer.from(parsed.data.transaction, "base64");
-    let signature: string;
-    try {
-      const tx = Transaction.from(txBytes);
-      signature = await connection.sendRawTransaction(tx.serialize());
-    } catch {
-      const tx = VersionedTransaction.deserialize(txBytes);
-      signature = await connection.sendRawTransaction(tx.serialize());
-    }
-    await connection.confirmTransaction(signature, "confirmed");
-    res.json({ signature });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Execution failed";
-    res.status(500).json({ error: message });
-  }
-});
-
 app.post("/execute-relayed", async (req, res) => {
   const parsed = executeSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -284,15 +203,3 @@ app.post("/execute-relayed", async (req, res) => {
     res.status(500).json({ error: message, logs });
   }
 });
-
-function decodeBase64(value: string, expectedLen: number): Buffer | null {
-  try {
-    const buf = Buffer.from(value, "base64");
-    if (buf.length !== expectedLen) {
-      return null;
-    }
-    return buf;
-  } catch {
-    return null;
-  }
-}

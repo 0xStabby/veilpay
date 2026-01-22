@@ -14,15 +14,7 @@ import {
     getAccount,
     getAssociatedTokenAddress,
 } from '@solana/spl-token';
-import {
-    deriveAuthorization,
-    deriveConfig,
-    deriveIdentityRegistry,
-    deriveShielded,
-    deriveVault,
-    deriveVerifierKey,
-} from './pda';
-import { concatBytes, randomBytes, sha256 } from './crypto';
+import { deriveConfig, deriveIdentityRegistry, deriveShielded, deriveVault, deriveVerifierKey } from './pda';
 import {
     computeNullifier,
     formatPublicSignals,
@@ -31,21 +23,13 @@ import {
     bigIntToBytes32,
 } from './prover';
 import { ensureNullifierSets } from './nullifier';
-import {
-    LUT_ADDRESS,
-    RELAYER_FEE_BPS,
-    RELAYER_PUBKEY,
-    RELAYER_TRUSTED,
-    RELAYER_URL,
-    VERIFIER_PROGRAM_ID,
-} from './config';
-import { submitViaRelayer, submitViaRelayerUnsigned } from './relayer';
+import { LUT_ADDRESS, RELAYER_FEE_BPS, RELAYER_PUBKEY, VERIFIER_PROGRAM_ID } from './config';
+import { submitViaRelayerUnsigned } from './relayer';
 import { checkVerifierKeyMatch } from './verifierKey';
 import { formatTokenAmount, parseTokenAmount } from './amount';
 import { buildMerkleTree, getMerklePath, MERKLE_DEPTH } from './merkle';
 import {
     addNote,
-    buildAmountCiphertext,
     createNote,
     type NoteRecord,
     getRecipientKeypair,
@@ -53,7 +37,6 @@ import {
     listSpendableNotes,
     markNoteSpent,
     saveNotes,
-    recipientTagHash,
     selectNotesForAmount,
 } from './notes';
 import {
@@ -594,6 +577,10 @@ export async function runWithdrawFlow(params: {
     }
     onStatus('Verifier key matches. Submitting to relayer...');
 
+    if (!RELAYER_PUBKEY) {
+        throw new Error('Missing relayer public key for relayed withdraws.');
+    }
+
     const ix = await program.methods
         .withdraw({
             amount: new BN(baseUnits.toString()),
@@ -641,12 +628,12 @@ export async function runWithdrawFlow(params: {
     if (lookupTable) {
         const { blockhash } = await provider.connection.getLatestBlockhash();
         const message = new TransactionMessage({
-            payerKey: provider.wallet.publicKey,
+            payerKey: RELAYER_PUBKEY,
             recentBlockhash: blockhash,
             instructions: [ix],
         }).compileToV0Message([lookupTable]);
         const tx = new VersionedTransaction(message);
-        const relayerResult = await submitViaRelayer(provider, tx);
+        const relayerResult = await submitViaRelayerUnsigned(provider, tx);
         inputNotes.forEach((note) => markNoteSpent(mint, note.id));
         outputNotes.forEach((note, index) => {
             if (note && outputEnabled[index]) {
@@ -665,7 +652,9 @@ export async function runWithdrawFlow(params: {
         };
     }
 
-    const relayerResult = await submitViaRelayer(provider, new Transaction().add(ix));
+    const legacyTx = new Transaction().add(ix);
+    legacyTx.feePayer = RELAYER_PUBKEY;
+    const relayerResult = await submitViaRelayerUnsigned(provider, legacyTx);
     inputNotes.forEach((note) => markNoteSpent(mint, note.id));
     outputNotes.forEach((note, index) => {
         if (note && outputEnabled[index]) {
@@ -677,321 +666,6 @@ export async function runWithdrawFlow(params: {
     }
     onDebit(baseUnits);
     onStatus('Withdraw complete.');
-    return {
-        signature: relayerResult.signature,
-        amountBaseUnits: baseUnits,
-        nullifier: built.nullifierValues[0] ?? 0n,
-    };
-}
-
-export async function runCreateAuthorizationFlow(params: {
-    program: Program;
-    mint: PublicKey;
-    payer: PublicKey;
-    signMessage: (message: Uint8Array) => Promise<Uint8Array>;
-    payee: PublicKey;
-    amount: string;
-    mintDecimals: number;
-    expirySlots: string;
-    onStatus: StatusHandler;
-}): Promise<{
-    intentHash: Uint8Array;
-    signature: string;
-    expirySlot: bigint;
-    amountCiphertext: Uint8Array;
-}> {
-    const { program, mint, payer, signMessage, payee, amount: _amount, mintDecimals, expirySlots, onStatus } = params;
-    const amountValue = parseTokenAmount(_amount, mintDecimals);
-    const { ciphertext: amountCiphertext, payeeTagHash } = await buildAmountCiphertext({
-        payee,
-        amount: amountValue,
-    });
-    const expirySlot = BigInt(Date.now()) + BigInt(expirySlots);
-    const intentHashBytes = await sha256(
-        concatBytes([
-            mint.toBytes(),
-            bigIntToBytes32(payeeTagHash),
-            amountCiphertext,
-            new Uint8Array(new BN(expirySlot.toString()).toArray('be', 8)),
-        ])
-    );
-
-    const domain = `VeilPay:v1:${program.programId.toBase58()}:localnet`;
-    const intentSignature = RELAYER_TRUSTED
-        ? null
-        : await signMessage(concatBytes([new TextEncoder().encode(domain), intentHashBytes]));
-
-    const intentPayload: Record<string, unknown> = {
-        intentHash: Buffer.from(intentHashBytes).toString('base64'),
-        mint: mint.toBase58(),
-        payeeTagHash: Buffer.from(bigIntToBytes32(payeeTagHash)).toString('base64'),
-        amountCiphertext: Buffer.from(amountCiphertext).toString('base64'),
-        expirySlot: expirySlot.toString(),
-        circuitId: 0,
-        proofHash: Buffer.from(randomBytes(32)).toString('base64'),
-    };
-    if (!RELAYER_TRUSTED) {
-        intentPayload.payer = payer.toBase58();
-        intentPayload.signature = Buffer.from(intentSignature!).toString('base64');
-        intentPayload.domain = domain;
-    }
-
-    await fetch(`${RELAYER_URL}/intent`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(intentPayload),
-    });
-
-    const config = deriveConfig(program.programId);
-    const authorization = deriveAuthorization(program.programId, intentHashBytes);
-    const signature = await program.methods
-        .createAuthorization({
-            intentHash: Buffer.from(intentHashBytes),
-            payeeTagHash: Buffer.from(bigIntToBytes32(payeeTagHash)),
-            mint,
-            amountCiphertext: Buffer.from(amountCiphertext),
-            expirySlot: new BN(expirySlot.toString()),
-            circuitId: 0,
-            proofHash: Buffer.from(randomBytes(32)),
-            relayerPubkey: PublicKey.default,
-        })
-        .accounts({
-            config,
-            authorization,
-            payer,
-        })
-        .rpc();
-
-    onStatus('Authorization created.');
-    return {
-        intentHash: intentHashBytes,
-        signature,
-        expirySlot,
-        amountCiphertext,
-    };
-}
-
-export async function runSettleAuthorizationFlow(params: {
-    program: Program;
-    verifierProgram: Program | null;
-    mint: PublicKey;
-    payee: PublicKey;
-    amount: string;
-    mintDecimals: number;
-    root: Uint8Array;
-    nextNullifier: () => number;
-    intentHash: Uint8Array;
-    onStatus: StatusHandler;
-    onDebit: (amount: bigint) => void;
-    onRootChange?: (next: Uint8Array) => void;
-}): Promise<{ signature: string; amountBaseUnits: bigint; nullifier: bigint }> {
-    const {
-        program,
-        verifierProgram,
-        mint,
-        payee,
-        amount,
-        mintDecimals,
-        root,
-        nextNullifier: _nextNullifier,
-        intentHash,
-        onStatus,
-        onDebit,
-        onRootChange,
-    } = params;
-    const provider = getProvider(program);
-    onStatus('Generating proof...');
-    const config = deriveConfig(program.programId);
-    const authorization = deriveAuthorization(program.programId, intentHash);
-    const vault = deriveVault(program.programId, mint);
-    const { shieldedState, rootBytes, commitmentCount } = await fetchShieldedState(program, mint);
-    await ensureIdentityRegistered(program, provider.wallet.publicKey, onStatus);
-    const vaultAta = await getAssociatedTokenAddress(mint, vault, true);
-    const recipientAta = await ensureAta(provider, mint, payee);
-    const verifierKey = deriveVerifierKey(VERIFIER_PROGRAM_ID, 0);
-
-    let baseUnits = parseTokenAmount(amount, mintDecimals);
-    const { notes: inputNotes, total } = selectNotesForAmount(mint, baseUnits, MAX_INPUTS);
-    if (inputNotes.length === 0 || total < baseUnits) {
-        throw new Error('Insufficient shielded balance for that amount.');
-    }
-    inputNotes.forEach(assertCiphertextFields);
-    const commitments = getCommitmentsWithSync(mint, commitmentCount, onStatus);
-    const { root: derivedRoot } = await buildMerkleTree(commitments);
-    const derivedRootBytes = bigIntToBytes32(derivedRoot);
-    if (!bytesEqual(root, derivedRootBytes)) {
-        onStatus('Provided root does not match local notes; using on-chain root.');
-        onRootChange?.(derivedRootBytes);
-    }
-    if (!bytesEqual(rootBytes, derivedRootBytes)) {
-        throw new Error('On-chain root does not match local note store.');
-    }
-
-    if (!RELAYER_PUBKEY) {
-        throw new Error('Missing relayer public key for relayed external transfers.');
-    }
-    const relayerFeeBps = RELAYER_FEE_BPS;
-    if (!Number.isInteger(relayerFeeBps) || relayerFeeBps < 0 || relayerFeeBps > 10_000) {
-        throw new Error('Invalid relayer fee bps.');
-    }
-    const requiredWithFee = baseUnits + computeRelayerFee(baseUnits, relayerFeeBps);
-    if (total < requiredWithFee && relayerFeeBps > 0) {
-        const maxAmount = (total * 10_000n) / (10_000n + BigInt(relayerFeeBps));
-        if (maxAmount <= 0n) {
-            throw new Error('Insufficient shielded balance for fee.');
-        }
-        if (maxAmount < baseUnits) {
-            onStatus(
-                `Reducing external transfer amount to ${formatTokenAmount(maxAmount, mintDecimals)} to cover relayer fee.`
-            );
-            baseUnits = maxAmount;
-        }
-    }
-    const feeAmount = computeRelayerFee(baseUnits, relayerFeeBps);
-    const changeAmount = total - baseUnits - feeAmount;
-    if (changeAmount < 0n) {
-        throw new Error('Insufficient shielded balance for fee.');
-    }
-
-    const outputNotes: Array<NoteRecord | null> = [null, null];
-    const outputEnabled = [0, 0];
-    let nextIndex = commitments.length;
-    if (changeAmount > 0n) {
-        const { note: changeNote } = await createNote({
-            mint,
-            amount: changeAmount,
-            recipient: provider.wallet.publicKey,
-            leafIndex: nextIndex,
-        });
-        outputNotes[1] = changeNote;
-        outputEnabled[1] = 1;
-        nextIndex += 1;
-    }
-
-    const updatedCommitments = commitments.slice();
-    outputNotes.forEach((note, index) => {
-        if (note && outputEnabled[index]) {
-            updatedCommitments.push(BigInt(note.commitment));
-        }
-    });
-    const { root: newRoot } = await buildMerkleTree(updatedCommitments);
-    const newRootBytes = bigIntToBytes32(newRoot);
-
-    const built = await buildSpendProofInput({
-        program,
-        mint,
-        owner: provider.wallet.publicKey,
-        inputNotes,
-        outputNotes,
-        outputEnabled,
-        amountOut: baseUnits,
-        feeAmount,
-        commitments,
-    });
-    const { proofBytes, publicInputsBytes, publicSignals, proof } = await generateProof(built.input);
-    const nullifierSets = await ensureNullifierSets(program, mint, built.nullifierValues);
-
-    onStatus('Preflight verifying proof (no wallet approval needed)...');
-    const verified = await preflightVerify(proof, publicSignals);
-    if (!verified) {
-        throw new Error(`Preflight verify failed. ${formatPublicSignals(publicSignals)}`);
-    }
-    onStatus('Preflight verified. Preparing relayer transaction...');
-
-    if (verifierProgram) {
-        onStatus('Checking verifier key consistency...');
-        const vkCheck = await checkVerifierKeyMatch(verifierProgram);
-        if (!vkCheck.ok) {
-            throw new Error(`Verifier key mismatch on-chain: ${vkCheck.mismatch}`);
-        }
-    }
-    onStatus('Verifier key matches. Submitting to relayer...');
-
-    const ix = await program.methods
-        .settleAuthorization({
-            amount: new BN(baseUnits.toString()),
-            proof: Buffer.from(proofBytes),
-            publicInputs: Buffer.from(publicInputsBytes),
-            relayerFeeBps: 0,
-            newRoot: Buffer.from(newRootBytes),
-        })
-        .accounts({
-            config,
-            authorization,
-            vault,
-            vaultAta,
-            shieldedState,
-            identityRegistry: deriveIdentityRegistry(program.programId),
-            nullifierSet: nullifierSets[0],
-            recipientAta,
-            relayerFeeAta: recipientAta,
-            verifierProgram: VERIFIER_PROGRAM_ID,
-            verifierKey,
-            mint,
-            tokenProgram: TOKEN_PROGRAM_ID,
-        } as any)
-        .remainingAccounts(
-            nullifierSets.slice(1).map((account) => ({
-                pubkey: account,
-                isWritable: true,
-                isSigner: false,
-            }))
-        )
-        .instruction();
-
-    const lookupTable = await getEnvLookupTable(provider, [
-        config,
-        authorization,
-        vault,
-        vaultAta,
-        shieldedState,
-        deriveIdentityRegistry(program.programId),
-        recipientAta,
-        verifierKey,
-        VERIFIER_PROGRAM_ID,
-        mint,
-        TOKEN_PROGRAM_ID,
-        ...nullifierSets,
-    ]);
-    if (lookupTable) {
-        const { blockhash } = await provider.connection.getLatestBlockhash();
-        const message = new TransactionMessage({
-            payerKey: provider.wallet.publicKey,
-            recentBlockhash: blockhash,
-            instructions: [ix],
-        }).compileToV0Message([lookupTable]);
-        const tx = new VersionedTransaction(message);
-        const relayerResult = await submitViaRelayer(provider, tx);
-        inputNotes.forEach((note) => markNoteSpent(mint, note.id));
-        outputNotes.forEach((note, index) => {
-            if (note && outputEnabled[index]) {
-                addNote(mint, note);
-            }
-        });
-        if (outputEnabled.some((flag) => flag === 1)) {
-            onRootChange?.(newRootBytes);
-        }
-        onDebit(baseUnits);
-        onStatus('Authorization settled.');
-        return {
-            signature: relayerResult.signature,
-            amountBaseUnits: baseUnits,
-            nullifier: built.nullifierValues[0] ?? 0n,
-        };
-    }
-
-    const relayerResult = await submitViaRelayer(provider, new Transaction().add(ix));
-    inputNotes.forEach((note) => markNoteSpent(mint, note.id));
-    outputNotes.forEach((note, index) => {
-        if (note && outputEnabled[index]) {
-            addNote(mint, note);
-        }
-    });
-    if (outputEnabled.some((flag) => flag === 1)) {
-        onRootChange?.(newRootBytes);
-    }
-    onDebit(baseUnits);
-    onStatus('Authorization settled.');
     return {
         signature: relayerResult.signature,
         amountBaseUnits: baseUnits,

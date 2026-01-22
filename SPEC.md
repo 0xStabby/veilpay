@@ -6,7 +6,6 @@ Executive Summary
 - Amount privacy is achieved with ElGamal encryption; correctness is enforced with Groth16 proofs.
 - A per-mint shielded state PDA maintains a global commitment tree and root history.
 - Nullifiers prevent double spend via a chunked on-chain set.
-- Authorizations (invoices) are unlinkable to payer addresses on-chain; relayers validate intent signatures off-chain (privacy depends on relayer trust model).
 - Verifying keys are stored in a dedicated verifier program account and versioned via a registry for upgrades.
 - Relayers can submit gasless transactions while fees are enforced on-chain (amount split in-program).
 - The SDK (TypeScript) orchestrates key management, proofs, and transaction construction.
@@ -17,7 +16,6 @@ Privacy Assumptions and Guarantees
 - Proofs are generated from real notes that exist in the commitment tree (valid Merkle paths).
 - Merkle roots are computed from the note tree, not randomized.
 - External transfers reveal the destination ATA on-chain; only the source note is hidden.
-- Authorization privacy depends on relayer trust. If the relayer is untrusted, intent submission must not reveal payer identity.
 
 ## Architecture
 
@@ -27,9 +25,8 @@ Text Diagram
   - Local note DB: commitments, nullifiers, Merkle paths
   - Proof generation: Groth16 (WASM) or backend prover
   - Transaction builder (Anchor instructions and account metas)
-  - Optional: intent signing for relayer and fee quoting
     -> On-chain Program (Anchor)
-      - Config/Vault/Shielded/Auth/Nullifier PDAs
+      - Config/Vault/Shielded/Nullifier PDAs
       - Proof verification (direct or via verifier program)
       - SPL token vault transfers
         -> SPL Token Program
@@ -52,8 +49,6 @@ Component Responsibilities
   - Enforce escrow, verify proofs, update nullifier set and root history.
   - Manage config, fee policy, and circuit/version registry.
 - Relayer/API
-  - Accept authorization intents and proof uploads.
-  - Validate wallet signatures and intent schema.
   - Submit Solana transactions and collect on-chain relayer fees.
 - Verifying Key Registry
   - Store VK references and hashes.
@@ -95,20 +90,7 @@ PDA Seeds are ASCII byte strings. No per-user PDAs are used.
   - circuit_id: u32
   - version: u32
 
-4) Authorization/Invoice PDA (unlinkable)
-- Seeds: ["auth", intent_hash]
-- Fields:
-  - intent_hash: [u8; 32]
-  - payee_tag_hash: [u8; 32]
-  - mint: Pubkey
-  - amount_ciphertext: [u8; 64]
-  - expiry_slot: u64
-  - status: u8 (0=Open,1=Settled,2=Expired,3=Cancelled)
-  - circuit_id: u32
-  - proof_hash: [u8; 32]
-  - relayer_pubkey: Pubkey (optional)
-
-5) Nullifier Set PDA (per mint, chunked)
+4) Nullifier Set PDA (per mint, chunked)
 - Seeds: ["nullifier_set", mint_pubkey, chunk_index_u32_le]
 - Fields:
   - chunk_index: u32
@@ -116,7 +98,7 @@ PDA Seeds are ASCII byte strings. No per-user PDAs are used.
   - count: u32
 - Strategy: hash nullifier to (chunk_index, bit_index).
 
-6) Verifying Key Registry PDA
+5) Verifying Key Registry PDA
 - Seeds: ["vk_registry"]
 - Fields:
   - entries: Vec<VkEntry>
@@ -126,7 +108,7 @@ PDA Seeds are ASCII byte strings. No per-user PDAs are used.
   - vk_hash: [u8; 32]
   - status: u8 (0=active,1=deprecated)
 
-7) Verifier Key PDA (verifier program)
+6) Verifier Key PDA (verifier program)
 - Program: verifier (separate program ID)
 - Seeds: ["verifier_key", key_id_u32_le]
 - Fields:
@@ -202,30 +184,7 @@ All account metas specify signer/writable. PDA derivations are checked in-progra
   - token_program
 - Behavior: verify proof, check nullifier unused, mark nullifier, transfer amount minus fee to recipient, fee to relayer.
 
-8) create_authorization(intent_hash, expiry_slot, payee_tag_hash, ciphertext_amount, circuit_id)
-- Accounts:
-  - config_pda (read)
-  - auth_pda (writable)
-  - payer (signer)
-- Behavior: store authorization intent; no funds moved.
-
-9) settle_authorization(proof, public_inputs, nullifier, root, relayer_fee_bps, recipient_ata)
-- Accounts:
-  - config_pda (read)
-  - auth_pda (writable)
-  - vault_pda (writable)
-  - vault_ata (writable)
-  - shielded_state_pda (read)
-  - nullifier_set_pda (writable)
-  - recipient_ata (writable)
-  - relayer_fee_ata (writable, optional)
-  - verifier_program (read)
-  - verifier_key_pda (read)
-  - mint (read)
-  - token_program
-- Behavior: verify proof binding to auth, mark nullifier, pay recipient, mark auth settled.
-
-10) internal_transfer(proof, public_inputs, nullifier, root, new_root, ciphertext_new, recipient_tag_hash)
+8) internal_transfer(proof, public_inputs, nullifier, root, new_root, ciphertext_new, recipient_tag_hash)
 - Accounts:
   - config_pda (read)
   - shielded_state_pda (writable)
@@ -235,7 +194,7 @@ All account metas specify signer/writable. PDA derivations are checked in-progra
   - mint (read)
 - Behavior: consumes a note and creates a new commitment; no token movement.
 
-11) external_transfer(proof, public_inputs, nullifier, root, amount, relayer_fee_bps, destination_ata)
+9) external_transfer(proof, public_inputs, nullifier, root, amount, relayer_fee_bps, destination_ata)
 - Accounts:
   - config_pda (read)
   - vault_pda (writable)
@@ -310,16 +269,14 @@ Verifying Key Management
 ## Threat Model
 
 Privacy Provided
-- Amount hiding for internal transfers and authorizations.
+- Amount hiding for internal transfers.
 - Sender unlinkability for external transfers via nullifier/proof.
 - Recipient privacy for internal transfers only.
 
 Not Provided
 - On-chain metadata privacy (accounts, program IDs).
-- Network-level privacy; relayer can observe intent metadata.
 
 Replay Protection
-- Authorization has nonce and expiry.
 - Nullifier set ensures single spend.
 
 Double-spend Prevention
@@ -327,13 +284,7 @@ Double-spend Prevention
 - Check + write in same instruction.
 
 Relayer Trust Assumptions
-- Relayer sees intent details and ciphertext.
-- Relayer cannot forge without user signature.
 - Relayer fee enforced on-chain via amount split and max fee bps; relayer fee ATA required when fee > 0.
-
-Signature/Auth Model
-- User signs intent with domain separation: `domain || intent_hash` where `domain = "VeilPay:v1:program_id:cluster"`.
-- Relayer validates Ed25519 signature before submitting tx (API expects base64-encoded bytes).
 
 Key Management
 - Users hold encryption keys and note secrets off-chain.
@@ -342,8 +293,8 @@ Key Management
 
 ## MVP Plan
 
-Stage 0: Escrow + authorization (plaintext)
-- Implement vaults, authorizations, settle with plaintext amounts.
+Stage 0: Escrow (plaintext)
+- Implement vaults and withdrawals with plaintext amounts.
 - Tests: Anchor program tests for accounting invariants.
 
 Stage 1: Add ElGamal + mock verifier
@@ -366,8 +317,7 @@ Stage 3: SDK proof generation
 ## Relayer Outline
 
 Endpoints
-- POST /intent: validate signature + schema, return id.
-- POST /proof: upload proof bytes for intent.
+- POST /proof: upload proof bytes.
 - POST /execute: submit tx, charge relayer fee.
 
 On-chain Fee Enforcement

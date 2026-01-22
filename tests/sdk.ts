@@ -1,7 +1,6 @@
 import { assert } from "chai";
 import { PublicKey } from "@solana/web3.js";
 import {
-  deriveAuthorization,
   deriveConfig,
   deriveNullifierSet,
   deriveShielded,
@@ -21,18 +20,14 @@ describe("sdk pda helpers", () => {
     assert.isTrue(PublicKey.isOnCurve(vk.toBytes()) || true);
   });
 
-  it("derives vault/shielded/nullifier/auth", () => {
+  it("derives vault/shielded/nullifier", () => {
     const vault = deriveVault(programId, mint);
     const shielded = deriveShielded(programId, mint);
     const nullifier = deriveNullifierSet(programId, mint, 0);
-    const intentHash = new Uint8Array(32);
-    intentHash[0] = 5;
-    const auth = deriveAuthorization(programId, intentHash);
 
     assert.isTrue(vault.equals(deriveVault(programId, mint)));
     assert.isTrue(shielded.equals(deriveShielded(programId, mint)));
     assert.isTrue(nullifier.equals(deriveNullifierSet(programId, mint, 0)));
-    assert.isTrue(auth.equals(deriveAuthorization(programId, intentHash)));
   });
 
   it("derives verifier key", () => {
