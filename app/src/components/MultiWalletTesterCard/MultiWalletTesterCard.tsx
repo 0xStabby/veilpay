@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FC } from 'react';
 import { AnchorProvider, Program } from '@coral-xyz/anchor';
+import nacl from 'tweetnacl';
 import {
     Keypair,
     PublicKey,
@@ -27,6 +28,8 @@ import { AIRDROP_URL, IS_DEVNET, WSOL_MINT } from '../../lib/config';
 import { PubkeyBadge } from '../PubkeyBadge';
 import { wrapSolToWsol } from '../../lib/adminSetup';
 import { runDepositFlow, runExternalTransferFlow, runInternalTransferFlow, runWithdrawFlow } from '../../lib/flows';
+import { rescanNotesForOwner } from '../../lib/noteScanner';
+import { deriveViewKeypair, serializeViewKey } from '../../lib/notes';
 import type { TransactionRecord, TransactionRecordPatch } from '../../lib/transactions';
 import { createTransactionRecord, fetchTransactionDetails } from '../../lib/transactions';
 
@@ -174,6 +177,17 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
             verifier: new Program(normalizeIdl(verifierIdl) as any, provider),
         };
     };
+
+    const ensureRecipientSecretFor = async (keypair: Keypair) => {
+        await deriveViewKeypair({
+            owner: keypair.publicKey,
+            signMessage: async (message) => nacl.sign.detached(message, keypair.secretKey),
+            index: 0,
+        });
+    };
+
+    const signMessageFor = (keypair: Keypair) => async (message: Uint8Array) =>
+        nacl.sign.detached(message, keypair.secretKey);
 
     const refreshSolBalance = async () => {
         if (!connection || !publicKey) {
@@ -653,6 +667,19 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                         onRootChange(next);
                     },
                     onCredit: () => undefined,
+                    signMessage: signMessageFor(walletA),
+                    rescanNotes: async () => {
+                        await rescanNotesForOwner({
+                            program: programsA.veilpay,
+                            mint: parsedMint,
+                            owner: walletA.publicKey,
+                            onStatus: stepStatus('Rescan A'),
+                            signMessage: signMessageFor(walletA),
+                        });
+                    },
+                    ensureRecipientSecret: async () => {
+                        await ensureRecipientSecretFor(walletA);
+                    },
                 });
                 await recordTx('wallet-a:deposit', result.signature, false, {
                     mint: parsedMint.toBase58(),
@@ -664,11 +691,20 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
 
             if (selected.internal) {
                 setStatus('internal-a-b', 'running');
+                const recipientViewKeyB = serializeViewKey(
+                    (
+                        await deriveViewKeypair({
+                            owner: walletB.publicKey,
+                            signMessage: signMessageFor(walletB),
+                            index: 0,
+                        })
+                    ).pubkey
+                );
                 const result = await runInternalTransferFlow({
                     program: programsA.veilpay,
                     verifierProgram: programsA.verifier,
                     mint: parsedMint,
-                    recipient: walletB.publicKey,
+                    recipientViewKey: recipientViewKeyB,
                     amount: spendAmountString,
                     mintDecimals,
                     root: rootRef.current,
@@ -678,10 +714,14 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                         rootRef.current = next;
                         onRootChange(next);
                     },
+                    ensureRecipientSecret: async () => {
+                        await ensureRecipientSecretFor(walletA);
+                    },
+                    signMessage: signMessageFor(walletA),
                 });
                 await recordTx('wallet-a:internal', result.signature, false, {
                     mint: parsedMint.toBase58(),
-                    recipient: walletB.publicKey.toBase58(),
+                    recipient: recipientViewKeyB,
                     wallet: walletA.publicKey.toBase58(),
                 });
                 setStatus('internal-a-b', 'success');
@@ -690,11 +730,20 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
 
             if (selected.internal) {
                 setStatus('internal-b-c', 'running');
+                const recipientViewKeyC = serializeViewKey(
+                    (
+                        await deriveViewKeypair({
+                            owner: walletC.publicKey,
+                            signMessage: signMessageFor(walletC),
+                            index: 0,
+                        })
+                    ).pubkey
+                );
                 const result = await runInternalTransferFlow({
                     program: programsB.veilpay,
                     verifierProgram: programsB.verifier,
                     mint: parsedMint,
-                    recipient: walletC.publicKey,
+                    recipientViewKey: recipientViewKeyC,
                     amount: spendAmountString,
                     mintDecimals,
                     root: rootRef.current,
@@ -704,10 +753,14 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                         rootRef.current = next;
                         onRootChange(next);
                     },
+                    ensureRecipientSecret: async () => {
+                        await ensureRecipientSecretFor(walletB);
+                    },
+                    signMessage: signMessageFor(walletB),
                 });
                 await recordTx('wallet-b:internal', result.signature, false, {
                     mint: parsedMint.toBase58(),
-                    recipient: walletC.publicKey.toBase58(),
+                    recipient: recipientViewKeyC,
                     wallet: walletB.publicKey.toBase58(),
                 });
                 setStatus('internal-b-c', 'success');
@@ -730,6 +783,10 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                         rootRef.current = next;
                         onRootChange(next);
                     },
+                    ensureRecipientSecret: async () => {
+                        await ensureRecipientSecretFor(walletC);
+                    },
+                    signMessage: signMessageFor(walletC),
                 });
                 await recordTx('wallet-c:withdraw', result.signature, true, {
                     mint: parsedMint.toBase58(),
@@ -758,6 +815,10 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                         rootRef.current = next;
                         onRootChange(next);
                     },
+                    ensureRecipientSecret: async () => {
+                        await ensureRecipientSecretFor(walletB);
+                    },
+                    signMessage: signMessageFor(walletB),
                 });
                 await recordTx('wallet-b:external', result.signature, true, {
                     mint: parsedMint.toBase58(),

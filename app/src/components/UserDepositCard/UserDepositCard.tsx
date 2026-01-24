@@ -5,7 +5,10 @@ import { PublicKey } from '@solana/web3.js';
 import styles from './UserDepositCard.module.css';
 import { formatTokenAmount } from '../../lib/amount';
 import { runDepositFlow } from '../../lib/flows';
+import { rescanNotesForOwner } from '../../lib/noteScanner';
 import { fetchTransactionDetails } from '../../lib/transactions';
+import { deriveViewKeypair } from '../../lib/notes';
+import { useWallet } from '@solana/wallet-adapter-react';
 
 const DEFAULT_AMOUNT = '50000';
 
@@ -36,6 +39,7 @@ export const UserDepositCard: FC<UserDepositCardProps> = ({
 }) => {
     const [amount, setAmount] = useState(DEFAULT_AMOUNT);
     const [busy, setBusy] = useState(false);
+    const { publicKey, signMessage } = useWallet();
 
     const parsedMint = useMemo(() => {
         if (!mintAddress) return null;
@@ -58,6 +62,25 @@ export const UserDepositCard: FC<UserDepositCardProps> = ({
                 onStatus,
                 onRootChange,
                 onCredit,
+                signMessage: signMessage ?? undefined,
+                rescanNotes: async () => {
+                    if (!publicKey || !signMessage) {
+                        throw new Error('Connect a wallet that can sign a message to rescan notes.');
+                    }
+                    await rescanNotesForOwner({
+                        program: veilpayProgram,
+                        mint: parsedMint,
+                        owner: publicKey,
+                        onStatus,
+                        signMessage,
+                    });
+                },
+                ensureRecipientSecret: async () => {
+                    if (!publicKey || !signMessage) {
+                        throw new Error('Connect a wallet that can sign a message to derive view keys.');
+                    }
+                    await deriveViewKeypair({ owner: publicKey, signMessage, index: 0 });
+                },
             });
             if (onRecord) {
                 const { createTransactionRecord } = await import('../../lib/transactions');

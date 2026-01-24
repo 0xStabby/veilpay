@@ -3,6 +3,7 @@ import type { FC } from 'react';
 import styles from './UserFlowCard.module.css';
 import type { Program } from '@coral-xyz/anchor';
 import { UserDepositCard } from '../UserDepositCard';
+import { UserReceiveCard } from '../UserReceiveCard';
 import { UserWithdrawCard } from '../UserWithdrawCard';
 import { UserTransferCard } from '../UserTransferCard';
 
@@ -21,9 +22,15 @@ type UserFlowCardProps = {
     onDebit: (amount: bigint) => void;
     onRecord?: (record: import('../../lib/transactions').TransactionRecord) => string;
     onRecordUpdate?: (id: string, patch: import('../../lib/transactions').TransactionRecordPatch) => void;
+    onRescanNotes?: () => void;
+    rescanning?: boolean;
+    onRescanIdentity?: () => void;
+    rescanningIdentity?: boolean;
+    viewKeyIndices?: number[];
+    onViewKeyIndicesChange?: (indices: number[]) => void;
 };
 
-type FlowTab = 'deposit' | 'withdraw' | 'transfer';
+type FlowTab = 'deposit' | 'withdraw' | 'transfer' | 'receive';
 
 export const UserFlowCard: FC<UserFlowCardProps> = ({
     veilpayProgram,
@@ -40,6 +47,12 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
     onDebit,
     onRecord,
     onRecordUpdate,
+    onRescanNotes,
+    rescanning = false,
+    onRescanIdentity,
+    rescanningIdentity = false,
+    viewKeyIndices,
+    onViewKeyIndicesChange,
 }) => {
     const [activeTab, setActiveTab] = useState<FlowTab>('deposit');
 
@@ -49,6 +62,7 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
                 <div className={styles.tabs}>
                     {[
                         { id: 'deposit', label: 'Deposit' },
+                        { id: 'receive', label: 'Receive' },
                         { id: 'transfer', label: 'Transfers' },
                         { id: 'withdraw', label: 'Withdraw' },
                     ].map((tab) => (
@@ -62,6 +76,30 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
                         </button>
                     ))}
                 </div>
+                {(onRescanNotes || onRescanIdentity) && (
+                    <div className={styles.actions}>
+                        {onRescanNotes && (
+                            <button
+                                className={styles.actionButton}
+                                onClick={onRescanNotes}
+                                type="button"
+                                disabled={rescanning}
+                            >
+                                {rescanning ? 'Rescanning...' : 'Rescan notes'}
+                            </button>
+                        )}
+                        {onRescanIdentity && (
+                            <button
+                                className={styles.actionButton}
+                                onClick={onRescanIdentity}
+                                type="button"
+                                disabled={rescanningIdentity}
+                            >
+                                {rescanningIdentity ? 'Rescanning...' : 'Rescan identity'}
+                            </button>
+                        )}
+                    </div>
+                )}
             </header>
 
             <div className={styles.content}>
@@ -77,6 +115,14 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
                         onCredit={onCredit}
                         onRecord={onRecord}
                         onRecordUpdate={onRecordUpdate}
+                    />
+                )}
+                {activeTab === 'receive' && (
+                    <UserReceiveCard
+                        embedded
+                        onStatus={onStatus}
+                        viewKeyIndices={viewKeyIndices}
+                        onViewKeyIndicesChange={onViewKeyIndicesChange}
                     />
                 )}
                 {activeTab === 'withdraw' && (

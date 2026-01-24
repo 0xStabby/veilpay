@@ -125,7 +125,9 @@ const toBigIntFromCallData = (value: string): bigint => {
     return BigInt(trimmed);
 };
 
-export async function generateProof(input: Record<string, string | number>): Promise<ProofResult> {
+export async function generateProof(
+    input: Record<string, string | number | string[] | number[] | string[][] | number[][]>
+): Promise<ProofResult> {
     const { proof, publicSignals } = await snarkjs.groth16.fullProve(
         input,
         '/prover/veilpay.wasm',

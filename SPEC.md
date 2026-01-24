@@ -10,9 +10,10 @@ Executive Summary
 - Relayers can submit gasless transactions while fees are enforced on-chain (amount split in-program).
 - The SDK (TypeScript) orchestrates key management, proofs, and transaction construction.
 - The MVP plan phases in encryption and proof verification to manage risk and performance.
+- Note outputs are emitted as encrypted events to allow view-key scanning and wallet recovery.
 
 Privacy Assumptions and Guarantees
-- Recipient tags are derived from recipient secrets (not public keys) to avoid linkability.
+- Recipient tags are derived from recipient view public keys (Poseidon of pubkey coordinates). Recipients can rotate view keys via indices to reduce linkability.
 - Proofs are generated from real notes that exist in the commitment tree (valid Merkle paths).
 - Merkle roots are computed from the note tree, not randomized.
 - External transfers reveal the destination ATA on-chain; only the source note is hidden.
@@ -90,15 +91,20 @@ PDA Seeds are ASCII byte strings. No per-user PDAs are used.
   - circuit_id: u32
   - version: u32
 
-4) Nullifier Set PDA (per mint, chunked)
+4) Note Output Events (on-chain logs)
+- Emitted on deposit/internal/external/withdraw when an output note is created.
+- Fields: mint, leaf_index, commitment, ciphertext, kind.
+- Enables view-key scanning for wallet recovery without a trusted indexer.
+
+5) Nullifier Set PDA (per mint, chunked)
 - Seeds: ["nullifier_set", mint_pubkey, chunk_index_u32_le]
 - Fields:
   - chunk_index: u32
   - bitset: [u8; 1024] (8192 nullifiers per chunk)
   - count: u32
-- Strategy: hash nullifier to (chunk_index, bit_index).
+- Strategy: hash nullifier to (chunk_index, bit_index). Clients include the required chunk accounts when spending notes and may include additional chunk accounts as decoys (padding) to reduce metadata leakage.
 
-5) Verifying Key Registry PDA
+6) Verifying Key Registry PDA
 - Seeds: ["vk_registry"]
 - Fields:
   - entries: Vec<VkEntry>
@@ -108,7 +114,7 @@ PDA Seeds are ASCII byte strings. No per-user PDAs are used.
   - vk_hash: [u8; 32]
   - status: u8 (0=active,1=deprecated)
 
-6) Verifier Key PDA (verifier program)
+7) Verifier Key PDA (verifier program)
 - Program: verifier (separate program ID)
 - Seeds: ["verifier_key", key_id_u32_le]
 - Fields:
@@ -228,7 +234,7 @@ ElGamal Encryption
 - Byte order: big-endian for scalars and compressed points.
 
 Commitments and Roots
-- Commitment = Poseidon(amount, randomness, recipient_pubkey_hash).
+- Commitment = Poseidon(amount, randomness, recipient_view_pubkey_hash).
 - Merkle root stored in [u8; 32] big-endian.
 - Root history stored as a bounded ring buffer.
 - Instruction args carry byte arrays; the program enforces exact lengths (32/64) before storing fixed-size arrays on-chain.

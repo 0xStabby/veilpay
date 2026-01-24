@@ -18,7 +18,28 @@
 
 .tabs {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem 0.75rem;
+}
+
+.actionButton {
+    border: 1px solid var(--border-strong);
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--text);
+    padding: 0.3rem 0.6rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.actionButton:disabled {
+    opacity: 0.6;
+    cursor: default;
 }
 
 .tab {

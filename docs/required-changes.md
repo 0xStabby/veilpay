@@ -12,8 +12,8 @@ This document captures the concrete changes needed for VeilPay to deliver sender
 - `newRoot` is computed from the commitment tree.
 - Flows verify the on-chain root matches the local tree before proceeding.
 
-3) **Recipient tags derived from secrets**
-- `recipientTagHash` is derived from a local recipient tag secret, not from a public key.
+3) **Recipient tags derived from view public keys**
+- `recipientTagHash` is derived from the recipient view public key (Poseidon of pubkey coords).
 
 4) **Proofs spend from real notes**
 - Proof inputs reference a note in the local tree (with Merkle path).
@@ -28,13 +28,9 @@ This document captures the concrete changes needed for VeilPay to deliver sender
 
 ## Remaining / partial
 
-1) **ElGamal encryption**
-- Ciphertexts are currently a symmetric stream derived from the recipient tag secret.
-- Replace this with real ElGamal encryption and recipient key exchange for production privacy.
-
-2) **Recipient secret exchange**
-- Secrets are local; there is no out-of-band exchange for unrelated wallets.
-- This needs a real key distribution mechanism for external recipients.
+1) **View key distribution**
+- Senders must know a recipient’s public view key to encrypt internal transfers.
+- Provide UX / directory for sharing public view keys (optional on-chain registry or off-chain exchange).
 
 
 ## External transfer disclosure

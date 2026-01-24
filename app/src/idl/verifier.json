@@ -70,47 +70,55 @@
       ]
     },
     {
-      "name": "set_verifier_key_gamma_abc",
-      "accounts": [
-        {
-          "name": "verifier_key",
-          "isMut": true,
-          "isSigner": false
-        },
-        {
-          "name": "admin",
-          "isMut": false,
-          "isSigner": true
-        }
-      ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "SetVerifierKeyGammaAbcArgs"
-            }
-          }
-        }
-      ]
-    },
-    {
       "name": "initialize_verifier_key_header",
+      "discriminator": [
+        74,
+        189,
+        34,
+        176,
+        213,
+        205,
+        18,
+        124
+      ],
       "accounts": [
         {
           "name": "verifier_key",
-          "isMut": true,
-          "isSigner": false
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  101,
+                  114,
+                  105,
+                  102,
+                  105,
+                  101,
+                  114,
+                  95,
+                  107,
+                  101,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.key_id"
+              }
+            ]
+          }
         },
         {
           "name": "admin",
-          "isMut": true,
-          "isSigner": true
+          "writable": true,
+          "signer": true
         },
         {
           "name": "system_program",
-          "isMut": false,
-          "isSigner": false
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -119,6 +127,64 @@
           "type": {
             "defined": {
               "name": "InitializeVerifierKeyHeaderArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "set_verifier_key_gamma_abc",
+      "discriminator": [
+        151,
+        75,
+        84,
+        157,
+        155,
+        237,
+        64,
+        105
+      ],
+      "accounts": [
+        {
+          "name": "verifier_key",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  101,
+                  114,
+                  105,
+                  102,
+                  105,
+                  101,
+                  114,
+                  95,
+                  107,
+                  101,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.key_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "SetVerifierKeyGammaAbcArgs"
             }
           }
         }
@@ -222,44 +288,6 @@
           },
           {
             "name": "alpha_g1",
-            "type": "bytes"
-          },
-          {
-            "name": "beta_g2",
-            "type": "bytes"
-          },
-          {
-            "name": "gamma_g2",
-            "type": "bytes"
-          },
-          {
-            "name": "delta_g2",
-            "type": "bytes"
-          },
-          {
-            "name": "public_inputs_len",
-            "type": "u32"
-          },
-          {
-            "name": "gamma_abc",
-            "type": {
-              "vec": "bytes"
-            }
-          },
-          {
-            "name": "mock",
-            "type": "bool"
-          }
-        ]
-      }
-    },
-    {
-      "name": "VerifierKey",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "alpha_g1",
             "type": {
               "array": [
                 "u8",
@@ -312,10 +340,6 @@
           {
             "name": "mock",
             "type": "bool"
-          },
-          {
-            "name": "bump",
-            "type": "u8"
           }
         ]
       }
@@ -403,6 +427,73 @@
                 ]
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VerifierKey",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "alpha_g1",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "beta_g2",
+            "type": {
+              "array": [
+                "u8",
+                128
+              ]
+            }
+          },
+          {
+            "name": "gamma_g2",
+            "type": {
+              "array": [
+                "u8",
+                128
+              ]
+            }
+          },
+          {
+            "name": "delta_g2",
+            "type": {
+              "array": [
+                "u8",
+                128
+              ]
+            }
+          },
+          {
+            "name": "public_inputs_len",
+            "type": "u32"
+          },
+          {
+            "name": "gamma_abc",
+            "type": {
+              "vec": {
+                "array": [
+                  "u8",
+                  64
+                ]
+              }
+            }
+          },
+          {
+            "name": "mock",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }

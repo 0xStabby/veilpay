@@ -54,6 +54,7 @@ describe("veilpay e2e (real groth16)", () => {
   let shieldedPda: PublicKey;
   let nullifierPda: PublicKey;
   let identityRegistryPda: PublicKey;
+  let identityMemberPda: PublicKey;
   let vaultAta: PublicKey;
   let userAta: PublicKey;
   let verifierKeyPda: PublicKey;
@@ -239,6 +240,10 @@ describe("veilpay e2e (real groth16)", () => {
       [Buffer.from("identity_registry")],
       program.programId
     );
+    [identityMemberPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("identity_member"), provider.wallet.publicKey.toBuffer()],
+      program.programId
+    );
 
     await program.methods
       .initializeMintState(0)
@@ -272,7 +277,10 @@ describe("veilpay e2e (real groth16)", () => {
       })
       .accounts({
         identityRegistry: identityRegistryPda,
+        identityMember: identityMemberPda,
         payer: provider.wallet.publicKey,
+        user: provider.wallet.publicKey,
+        systemProgram: SystemProgram.programId,
       })
       .rpc();
 
@@ -300,6 +308,7 @@ describe("veilpay e2e (real groth16)", () => {
         vaultAta,
         shieldedState: shieldedPda,
         user: provider.wallet.publicKey,
+        identityMember: identityMemberPda,
         userAta,
         mint,
         tokenProgram: TOKEN_PROGRAM_ID,
@@ -361,6 +370,7 @@ describe("veilpay e2e (real groth16)", () => {
         publicInputs,
         relayerFeeBps: 0,
         newRoot: depositRoot,
+        outputCiphertexts: Buffer.alloc(0),
       })
       .accounts({
         config: configPda,

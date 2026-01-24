@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { Program } from '@coral-xyz/anchor';
 import { PublicKey } from '@solana/web3.js';
+import { useWallet } from '@solana/wallet-adapter-react';
 import styles from './UserWithdrawCard.module.css';
 import { formatTokenAmount } from '../../lib/amount';
 import { runWithdrawFlow } from '../../lib/flows';
@@ -42,6 +43,7 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
     const [amount, setAmount] = useState(DEFAULT_AMOUNT);
     const [recipient, setRecipient] = useState('');
     const [busy, setBusy] = useState(false);
+    const { signMessage } = useWallet();
 
     const parsedMint = useMemo(() => {
         if (!mintAddress) return null;
@@ -77,6 +79,7 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
                 onStatus,
                 onDebit,
                 onRootChange,
+                signMessage: signMessage ?? undefined,
             });
             if (onRecord) {
                 const { createTransactionRecord } = await import('../../lib/transactions');

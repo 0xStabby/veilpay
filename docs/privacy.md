@@ -5,23 +5,25 @@ This document explains what is (and is not) anonymous in the current app flows. 
 ## TL;DR
 
 - **Deposits/withdrawals/transfers now use real note data and Merkle paths**, so proofs are tied to actual notes.
-- **Recipient tags are derived from secrets**, not public keys.
+- **Recipient tags are derived from public view keys** (Poseidon of the view pubkey coordinates).
 - **External transfers are still public by design**, because the destination ATA is on‑chain.
-- **Ciphertext encryption is still a lightweight symmetric scheme**, not full ElGamal, so the cryptographic privacy story is incomplete.
+- **Encrypted note outputs are emitted on-chain** to enable view‑key scanning and wallet recovery.
+- **Ciphertexts use ECIES-style encryption on BabyJub** (DH shared secret + masking). Recipients need the private view key to decrypt.
+- **Nullifier sets are stored in paged on-chain accounts**; the account list can reveal which nullifier chunk was touched unless padding is used.
 
 ## What the current flows do
 
 ### Deposit (`runDepositFlow`)
 
 Key behaviors:
-- Creates a real note (amount/randomness/recipient tag secret).
+- Creates a real note (amount/randomness/recipient tag hash).
 - Computes commitment and new Merkle root locally.
 - Checks that the on‑chain root matches the local tree before updating.
 - Encrypts note plaintext to a 64‑byte ciphertext blob.
 
 Privacy impact:
-- **Commitments are real** and tied to a private tag secret.
-- **Recipient tags are not linkable** by public key hashing.
+- **Commitments are real** and tied to the recipient view public key hash.
+- **Recipient tags are linkable per view key**; recipients can rotate view keys (index-based) to reduce linkability.
 
 ### Withdraw (`runWithdrawFlow`)
 
@@ -34,6 +36,7 @@ Key behaviors:
 Privacy impact:
 - **Source note is hidden** (membership proof with nullifier).
 - **Recipient is public** (destination ATA is on‑chain).
+- **Nullifier chunk accounts are visible** in the transaction; padding can reduce metadata leakage but increases size.
 
 ### Internal transfer (`runInternalTransferFlow`)
 
@@ -44,7 +47,7 @@ Key behaviors:
 
 Privacy impact:
 - **Source note is hidden** by proof.
-- **Recipient tag is secret‑derived**.
+- **Recipient tag is derived from the recipient view public key**.
 
 ### External transfer (`runExternalTransferFlow`)
 
@@ -54,11 +57,12 @@ Key behaviors:
 
 Privacy impact:
 - **Not anonymous**. Destination ATA is public.
+ - **Nullifier chunk accounts are visible** (unless padded), which may leak coarse metadata about which nullifier bucket was touched.
 
 ## What is still not fully privacy‑preserving
 
-- **Ciphertext scheme is not ElGamal**. It is a symmetric stream derived from the recipient tag secret. This is not the same privacy guarantee as ElGamal and does not interoperate with external wallets.
-- **Recipient tag secrets are local**. There is no secure exchange of secrets between unrelated wallets.
+- **Ciphertext scheme uses public view keys**. Senders must know a recipient’s public view key to encrypt.
+- **View keys can be rotated** by using different indices (subaddresses).
 - **No on‑chain commitment store**. The client maintains the note set locally and must stay in sync with `commitment_count` and `merkle_root`.
 
 ## External transfers: what can and cannot be hidden
