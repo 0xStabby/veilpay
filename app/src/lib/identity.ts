@@ -1,5 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
-import { bytesToBigIntBE, modField, randomBytes, toHex } from "./crypto";
+import { bytesToBigIntBE, modField, randomBytes, sha256, toHex } from "./crypto";
 import { computeIdentityCommitment } from "./prover";
 import { buildMerkleTree, getMerklePath } from "./merkle";
 
@@ -9,6 +9,8 @@ const identityIndexKey = (owner: PublicKey, programId: PublicKey) =>
   `veilpay.identity-index.${programId.toBase58()}.${owner.toBase58()}`;
 const identityCommitmentsKey = (programId: PublicKey) =>
   `veilpay.identity-commitments.${programId.toBase58()}`;
+const identityMessage = (owner: PublicKey, programId: PublicKey) =>
+  `VeilPay:identity:${programId.toBase58()}:${owner.toBase58()}`;
 
 const fromHex = (value: string) => {
   const out = new Uint8Array(value.length / 2);
@@ -18,17 +20,43 @@ const fromHex = (value: string) => {
   return out;
 };
 
+export function loadIdentitySecret(owner: PublicKey, programId: PublicKey): Uint8Array | null {
+  try {
+    const stored = localStorage.getItem(identitySecretKey(owner, programId));
+    if (!stored) return null;
+    return fromHex(stored);
+  } catch {
+    return null;
+  }
+}
+
+export async function restoreIdentitySecret(
+  owner: PublicKey,
+  programId: PublicKey,
+  signMessage: (message: Uint8Array) => Promise<Uint8Array>
+): Promise<Uint8Array> {
+  const message = new TextEncoder().encode(identityMessage(owner, programId));
+  const signature = await signMessage(message);
+  const secret = await sha256(signature);
+  localStorage.setItem(identitySecretKey(owner, programId), toHex(secret));
+  return secret;
+}
+
 export async function getOrCreateIdentitySecret(
   owner: PublicKey,
-  programId: PublicKey
+  programId: PublicKey,
+  signMessage?: (message: Uint8Array) => Promise<Uint8Array>
 ): Promise<bigint> {
-  const key = identitySecretKey(owner, programId);
-  const stored = localStorage.getItem(key);
+  const stored = loadIdentitySecret(owner, programId);
   if (stored) {
-    return modField(bytesToBigIntBE(fromHex(stored)));
+    return modField(bytesToBigIntBE(stored));
+  }
+  if (signMessage) {
+    const secret = await restoreIdentitySecret(owner, programId, signMessage);
+    return modField(bytesToBigIntBE(secret));
   }
   const secretBytes = randomBytes(32);
-  localStorage.setItem(key, toHex(secretBytes));
+  localStorage.setItem(identitySecretKey(owner, programId), toHex(secretBytes));
   return modField(bytesToBigIntBE(secretBytes));
 }
 
@@ -68,17 +96,19 @@ export function setIdentityLeafIndex(
 
 export async function getIdentityCommitment(
   owner: PublicKey,
-  programId: PublicKey
+  programId: PublicKey,
+  signMessage?: (message: Uint8Array) => Promise<Uint8Array>
 ): Promise<bigint> {
-  const secret = await getOrCreateIdentitySecret(owner, programId);
+  const secret = await getOrCreateIdentitySecret(owner, programId, signMessage);
   return computeIdentityCommitment(secret);
 }
 
 export async function ensureIdentityCommitment(
   owner: PublicKey,
-  programId: PublicKey
+  programId: PublicKey,
+  signMessage?: (message: Uint8Array) => Promise<Uint8Array>
 ): Promise<{ commitment: bigint; index: number }> {
-  const commitment = await getIdentityCommitment(owner, programId);
+  const commitment = await getIdentityCommitment(owner, programId, signMessage);
   const existingIndex = getIdentityLeafIndex(owner, programId);
   if (existingIndex !== null) {
     return { commitment, index: existingIndex };
@@ -92,9 +122,10 @@ export async function ensureIdentityCommitment(
 
 export async function getIdentityMerklePath(
   owner: PublicKey,
-  programId: PublicKey
+  programId: PublicKey,
+  signMessage?: (message: Uint8Array) => Promise<Uint8Array>
 ): Promise<{ root: bigint; pathElements: bigint[]; pathIndices: number[]; leafIndex: number }> {
-  const { commitment, index } = await ensureIdentityCommitment(owner, programId);
+  const { commitment, index } = await ensureIdentityCommitment(owner, programId, signMessage);
   const commitments = loadIdentityCommitments(programId);
   const { root, pathElements, pathIndices } = await getMerklePath(
     commitments,

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PublicKey } from '@solana/web3.js';
 import { WalletHeader } from './components/WalletHeader';
 import { StatusBanner } from './components/StatusBanner';
 import { SetupCard } from './components/SetupCard';
@@ -15,10 +16,15 @@ import { randomBytes } from './lib/crypto';
 import type { TransactionRecord } from './lib/transactions';
 import { buildAddressLabels } from './lib/addressLabels';
 import { WSOL_MINT } from './lib/config';
+import { rescanNotesForOwner } from './lib/noteScanner';
+import { deriveViewKeypair } from './lib/notes';
+import { rescanIdentityRegistry } from './lib/identityScanner';
 import styles from './App.module.css';
+import { useWallet } from '@solana/wallet-adapter-react';
 
 const App = () => {
     const { connection, veilpayProgram, verifierProgram, wallet } = usePrograms();
+    const { signMessage } = useWallet();
     const [statusLines, setStatusLines] = useState<string[]>([]);
     const [mintAddress, setMintAddress] = useState(() => WSOL_MINT.toBase58());
     const [root, setRoot] = useState(() => randomBytes(32));
@@ -38,7 +44,10 @@ const App = () => {
     const { decimals, loading: mintLoading } = useMintInfo(connection ?? null, mintAddress);
     const walletPubkey = wallet?.publicKey ?? null;
     const { balance: walletBalance } = useTokenBalance(connection ?? null, mintAddress, walletPubkey);
-    const { balance: shieldedBalance, credit, debit } = useShieldedBalance(mintAddress, walletPubkey);
+    const { balance: shieldedBalance, credit, debit, setBalance } = useShieldedBalance(mintAddress, walletPubkey);
+    const [rescanBusy, setRescanBusy] = useState(false);
+    const [rescanIdentityBusy, setRescanIdentityBusy] = useState(false);
+    const [viewKeyIndices, setViewKeyIndices] = useState<number[]>([0]);
     const addressLabels = buildAddressLabels({
         mintAddress,
         veilpayProgramId: veilpayProgram?.programId ?? null,
@@ -51,6 +60,17 @@ const App = () => {
         const stored = localStorage.getItem('veilpay.mint');
         setMintAddress(stored || WSOL_MINT.toBase58());
     }, []);
+
+    useEffect(() => {
+        if (!walletPubkey || !signMessage) return;
+        deriveViewKeypair({ owner: walletPubkey, signMessage, index: 0 })
+            .then(() => {
+                handleStatus('Derived view key for note recovery.');
+            })
+            .catch((error) => {
+                handleStatus(`Failed to derive view key: ${error instanceof Error ? error.message : 'unknown error'}`);
+            });
+    }, [walletPubkey, signMessage]);
 
     useEffect(() => {
         if (!showAdmin && view === 'admin') {
@@ -100,6 +120,56 @@ const App = () => {
     const clearLog = () => {
         setTxLog([]);
         setSelectedTxId(null);
+    };
+
+    const handleRescan = async () => {
+        if (!connection || !veilpayProgram || !walletPubkey) {
+            handleStatus('Connect a wallet and program before rescanning.');
+            return;
+        }
+        if (!mintAddress) {
+            handleStatus('Select a mint before rescanning.');
+            return;
+        }
+        setRescanBusy(true);
+        try {
+            const mint = new PublicKey(mintAddress);
+            const { balance } = await rescanNotesForOwner({
+                program: veilpayProgram,
+                mint,
+                owner: walletPubkey,
+                onStatus: handleStatus,
+                signMessage: signMessage ?? undefined,
+                viewKeyIndices,
+            });
+            setBalance(balance);
+        } catch (error) {
+            handleStatus(`Rescan failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+        } finally {
+            setRescanBusy(false);
+        }
+    };
+
+    const handleRescanIdentity = async () => {
+        if (!connection || !veilpayProgram) {
+            handleStatus('Connect a wallet and program before rescanning identity.');
+            return;
+        }
+        setRescanIdentityBusy(true);
+        try {
+            await rescanIdentityRegistry({
+                program: veilpayProgram,
+                onStatus: handleStatus,
+                owner: walletPubkey ?? undefined,
+                signMessage: signMessage ?? undefined,
+            });
+        } catch (error) {
+            handleStatus(
+                `Identity rescan failed: ${error instanceof Error ? error.message : 'unknown error'}`
+            );
+        } finally {
+            setRescanIdentityBusy(false);
+        }
     };
 
     return (
@@ -200,6 +270,12 @@ const App = () => {
                             onDebit={debit}
                             onRecord={handleRecord}
                             onRecordUpdate={handleRecordUpdate}
+                            onRescanNotes={handleRescan}
+                            rescanning={rescanBusy}
+                            onRescanIdentity={handleRescanIdentity}
+                            rescanningIdentity={rescanIdentityBusy}
+                            viewKeyIndices={viewKeyIndices}
+                            onViewKeyIndicesChange={setViewKeyIndices}
                         />
                     </section>
                 )}

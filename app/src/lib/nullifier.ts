@@ -41,7 +41,8 @@ export const ensureNullifierSet = async (
 export const ensureNullifierSets = async (
     program: Program,
     mint: PublicKey,
-    nullifiers: bigint[]
+    nullifiers: bigint[],
+    paddingChunks = 0
 ): Promise<PublicKey[]> => {
     const chunkIndexes = new Set<number>();
     for (const nullifier of nullifiers) {
@@ -49,6 +50,11 @@ export const ensureNullifierSets = async (
             continue;
         }
         chunkIndexes.add(nullifierChunkIndex(nullifier));
+    }
+    if (paddingChunks > 0) {
+        for (let index = 0; index < paddingChunks; index += 1) {
+            chunkIndexes.add(index);
+        }
     }
     const sets: PublicKey[] = [];
     for (const chunkIndex of chunkIndexes) {

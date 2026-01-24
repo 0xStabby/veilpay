@@ -10,7 +10,33 @@ import {
   getAccount,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import { PublicKey, Keypair, SystemProgram } from "@solana/web3.js";
+import { PublicKey, Keypair, SystemProgram, Connection } from "@solana/web3.js";
+import nacl from "tweetnacl";
+import {
+  bytesToBigIntBE,
+  sha256,
+  modField,
+  randomBytes32,
+  bigIntToBytes32,
+} from "../sdk/src/crypto";
+import {
+  computeCommitment,
+  recipientTagHashFromSecret,
+  deriveRecipientKeypair,
+  eciesEncrypt,
+  eciesDecrypt,
+} from "../sdk/src/notes";
+import { rescanIdentityRegistry } from "../app/src/lib/identityScanner";
+import { rescanNotesForOwner } from "../app/src/lib/noteScanner";
+import {
+  restoreIdentitySecret,
+  loadIdentityCommitments,
+  saveIdentityCommitments,
+  getIdentityMerklePath,
+} from "../app/src/lib/identity";
+import { buildMerkleTree } from "../app/src/lib/merkle";
+import { computeIdentityCommitment } from "../app/src/lib/prover";
+import { selectNotesForAmount } from "../app/src/lib/notes";
 
 const NULLIFIER = new Uint8Array(32);
 NULLIFIER[0] = 0;
@@ -79,6 +105,22 @@ const dummyG2 = Buffer.alloc(128);
 const dummyGammaAbc = [Buffer.alloc(64)];
 const dummyProof = Buffer.alloc(32);
 
+class MemoryStorage {
+  private store = new Map<string, string>();
+  getItem(key: string) {
+    return this.store.has(key) ? this.store.get(key)! : null;
+  }
+  setItem(key: string, value: string) {
+    this.store.set(key, value);
+  }
+  removeItem(key: string) {
+    this.store.delete(key);
+  }
+  clear() {
+    this.store.clear();
+  }
+}
+
 describe("veilpay", () => {
   const provider = anchor.AnchorProvider.local();
   anchor.setProvider(provider);
@@ -93,10 +135,21 @@ describe("veilpay", () => {
   let shieldedPda: PublicKey;
   let nullifierPda: PublicKey;
   let identityRegistryPda: PublicKey;
+  let identityMemberPda: PublicKey;
+  let identityCommitment: bigint | null = null;
   let vaultAta: PublicKey;
   let userAta: PublicKey;
   let verifierKeyPda: PublicKey;
   const relayer = Keypair.generate();
+
+  before(() => {
+    if (!(globalThis as any).crypto?.subtle) {
+      (globalThis as any).crypto = require("crypto").webcrypto;
+    }
+    if (!(globalThis as any).localStorage) {
+      (globalThis as any).localStorage = new MemoryStorage();
+    }
+  });
 
   const getRoots = async () => {
     const shielded = await program.account.shieldedState.fetch(shieldedPda);
@@ -128,6 +181,10 @@ describe("veilpay", () => {
     );
     [identityRegistryPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("identity_registry")],
+      program.programId
+    );
+    [identityMemberPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("identity_member"), provider.wallet.publicKey.toBuffer()],
       program.programId
     );
 
@@ -204,6 +261,34 @@ describe("veilpay", () => {
         .accounts({
           identityRegistry: identityRegistryPda,
           admin: provider.wallet.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+    }
+
+    const memberInfo = await provider.connection.getAccountInfo(identityMemberPda);
+    if (!memberInfo) {
+      const owner = provider.wallet.publicKey;
+      const signMessage = async (message: Uint8Array) =>
+        nacl.sign.detached(message, provider.wallet.payer.secretKey);
+      const secretBytes = await restoreIdentitySecret(owner, program.programId, signMessage);
+      const secret = modField(bytesToBigIntBE(secretBytes));
+      const commitment = await computeIdentityCommitment(secret);
+      console.log(
+        `[identity-rescan] debug registered commitment=${Buffer.from(bigIntToBytes32(commitment)).toString("hex")}`
+      );
+      identityCommitment = commitment;
+      const { root } = await buildMerkleTree([commitment]);
+      await program.methods
+        .registerIdentity({
+          commitment: buf(bigIntToBytes32(commitment)),
+          newRoot: buf(bigIntToBytes32(root)),
+        })
+        .accounts({
+          identityRegistry: identityRegistryPda,
+          identityMember: identityMemberPda,
+          payer: owner,
+          user: owner,
           systemProgram: SystemProgram.programId,
         })
         .rpc();
@@ -311,6 +396,7 @@ describe("veilpay", () => {
         vaultAta,
         shieldedState: shieldedPda,
         user: provider.wallet.publicKey,
+        identityMember: identityMemberPda,
         userAta,
         mint,
         tokenProgram: TOKEN_PROGRAM_ID,
@@ -344,6 +430,7 @@ describe("veilpay", () => {
         publicInputs,
         relayerFeeBps: 0,
         newRoot: buf(NEW_ROOT),
+        outputCiphertexts: Buffer.alloc(0),
       })
       .accounts({
         config: configPda,
@@ -409,6 +496,7 @@ describe("veilpay", () => {
         publicInputs,
         relayerFeeBps: 25,
         newRoot: buf(NEW_ROOT),
+        outputCiphertexts: Buffer.alloc(0),
       })
       .accounts({
         config: configPda,
@@ -465,6 +553,7 @@ describe("veilpay", () => {
           publicInputs,
           relayerFeeBps: 0,
           newRoot: buf(NEW_ROOT),
+          outputCiphertexts: Buffer.alloc(0),
         })
         .accounts({
           config: configPda,
@@ -524,6 +613,7 @@ describe("veilpay", () => {
         publicInputs,
         relayerFeeBps: 0,
         newRoot: buf(NEW_ROOT),
+        outputCiphertexts: Buffer.alloc(0),
       })
         .accounts({
           config: configPda,
@@ -575,6 +665,7 @@ describe("veilpay", () => {
         proof: dummyProof,
         publicInputs: internalInputs,
         newRoot: buf(internalRoot),
+        outputCiphertexts: Buffer.alloc(128),
       })
       .accounts({
         config: configPda,
@@ -620,6 +711,7 @@ describe("veilpay", () => {
         publicInputs: externalInputs,
         relayerFeeBps: 0,
         newRoot: buf(NEW_ROOT),
+        outputCiphertexts: Buffer.alloc(0),
       })
       .accounts({
         config: configPda,
@@ -639,5 +731,249 @@ describe("veilpay", () => {
 
     const recipientAccount = await getAccount(provider.connection, recipientAta);
     assert.equal(Number(recipientAccount.amount), 25_000);
+  });
+
+  it("emits note outputs that can be recovered with a view-key signature", async () => {
+    const [configPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("config"), program.programId.toBuffer()],
+      program.programId
+    );
+
+    const shieldedBefore = await program.account.shieldedState.fetch(shieldedPda);
+    const leafIndex = Number(
+      shieldedBefore.commitmentCount?.toString?.() ??
+        shieldedBefore.commitment_count?.toString?.() ??
+        0
+    );
+
+    const owner = provider.wallet.payer;
+    const viewMessage = Buffer.from(
+      `VeilPay:view-key:${owner.publicKey.toBase58()}`
+    );
+    const signature = nacl.sign.detached(viewMessage, owner.secretKey);
+    const viewSecret = sha256(signature);
+
+    const amount = 42_000n;
+    const randomness = modField(bytesToBigIntBE(randomBytes32()));
+    const tagHash = await recipientTagHashFromSecret(viewSecret);
+    const commitment = await computeCommitment(amount, randomness, tagHash);
+    const { pubkey, secretScalar } = await deriveRecipientKeypair(viewSecret);
+    const enc = await eciesEncrypt({ recipientPubkey: pubkey, amount, randomness });
+
+    const signatureTx = await program.methods
+      .deposit({
+        amount: new anchor.BN(amount.toString()),
+        ciphertext: Buffer.from(enc.ciphertext),
+        commitment: Buffer.from(bigIntToBytes32(commitment)),
+        newRoot: buf(NEW_ROOT),
+      })
+      .accounts({
+        config: configPda,
+        vault: vaultPda,
+        vaultAta,
+        shieldedState: shieldedPda,
+        user: owner.publicKey,
+        identityMember: identityMemberPda,
+        userAta,
+        mint,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .rpc();
+
+    const fetchTxWithLogs = async () => {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const tx = await provider.connection.getTransaction(signatureTx, {
+          maxSupportedTransactionVersion: 0,
+          commitment: "confirmed",
+        });
+        if (tx?.meta?.logMessages) {
+          return tx;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+      return null;
+    };
+
+    const tx = await fetchTxWithLogs();
+    assert.isOk(tx?.meta?.logMessages, "missing logs for deposit tx");
+
+    let eventData: any = null;
+    const logs = tx!.meta!.logMessages!;
+    for (const log of logs) {
+      if (!log.startsWith("Program data: ")) continue;
+      const data = log.slice("Program data: ".length);
+      const decoded = (program.coder as any).events.decode(data);
+      if (decoded?.name === "noteOutputEvent") {
+        eventData = decoded.data;
+        break;
+      }
+    }
+    if (!eventData) {
+      const idlEvents = (program.idl as any).events?.map((e: any) => e.name) ?? [];
+      throw new Error(
+        `missing noteOutputEvent. idlEvents=${idlEvents.join(",")} logs=${JSON.stringify(logs)}`
+      );
+    }
+
+    const eventLeaf = eventData.leafIndex?.toNumber?.() ??
+      eventData.leaf_index?.toNumber?.() ??
+      Number(eventData.leafIndex ?? eventData.leaf_index);
+    assert.equal(eventLeaf, leafIndex);
+    assert.equal(new PublicKey(eventData.mint).toBase58(), mint.toBase58());
+    assert.equal(Buffer.from(eventData.commitment).toString("hex"), Buffer.from(bigIntToBytes32(commitment)).toString("hex"));
+    assert.equal(Buffer.from(eventData.ciphertext).toString("hex"), Buffer.from(enc.ciphertext).toString("hex"));
+
+    const cipher = Buffer.from(eventData.ciphertext);
+    const c1x = bytesToBigIntBE(cipher.subarray(0, 32));
+    const c1y = bytesToBigIntBE(cipher.subarray(32, 64));
+    const c2Amount = bytesToBigIntBE(cipher.subarray(64, 96));
+    const c2Randomness = bytesToBigIntBE(cipher.subarray(96, 128));
+    const dec = await eciesDecrypt({
+      recipientSecret: secretScalar,
+      c1x,
+      c1y,
+      c2Amount,
+      c2Randomness,
+    });
+    assert.equal(dec.amount.toString(), amount.toString());
+    assert.equal(dec.randomness.toString(), randomness.toString());
+  });
+
+  it("rescans identity registry after storage reset", async () => {
+    const owner = provider.wallet.publicKey;
+    const signMessage = async (message: Uint8Array) =>
+      nacl.sign.detached(message, provider.wallet.payer.secretKey);
+    (globalThis as any).localStorage.clear();
+
+    const confirmedConnection = new Connection(provider.connection.rpcEndpoint, {
+      commitment: "confirmed",
+    });
+    await rescanIdentityRegistry({
+      program,
+      owner,
+      connectionOverride: confirmedConnection,
+      onStatus: () => {},
+      signMessage,
+    });
+    const commitments = loadIdentityCommitments(program.programId);
+    const identityAccount = await program.account.identityRegistry.fetch(identityRegistryPda);
+    const onChainRoot =
+      Buffer.from(
+        (identityAccount.merkleRoot as number[] | undefined) ??
+          (identityAccount.merkle_root as number[] | undefined) ??
+          []
+      );
+    const onChainCount = Number(
+      identityAccount.commitmentCount?.toString?.() ??
+        identityAccount.commitment_count?.toString?.() ??
+        0
+    );
+    assert.equal(commitments.length, onChainCount);
+    const { root } = await buildMerkleTree(commitments);
+    if (identityCommitment) {
+      assert.equal(
+        Buffer.from(bigIntToBytes32(root)).toString("hex"),
+        onChainRoot.toString("hex")
+      );
+    }
+    const { root: pathRoot } = await getIdentityMerklePath(
+      owner,
+      program.programId,
+      signMessage
+    );
+    if (identityCommitment) {
+      assert.equal(
+        Buffer.from(bigIntToBytes32(pathRoot)).toString("hex"),
+        onChainRoot.toString("hex")
+      );
+    }
+  });
+
+  it("rescans notes and supports multi-input selection after storage reset", async () => {
+    (globalThis as any).localStorage.clear();
+
+    const [configPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("config"), program.programId.toBuffer()],
+      program.programId
+    );
+
+    const owner = provider.wallet.payer;
+    const viewMessage = Buffer.from(
+      `VeilPay:view-key:${owner.publicKey.toBase58()}`
+    );
+    const viewSignature = nacl.sign.detached(viewMessage, owner.secretKey);
+    const viewSecret = sha256(viewSignature);
+    const tagHash = await recipientTagHashFromSecret(viewSecret);
+    const { pubkey } = await deriveRecipientKeypair(viewSecret);
+
+    const awaitLogs = async (signature: string) => {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const tx = await provider.connection.getTransaction(signature, {
+          maxSupportedTransactionVersion: 0,
+          commitment: "confirmed",
+        });
+        if (tx?.meta?.logMessages) {
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+      throw new Error("missing logs for deposit tx");
+    };
+
+    const depositNote = async (amount: bigint) => {
+      const randomness = modField(bytesToBigIntBE(randomBytes32()));
+      const commitment = await computeCommitment(amount, randomness, tagHash);
+      const enc = await eciesEncrypt({
+        recipientPubkey: pubkey,
+        amount,
+        randomness,
+      });
+      const signatureTx = await program.methods
+        .deposit({
+          amount: new anchor.BN(amount.toString()),
+          ciphertext: Buffer.from(enc.ciphertext),
+          commitment: Buffer.from(bigIntToBytes32(commitment)),
+          newRoot: buf(NEW_ROOT),
+        })
+        .accounts({
+          config: configPda,
+          vault: vaultPda,
+          vaultAta,
+          shieldedState: shieldedPda,
+          user: owner.publicKey,
+          identityMember: identityMemberPda,
+          userAta,
+          mint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .rpc();
+      await awaitLogs(signatureTx);
+      return { commitment, amount };
+    };
+
+    const amountA = 1_000n;
+    const amountB = 2_000n;
+    const startSlot = await provider.connection.getSlot("confirmed");
+    await depositNote(amountA);
+    await depositNote(amountB);
+
+    const signMessage = async (message: Uint8Array) =>
+      nacl.sign.detached(message, owner.secretKey);
+
+    const { notes, balance } = await rescanNotesForOwner({
+      program,
+      mint,
+      owner: owner.publicKey,
+      signMessage,
+      startSlot,
+    });
+
+    const spendable = notes.filter((note) => !note.spent);
+    assert.equal(spendable.length, 2);
+    assert.equal(balance.toString(), (amountA + amountB).toString());
+
+    const selection = selectNotesForAmount(mint, owner.publicKey, amountA + amountB, 4);
+    assert.equal(selection.notes.length, 2);
+    assert.equal(selection.total.toString(), (amountA + amountB).toString());
   });
 });

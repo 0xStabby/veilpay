@@ -111,6 +111,9 @@ importers:
       snarkjs:
         specifier: ^0.7.6
         version: 0.7.6
+      tweetnacl:
+        specifier: ^1.0.3
+        version: 1.0.3
     devDependencies:
       '@eslint/js':
         specifier: ^9.39.1

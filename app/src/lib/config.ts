@@ -31,6 +31,8 @@ export const LUT_ADDRESS = (import.meta.env.VITE_LUT_ADDRESS as string | undefin
 const relayerPubkey = (import.meta.env.VITE_RELAYER_PUBKEY as string | undefined)?.trim() ?? '';
 export const RELAYER_PUBKEY = relayerPubkey ? new PublicKey(relayerPubkey) : null;
 export const RELAYER_FEE_BPS = envNumber('VITE_RELAYER_FEE_BPS', 0);
+export const NULLIFIER_PADDING_CHUNKS = envNumber('VITE_NULLIFIER_PADDING_CHUNKS', 0);
+export const VIEW_KEY_SCAN_MAX_INDEX = envNumber('VITE_VIEW_KEY_SCAN_MAX_INDEX', 0);
 
 export const VEILPAY_PROGRAM_ID = new PublicKey(envString('VITE_VEILPAY_PROGRAM_ID'));
 export const VERIFIER_PROGRAM_ID = new PublicKey(envString('VITE_VERIFIER_PROGRAM_ID'));

@@ -1,4 +1,6 @@
 packages:
-  - "app"
-  - "sdk"
-  - "relayer"
+  - app
+  - sdk
+  - relayer
+
+storeDir: /home/stabby/.local/share/pnpm/store/v10

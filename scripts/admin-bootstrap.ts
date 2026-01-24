@@ -101,15 +101,19 @@ const createLookupTable = async (
   }
   throw new Error("Failed to create lookup table (slot too old).");
 };
-const loadKeypair = (): Keypair => {
-  const walletPath =
-    process.env.ANCHOR_WALLET ||
-    path.join(os.homedir(), ".config", "solana", "id.json");
+const loadKeypairFromPath = (walletPath: string): Keypair => {
   if (!fs.existsSync(walletPath)) {
     throw new Error(`Missing deployer keypair: ${walletPath}`);
   }
   const secret = JSON.parse(fs.readFileSync(walletPath, "utf8")) as number[];
   return Keypair.fromSecretKey(new Uint8Array(secret));
+};
+
+const loadKeypair = (): Keypair => {
+  const walletPath =
+    process.env.ANCHOR_WALLET ||
+    path.join(os.homedir(), ".config", "solana", "id.json");
+  return loadKeypairFromPath(walletPath);
 };
 
 const hexToBuffer = (hex: string): Buffer => Buffer.from(hex, "hex");
@@ -159,6 +163,12 @@ async function main() {
   if (!fs.existsSync(veilpayIdlPath) || !fs.existsSync(verifierIdlPath)) {
     throw new Error("Missing IDLs in target/idl. Run anchor build/deploy first.");
   }
+  const appIdlDir = path.resolve(process.cwd(), "app", "src", "idl");
+  if (!fs.existsSync(appIdlDir)) {
+    fs.mkdirSync(appIdlDir, { recursive: true });
+  }
+  fs.copyFileSync(veilpayIdlPath, path.join(appIdlDir, "veilpay.json"));
+  fs.copyFileSync(verifierIdlPath, path.join(appIdlDir, "verifier.json"));
   const veilpayIdl = JSON.parse(fs.readFileSync(veilpayIdlPath, "utf8"));
   const verifierIdl = JSON.parse(fs.readFileSync(verifierIdlPath, "utf8"));
   const veilpayProgram = new (anchor as any).Program({ ...veilpayIdl, address: veilpayId }, provider);
@@ -183,6 +193,23 @@ async function main() {
     tx.feePayer = wallet.publicKey;
     tx.recentBlockhash = value.blockhash;
     tx.sign(keypair);
+    const signature = await connection.sendRawTransaction(tx.serialize(), {
+      skipPreflight: false,
+      preflightCommitment: "confirmed",
+      minContextSlot: context.slot,
+    });
+    await connection.confirmTransaction(
+      { signature, blockhash: value.blockhash, lastValidBlockHeight: value.lastValidBlockHeight },
+      "confirmed"
+    );
+    return signature;
+  };
+
+  const sendTransactionWithKeypair = async (tx: Transaction, signer: Keypair) => {
+    const { context, value } = await connection.getLatestBlockhashAndContext("confirmed");
+    tx.feePayer = signer.publicKey;
+    tx.recentBlockhash = value.blockhash;
+    tx.sign(signer);
     const signature = await connection.sendRawTransaction(tx.serialize(), {
       skipPreflight: false,
       preflightCommitment: "confirmed",
@@ -384,12 +411,12 @@ async function main() {
   const vault = deriveVault(veilpayProgram.programId, mint);
   const shieldedState = deriveShielded(veilpayProgram.programId, mint);
   const nullifierSet = deriveNullifierSet(veilpayProgram.programId, mint, 0);
+  const vaultAta = await getAssociatedTokenAddress(mint, vault, true);
   const vaultInfo = await connection.getAccountInfo(vault);
   const shieldedInfo = await connection.getAccountInfo(shieldedState);
   const nullifierInfo = await connection.getAccountInfo(nullifierSet);
   if (!vaultInfo || !shieldedInfo || !nullifierInfo) {
     console.log("Initializing mint state and token accounts...");
-    const vaultAta = await getAssociatedTokenAddress(mint, vault, true);
     const adminAta = await getAssociatedTokenAddress(mint, wallet.publicKey);
     const instructions = [];
     try {
@@ -475,6 +502,7 @@ async function main() {
   const lutAddresses = [
     config,
     vault,
+    vaultAta,
     shieldedState,
     deriveIdentityRegistry(veilpayProgram.programId),
     deriveVerifierKey(verifierProgram.programId, 0),
@@ -482,6 +510,43 @@ async function main() {
     mint,
     TOKEN_PROGRAM_ID,
   ];
+  const relayerPubkey = env.VITE_RELAYER_PUBKEY || process.env.VITE_RELAYER_PUBKEY;
+  if (relayerPubkey) {
+    const relayerFeeAta = await getAssociatedTokenAddress(
+      mint,
+      new PublicKey(relayerPubkey)
+    );
+    lutAddresses.push(relayerFeeAta);
+  }
+  const nullifierPaddingRaw =
+    env.VITE_NULLIFIER_PADDING_CHUNKS ?? process.env.VITE_NULLIFIER_PADDING_CHUNKS ?? "0";
+  const nullifierPaddingChunks = Number(nullifierPaddingRaw);
+  if (!Number.isFinite(nullifierPaddingChunks) || nullifierPaddingChunks < 0) {
+    throw new Error("Invalid VITE_NULLIFIER_PADDING_CHUNKS value.");
+  }
+  if (nullifierPaddingChunks > 0) {
+    console.log(`Ensuring ${nullifierPaddingChunks} nullifier chunk(s) for LUT padding...`);
+    for (let i = 0; i < nullifierPaddingChunks; i += 1) {
+      const nullifierSet = deriveNullifierSet(veilpayProgram.programId, mint, i);
+      const info = await connection.getAccountInfo(nullifierSet);
+      if (!info) {
+        const sig = await sendWithLogs(`initNullifierChunk:${i}`, () =>
+          veilpayProgram.methods
+            .initializeNullifierChunk(i)
+            .accounts({
+              config,
+              nullifierSet,
+              payer: wallet.publicKey,
+              mint,
+              systemProgram: SystemProgram.programId,
+            })
+            .rpc()
+        );
+        await confirmFinalized(connection, sig);
+      }
+      lutAddresses.push(nullifierSet);
+    }
+  }
   const lutFromEnv = env.VITE_LUT_ADDRESS;
   const existingLut = lutFromEnv
     ? await connection
@@ -489,23 +554,49 @@ async function main() {
         .catch(() => ({ value: null }))
     : { value: null };
   if (!existingLut.value) {
-    const lutAddress = await createLookupTable(connection, wallet.publicKey, sendTransactionLikeWallet);
+    const relayerKeypairPath = path.resolve(process.cwd(), "relayer", "relayer-keypair.json");
+    const lutAuthority = fs.existsSync(relayerKeypairPath)
+      ? loadKeypairFromPath(relayerKeypairPath)
+      : keypair;
+    const lutAuthorityPubkey = lutAuthority.publicKey;
+    const lutSend = (tx: Transaction) => sendTransactionWithKeypair(tx, lutAuthority);
+    const lutBalance = await connection.getBalance(lutAuthorityPubkey);
+    if (lutBalance < 0.05 * 1e9) {
+      console.log(`Funding LUT authority ${lutAuthorityPubkey.toBase58()} with SOL...`);
+      const transferIx = SystemProgram.transfer({
+        fromPubkey: wallet.publicKey,
+        toPubkey: lutAuthorityPubkey,
+        lamports: 0.1 * 1e9,
+      });
+      const sig = await sendWithLogs("fundLutAuthority", () =>
+        sendTransactionLikeWallet(new Transaction().add(transferIx))
+      );
+      await confirmFinalized(connection, sig);
+    }
+    const lutAddress = await createLookupTable(connection, lutAuthorityPubkey, lutSend);
     const chunkSize = 20;
     for (let i = 0; i < lutAddresses.length; i += chunkSize) {
       const chunk = lutAddresses.slice(i, i + chunkSize);
       const extendIx = AddressLookupTableProgram.extendLookupTable({
         lookupTable: lutAddress,
-        authority: wallet.publicKey,
-        payer: wallet.publicKey,
+        authority: lutAuthorityPubkey,
+        payer: lutAuthorityPubkey,
         addresses: chunk,
       });
-      const sig = await sendTransactionLikeWallet(new Transaction().add(extendIx));
+      const sig = await lutSend(new Transaction().add(extendIx));
       await confirmFinalized(connection, sig);
     }
     console.log(`Lookup table created: ${lutAddress.toBase58()}`);
     const appEnvPath = path.resolve(process.cwd(), "app", ".env");
     if (fs.existsSync(appEnvPath)) {
       upsertEnv(appEnvPath, "VITE_LUT_ADDRESS", lutAddress.toBase58());
+    }
+    const relayerEnvPath = path.resolve(process.cwd(), "relayer", ".env");
+    if (fs.existsSync(relayerEnvPath)) {
+      upsertEnv(relayerEnvPath, "RELAYER_LUT_ADDRESS", lutAddress.toBase58());
+      if (fs.existsSync(relayerKeypairPath)) {
+        upsertEnv(relayerEnvPath, "RELAYER_LUT_AUTHORITY_KEYPAIR", "relayer-keypair.json");
+      }
     }
     upsertEnv(envPath, "VITE_LUT_ADDRESS", lutAddress.toBase58());
   } else {

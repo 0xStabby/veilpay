@@ -13,6 +13,9 @@ const MAX_ROOT_HISTORY: usize = 32;
 const MAX_VK_ENTRIES: usize = 16;
 const NULLIFIER_BITS: usize = 8192;
 const NULLIFIER_BYTES: usize = NULLIFIER_BITS / 8;
+const NOTE_CIPHERTEXT_BYTES: usize = 128;
+const NOTE_OUTPUTS: usize = 2;
+const NOTE_OUTPUT_BYTES: usize = NOTE_CIPHERTEXT_BYTES * NOTE_OUTPUTS;
 const ZERO_ROOT: [u8; 32] = [
     0x21, 0x34, 0xE7, 0x6A, 0xC5, 0xD2, 0x1A, 0xAB,
     0x18, 0x6C, 0x2B, 0xE1, 0xDD, 0x8F, 0x84, 0xEE,
@@ -84,6 +87,12 @@ pub mod veilpay {
         let registry = &mut ctx.accounts.identity_registry;
         registry.commitment_count = registry.commitment_count.saturating_add(1);
         registry.merkle_root = new_root;
+        let member = &mut ctx.accounts.identity_member;
+        if member.owner != Pubkey::default() && member.owner != ctx.accounts.user.key() {
+            return err!(VeilpayError::Unauthorized);
+        }
+        member.owner = ctx.accounts.user.key();
+        member.bump = ctx.bumps.identity_member;
         Ok(())
     }
 
@@ -161,12 +170,16 @@ pub mod veilpay {
             VeilpayError::MintNotAllowed
         );
         require!(
+            ctx.accounts.identity_member.owner == ctx.accounts.user.key(),
+            VeilpayError::Unauthorized
+        );
+        require!(
             ctx.accounts.vault_ata.owner == ctx.accounts.vault.key(),
             VeilpayError::InvalidVaultAuthority
         );
         let new_root = to_fixed_32(&args.new_root)?;
-        let _commitment = to_fixed_32(&args.commitment)?;
-        let _ciphertext = to_fixed_128(&args.ciphertext)?;
+        let commitment = to_fixed_32(&args.commitment)?;
+        let ciphertext = to_fixed_128(&args.ciphertext)?;
 
         let cpi_accounts = anchor_spl::token::Transfer {
             from: ctx.accounts.user_ata.to_account_info(),
@@ -184,6 +197,14 @@ pub mod veilpay {
         vault.nonce = vault.nonce.saturating_add(1);
 
         let shielded = &mut ctx.accounts.shielded_state;
+        let leaf_index = shielded.commitment_count;
+        emit!(NoteOutputEvent {
+            mint: ctx.accounts.mint.key(),
+            leaf_index,
+            commitment,
+            ciphertext,
+            kind: NoteOutputKind::Deposit as u8,
+        });
         shielded.commitment_count = shielded.commitment_count.saturating_add(1);
         append_root(shielded, new_root);
         Ok(())
@@ -213,6 +234,8 @@ pub mod veilpay {
             args.public_inputs.clone(),
         )?;
         let parsed = parse_public_inputs(&args.public_inputs)?;
+        let output_ciphertexts =
+            parse_output_ciphertexts(&args.output_ciphertexts, parsed.output_enabled)?;
         require!(
             parsed.amount_out == args.amount,
             VeilpayError::AmountMismatch
@@ -291,6 +314,14 @@ pub mod veilpay {
         if parsed.output_enabled[1] == 1 {
             let new_root = to_fixed_32(&args.new_root)?;
             let shielded = &mut ctx.accounts.shielded_state;
+            let leaf_index = shielded.commitment_count;
+            emit!(NoteOutputEvent {
+                mint: ctx.accounts.mint.key(),
+                leaf_index,
+                commitment: parsed.output_commitments[1],
+                ciphertext: output_ciphertexts[1],
+                kind: NoteOutputKind::Withdraw as u8,
+            });
             shielded.commitment_count = shielded.commitment_count.saturating_add(1);
             append_root(shielded, new_root);
         }
@@ -313,6 +344,8 @@ pub mod veilpay {
             args.public_inputs.clone(),
         )?;
         let parsed = parse_public_inputs(&args.public_inputs)?;
+        let output_ciphertexts =
+            parse_output_ciphertexts(&args.output_ciphertexts, parsed.output_enabled)?;
         require!(parsed.amount_out == 0, VeilpayError::InvalidOutputFlags);
         require!(parsed.fee_amount == 0, VeilpayError::InvalidOutputFlags);
         require!(
@@ -338,6 +371,19 @@ pub mod veilpay {
         )?;
         let shielded = &mut ctx.accounts.shielded_state;
         let new_root = to_fixed_32(&args.new_root)?;
+        let mut next_index = shielded.commitment_count;
+        for idx in 0..NOTE_OUTPUTS {
+            if parsed.output_enabled[idx] == 1 {
+                emit!(NoteOutputEvent {
+                    mint: ctx.accounts.mint.key(),
+                    leaf_index: next_index,
+                    commitment: parsed.output_commitments[idx],
+                    ciphertext: output_ciphertexts[idx],
+                    kind: NoteOutputKind::Internal as u8,
+                });
+                next_index = next_index.saturating_add(1);
+            }
+        }
         let output_count = (parsed.output_enabled[0] + parsed.output_enabled[1]) as u64;
         require!(output_count > 0, VeilpayError::InvalidOutputFlags);
         shielded.commitment_count = shielded.commitment_count.saturating_add(output_count);
@@ -369,6 +415,8 @@ pub mod veilpay {
             args.public_inputs.clone(),
         )?;
         let parsed = parse_public_inputs(&args.public_inputs)?;
+        let output_ciphertexts =
+            parse_output_ciphertexts(&args.output_ciphertexts, parsed.output_enabled)?;
         require!(
             parsed.amount_out == args.amount,
             VeilpayError::AmountMismatch
@@ -447,6 +495,14 @@ pub mod veilpay {
         if parsed.output_enabled[1] == 1 {
             let new_root = to_fixed_32(&args.new_root)?;
             let shielded = &mut ctx.accounts.shielded_state;
+            let leaf_index = shielded.commitment_count;
+            emit!(NoteOutputEvent {
+                mint: ctx.accounts.mint.key(),
+                leaf_index,
+                commitment: parsed.output_commitments[1],
+                ciphertext: output_ciphertexts[1],
+                kind: NoteOutputKind::External as u8,
+            });
             shielded.commitment_count = shielded.commitment_count.saturating_add(1);
             append_root(shielded, new_root);
         }
@@ -510,8 +566,18 @@ pub struct InitializeIdentityRegistry<'info> {
 pub struct RegisterIdentity<'info> {
     #[account(mut, seeds = [b"identity_registry"], bump = identity_registry.bump)]
     pub identity_registry: Account<'info, IdentityRegistry>,
+    #[account(
+        init_if_needed,
+        payer = payer,
+        space = 8 + IdentityMember::INIT_SPACE,
+        seeds = [b"identity_member", user.key().as_ref()],
+        bump
+    )]
+    pub identity_member: Account<'info, IdentityMember>,
     #[account(mut)]
     pub payer: Signer<'info>,
+    pub user: Signer<'info>,
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
@@ -587,6 +653,8 @@ pub struct Deposit<'info> {
     #[account(mut, seeds = [b"shielded", mint.key().as_ref()], bump = shielded_state.bump)]
     pub shielded_state: Box<Account<'info, ShieldedState>>,
     pub user: Signer<'info>,
+    #[account(seeds = [b"identity_member", user.key().as_ref()], bump = identity_member.bump)]
+    pub identity_member: Account<'info, IdentityMember>,
     #[account(mut)]
     pub user_ata: Account<'info, TokenAccount>,
     pub mint: Account<'info, Mint>,
@@ -601,7 +669,7 @@ pub struct Withdraw<'info> {
     pub vault: Account<'info, VaultPool>,
     #[account(mut)]
     pub vault_ata: Box<Account<'info, TokenAccount>>,
-    #[account(seeds = [b"shielded", mint.key().as_ref()], bump = shielded_state.bump)]
+    #[account(mut, seeds = [b"shielded", mint.key().as_ref()], bump = shielded_state.bump)]
     pub shielded_state: Box<Account<'info, ShieldedState>>,
     #[account(seeds = [b"identity_registry"], bump = identity_registry.bump)]
     pub identity_registry: Box<Account<'info, IdentityRegistry>>,
@@ -640,7 +708,7 @@ pub struct ExternalTransfer<'info> {
     pub vault: Account<'info, VaultPool>,
     #[account(mut)]
     pub vault_ata: Box<Account<'info, TokenAccount>>,
-    #[account(seeds = [b"shielded", mint.key().as_ref()], bump = shielded_state.bump)]
+    #[account(mut, seeds = [b"shielded", mint.key().as_ref()], bump = shielded_state.bump)]
     pub shielded_state: Box<Account<'info, ShieldedState>>,
     #[account(seeds = [b"identity_registry"], bump = identity_registry.bump)]
     pub identity_registry: Box<Account<'info, IdentityRegistry>>,
@@ -680,6 +748,7 @@ pub struct WithdrawArgs {
     pub public_inputs: Vec<u8>,
     pub relayer_fee_bps: u16,
     pub new_root: Vec<u8>,
+    pub output_ciphertexts: Vec<u8>,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -687,6 +756,7 @@ pub struct InternalTransferArgs {
     pub proof: Vec<u8>,
     pub public_inputs: Vec<u8>,
     pub new_root: Vec<u8>,
+    pub output_ciphertexts: Vec<u8>,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -696,6 +766,7 @@ pub struct ExternalTransferArgs {
     pub public_inputs: Vec<u8>,
     pub relayer_fee_bps: u16,
     pub new_root: Vec<u8>,
+    pub output_ciphertexts: Vec<u8>,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -756,6 +827,13 @@ pub struct IdentityRegistry {
 
 #[account]
 #[derive(InitSpace)]
+pub struct IdentityMember {
+    pub owner: Pubkey,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
 pub struct NullifierSet {
     pub mint: Pubkey,
     pub chunk_index: u32,
@@ -803,6 +881,52 @@ fn to_fixed_128(bytes: &[u8]) -> Result<[u8; 128]> {
     let mut out = [0u8; 128];
     out.copy_from_slice(bytes);
     Ok(out)
+}
+
+fn parse_output_ciphertexts(
+    bytes: &[u8],
+    output_enabled: [u8; NOTE_OUTPUTS],
+) -> Result<[[u8; NOTE_CIPHERTEXT_BYTES]; NOTE_OUTPUTS]> {
+    if bytes.is_empty() {
+        return Ok([[0u8; NOTE_CIPHERTEXT_BYTES]; NOTE_OUTPUTS]);
+    }
+    if bytes.len() == NOTE_CIPHERTEXT_BYTES {
+        let mut out = [[0u8; NOTE_CIPHERTEXT_BYTES]; NOTE_OUTPUTS];
+        if output_enabled[0] == 1 && output_enabled[1] == 0 {
+            out[0].copy_from_slice(bytes);
+            return Ok(out);
+        }
+        if output_enabled[0] == 0 && output_enabled[1] == 1 {
+            out[1].copy_from_slice(bytes);
+            return Ok(out);
+        }
+        return Err(error!(VeilpayError::InvalidByteLength));
+    }
+    require!(
+        bytes.len() == NOTE_OUTPUT_BYTES,
+        VeilpayError::InvalidByteLength
+    );
+    let mut out = [[0u8; NOTE_CIPHERTEXT_BYTES]; NOTE_OUTPUTS];
+    out[0].copy_from_slice(&bytes[..NOTE_CIPHERTEXT_BYTES]);
+    out[1].copy_from_slice(&bytes[NOTE_CIPHERTEXT_BYTES..NOTE_OUTPUT_BYTES]);
+    Ok(out)
+}
+
+#[event]
+pub struct NoteOutputEvent {
+    pub mint: Pubkey,
+    pub leaf_index: u64,
+    pub commitment: [u8; 32],
+    pub ciphertext: [u8; NOTE_CIPHERTEXT_BYTES],
+    pub kind: u8,
+}
+
+#[repr(u8)]
+pub enum NoteOutputKind {
+    Deposit = 0,
+    Internal = 1,
+    External = 2,
+    Withdraw = 3,
 }
 
 #[derive(Clone)]
