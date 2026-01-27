@@ -1,4 +1,5 @@
 import { buildBabyjub } from "circomlibjs";
+import { Buffer } from "buffer";
 import { PublicKey } from "@solana/web3.js";
 import { bytesToBigIntBE, concatBytes, modField, randomBytes, sha256, toHex } from "./crypto";
 import { bigIntToBytes32, computeCommitment, poseidonHash } from "./prover";
@@ -349,6 +350,28 @@ export function noteCiphertext(note: NoteRecord): Uint8Array {
   ciphertext.set(bigIntToBytes32(BigInt(note.c2Amount)), 64);
   ciphertext.set(bigIntToBytes32(BigInt(note.c2Randomness)), 96);
   return ciphertext;
+}
+
+export function buildOutputCiphertexts(
+  notes: Array<NoteRecord | null>,
+  enabled: number[]
+): Buffer {
+  const firstEnabled = enabled[0] === 1;
+  const secondEnabled = enabled[1] === 1;
+  if (!firstEnabled && !secondEnabled) {
+    return Buffer.alloc(0);
+  }
+  const zero = Buffer.alloc(128);
+  if (firstEnabled && secondEnabled) {
+    const out = Buffer.alloc(256);
+    const firstNote = notes[0];
+    const secondNote = notes[1];
+    out.set(firstNote ? noteCiphertext(firstNote) : zero, 0);
+    out.set(secondNote ? noteCiphertext(secondNote) : zero, 128);
+    return out;
+  }
+  const note = firstEnabled ? notes[0] : notes[1];
+  return note ? Buffer.from(noteCiphertext(note)) : zero;
 }
 
 export function addNote(mint: PublicKey, owner: PublicKey, note: NoteRecord) {

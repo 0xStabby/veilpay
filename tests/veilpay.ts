@@ -151,6 +151,30 @@ const sendVersionedWithLookupTable = async (params: {
   return signature;
 };
 
+const sendWithLut = async (params: {
+  connection: Connection;
+  payer: Keypair;
+  programId: PublicKey;
+  verifierProgramId: PublicKey;
+  ix: anchor.web3.TransactionInstruction;
+}) => {
+  const { connection, payer, programId, verifierProgramId, ix } = params;
+  const lut = await buildLookupTable(connection, payer, [
+    programId,
+    verifierProgramId,
+    TOKEN_PROGRAM_ID,
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+    SystemProgram.programId,
+    ...ix.keys.map((key) => key.pubkey),
+  ]);
+  await sendVersionedWithLookupTable({
+    connection,
+    payer,
+    instructions: [ix],
+    lookupTable: lut,
+  });
+};
+
 const ensureSystemAccount = async (
   connection: anchor.web3.Connection,
   pubkey: PublicKey
@@ -867,7 +891,7 @@ describe("veilpay", () => {
       circuitId: 0,
     });
 
-    await program.methods
+    const externalIx = await program.methods
       .externalTransfer({
         amount: new anchor.BN(25_000),
         proof: dummyProof,
@@ -897,7 +921,14 @@ describe("veilpay", () => {
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
-      .rpc();
+      .instruction();
+    await sendWithLut({
+      connection: provider.connection,
+      payer: provider.wallet.payer,
+      programId: program.programId,
+      verifierProgramId: verifierProgram.programId,
+      ix: externalIx,
+    });
 
     const recipientAccount = await getAccount(provider.connection, recipientAta);
     assert.equal(Number(recipientAccount.amount), 25_000);
