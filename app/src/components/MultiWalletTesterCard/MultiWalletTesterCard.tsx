@@ -6,7 +6,6 @@ import {
     Keypair,
     PublicKey,
     SystemProgram,
-    Transaction,
     TransactionInstruction,
     VersionedTransaction,
 } from '@solana/web3.js';
@@ -25,6 +24,7 @@ import veilpayIdl from '../../idl/veilpay.json';
 import verifierIdl from '../../idl/verifier.json';
 import { formatTokenAmount, parseTokenAmount } from '../../lib/amount';
 import { AIRDROP_URL, IS_DEVNET, WSOL_MINT } from '../../lib/config';
+import { buildLutVersionedTransaction } from '../../lib/lut';
 import { PubkeyBadge } from '../PubkeyBadge';
 import { wrapSolToWsol } from '../../lib/adminSetup';
 import { runDepositFlow, runExternalTransferFlow, runInternalTransferFlow, runWithdrawFlow } from '../../lib/flows';
@@ -321,7 +321,12 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
         instructions.push(createTransferInstruction(adminAta, ataB, publicKey, perWalletUnits, [], TOKEN_PROGRAM_ID));
         instructions.push(createTransferInstruction(adminAta, ataC, publicKey, perWalletUnits, [], TOKEN_PROGRAM_ID));
 
-        await sendTransaction(new Transaction().add(...instructions), connection);
+        const { tx, minContextSlot } = await buildLutVersionedTransaction({
+            connection,
+            payer: publicKey,
+            instructions,
+        });
+        await sendTransaction(tx, connection, { minContextSlot });
         status('Funded tokens to Wallet A/B/C.');
     };
 
@@ -340,24 +345,28 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
         }
         status('Funding wallets A/B/C from connected wallet...');
         const lamportsPerWallet = 200_000_000;
-        const tx = new Transaction().add(
-            SystemProgram.transfer({
-                fromPubkey: publicKey,
-                toPubkey: walletA.publicKey,
-                lamports: lamportsPerWallet,
-            }),
-            SystemProgram.transfer({
-                fromPubkey: publicKey,
-                toPubkey: walletB.publicKey,
-                lamports: lamportsPerWallet,
-            }),
-            SystemProgram.transfer({
-                fromPubkey: publicKey,
-                toPubkey: walletC.publicKey,
-                lamports: lamportsPerWallet,
-            })
-        );
-        await sendTransaction(tx, connection);
+        const { tx, minContextSlot } = await buildLutVersionedTransaction({
+            connection,
+            payer: publicKey,
+            instructions: [
+                SystemProgram.transfer({
+                    fromPubkey: publicKey,
+                    toPubkey: walletA.publicKey,
+                    lamports: lamportsPerWallet,
+                }),
+                SystemProgram.transfer({
+                    fromPubkey: publicKey,
+                    toPubkey: walletB.publicKey,
+                    lamports: lamportsPerWallet,
+                }),
+                SystemProgram.transfer({
+                    fromPubkey: publicKey,
+                    toPubkey: walletC.publicKey,
+                    lamports: lamportsPerWallet,
+                }),
+            ],
+        });
+        await sendTransaction(tx, connection, { minContextSlot });
         status('Funded wallets A/B/C.');
         await refreshSolBalance();
         if (parsedMint && mintDecimals !== null) {
@@ -417,11 +426,12 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
             })
         );
         instructions.push(createSyncNativeInstruction(ata));
-        const tx = new Transaction().add(...instructions);
-        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-        tx.feePayer = keypair.publicKey;
-        tx.recentBlockhash = blockhash;
-        tx.sign(keypair);
+        const { tx, blockhash, lastValidBlockHeight } = await buildLutVersionedTransaction({
+            connection,
+            payer: keypair.publicKey,
+            instructions,
+        });
+        tx.sign([keypair]);
         const signature = await connection.sendRawTransaction(tx.serialize());
         await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
     };
@@ -481,11 +491,12 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
             throw new Error('Connect a wallet before cleanup.');
         }
         const sendWithKeypair = async (instructions: TransactionInstruction[]) => {
-            const tx = new Transaction().add(...instructions);
-            const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-            tx.feePayer = keypair.publicKey;
-            tx.recentBlockhash = blockhash;
-            tx.sign(keypair);
+            const { tx, blockhash, lastValidBlockHeight } = await buildLutVersionedTransaction({
+                connection,
+                payer: keypair.publicKey,
+                instructions,
+            });
+            tx.sign([keypair]);
             const signature = await connection.sendRawTransaction(tx.serialize());
             await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
         };
@@ -519,26 +530,33 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
 
         const balance = await connection.getBalance(keypair.publicKey, 'confirmed');
         if (balance > 0) {
-            const tx = new Transaction().add(
-                SystemProgram.transfer({
-                    fromPubkey: keypair.publicKey,
-                    toPubkey: publicKey,
-                    lamports: 0,
-                })
-            );
-            const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-            tx.feePayer = keypair.publicKey;
-            tx.recentBlockhash = blockhash;
-            const fee = await connection.getFeeForMessage(tx.compileMessage());
+            const feeProbe = await buildLutVersionedTransaction({
+                connection,
+                payer: keypair.publicKey,
+                instructions: [
+                    SystemProgram.transfer({
+                        fromPubkey: keypair.publicKey,
+                        toPubkey: publicKey,
+                        lamports: 0,
+                    }),
+                ],
+            });
+            const fee = await connection.getFeeForMessage(feeProbe.tx.message);
             const feeLamports = fee.value ?? 0;
             const lamports = balance - feeLamports;
             if (lamports > 0) {
-                tx.instructions[0] = SystemProgram.transfer({
-                    fromPubkey: keypair.publicKey,
-                    toPubkey: publicKey,
-                    lamports,
+                const { tx, blockhash, lastValidBlockHeight } = await buildLutVersionedTransaction({
+                    connection,
+                    payer: keypair.publicKey,
+                    instructions: [
+                        SystemProgram.transfer({
+                            fromPubkey: keypair.publicKey,
+                            toPubkey: publicKey,
+                            lamports,
+                        }),
+                    ],
                 });
-                tx.sign(keypair);
+                tx.sign([keypair]);
                 const signature = await connection.sendRawTransaction(tx.serialize());
                 await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
             }
@@ -656,11 +674,13 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
 
             if (selected.deposit) {
                 setStatus('deposit', 'running');
+                const depositAsset = parsedMint.equals(WSOL_MINT) ? 'sol' : 'wsol';
                 const result = await runDepositFlow({
                     program: programsA.veilpay,
                     mint: parsedMint,
                     amount: amountString,
                     mintDecimals,
+                    depositAsset,
                     onStatus: stepStatus('Deposit A'),
                     onRootChange: (next) => {
                         rootRef.current = next;
@@ -768,6 +788,7 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
 
             if (selected.withdraw) {
                 setStatus('withdraw', 'running');
+                const withdrawAsset = parsedMint.equals(WSOL_MINT) ? 'sol' : 'wsol';
                 const result = await runWithdrawFlow({
                     program: programsC.veilpay,
                     verifierProgram: programsC.verifier,
@@ -775,6 +796,7 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                     recipient: walletC.publicKey,
                     amount: spendAmountString,
                     mintDecimals,
+                    withdrawAsset,
                     root: rootRef.current,
                     nextNullifier,
                     onStatus: stepStatus('Withdraw C'),
@@ -807,6 +829,7 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                     recipient: target,
                     amount: spendAmountString,
                     mintDecimals,
+                    deliverAsset: parsedMint.equals(WSOL_MINT) ? 'sol' : 'wsol',
                     root: rootRef.current,
                     nextNullifier,
                     onStatus: stepStatus('External B→C'),

@@ -1,4 +1,4 @@
-import { PublicKey, Transaction, VersionedTransaction } from '@solana/web3.js';
+import { PublicKey, VersionedTransaction } from '@solana/web3.js';
 import { Buffer } from 'buffer';
 import { AnchorProvider } from '@coral-xyz/anchor';
 import { RELAYER_URL } from './config';
@@ -24,7 +24,7 @@ const buildRelayerMessage = (
 
 export async function submitViaRelayerSigned(
     provider: AnchorProvider,
-    transaction: Transaction | VersionedTransaction,
+    transaction: VersionedTransaction,
     signer: PublicKey,
     signMessage?: (message: Uint8Array) => Promise<Uint8Array>,
     lookupTableAddresses?: string[]
@@ -33,16 +33,17 @@ export async function submitViaRelayerSigned(
         throw new Error('Wallet does not support message signing for relayed transfers.');
     }
     const { blockhash } = await provider.connection.getLatestBlockhash();
-    if (transaction instanceof VersionedTransaction) {
-        transaction.message.recentBlockhash = blockhash;
-    } else {
-        transaction.recentBlockhash = blockhash;
-    }
+    transaction.message.recentBlockhash = blockhash;
 
     const serialized =
-        transaction instanceof VersionedTransaction
-            ? transaction.serialize()
-            : transaction.serialize({ requireAllSignatures: false, verifySignatures: false });
+        transaction.serialize();
+    const firstByte = serialized[0];
+    // Debug: help verify versioned tx payloads before relayer submission.
+    console.log('[relayer] submitting tx bytes', {
+        versioned: (firstByte & 0x80) !== 0,
+        firstByte,
+        length: serialized.length,
+    });
     const transactionBase64 = Buffer.from(serialized).toString('base64');
     const expiresAt = Date.now() + 2 * 60 * 1000;
     const message = buildRelayerMessage(

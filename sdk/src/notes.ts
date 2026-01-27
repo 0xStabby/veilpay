@@ -30,7 +30,7 @@ export async function computeCommitment(
 }
 
 export async function recipientTagHashFromSecret(secret: Uint8Array): Promise<bigint> {
-  return modField(bytesToBigIntBE(sha256(secret)));
+  return modField(bytesToBigIntBE(await sha256(secret)));
 }
 
 type BabyJubPoint = [bigint, bigint];

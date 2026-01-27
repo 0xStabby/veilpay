@@ -338,6 +338,11 @@
           }
         },
         {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
           "name": "vault",
           "writable": true,
           "pda": {
@@ -426,6 +431,44 @@
           "writable": true
         },
         {
+          "name": "recipient",
+          "writable": true
+        },
+        {
+          "name": "temp_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  101,
+                  109,
+                  112,
+                  95,
+                  119,
+                  115,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "recipient"
+              },
+              {
+                "kind": "account",
+                "path": "vault.nonce",
+                "account": "VaultPool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "temp_wsol_ata",
+          "writable": true
+        },
+        {
           "name": "relayer_fee_ata",
           "writable": true,
           "optional": true
@@ -443,6 +486,14 @@
         {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -1343,6 +1394,11 @@
           }
         },
         {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
           "name": "vault",
           "writable": true,
           "pda": {
@@ -1431,6 +1487,44 @@
           "writable": true
         },
         {
+          "name": "recipient",
+          "writable": true
+        },
+        {
+          "name": "temp_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  101,
+                  109,
+                  112,
+                  95,
+                  119,
+                  115,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "recipient"
+              },
+              {
+                "kind": "account",
+                "path": "vault.nonce",
+                "account": "VaultPool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "temp_wsol_ata",
+          "writable": true
+        },
+        {
           "name": "relayer_fee_ata",
           "writable": true,
           "optional": true
@@ -1448,6 +1542,14 @@
         {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -1698,6 +1800,21 @@
       "code": 6022,
       "name": "MissingNullifierAccount",
       "msg": "Missing nullifier account"
+    },
+    {
+      "code": 6023,
+      "name": "UnsupportedSolDelivery",
+      "msg": "Unsupported SOL delivery"
+    },
+    {
+      "code": 6024,
+      "name": "InvalidRecipientTokenAccount",
+      "msg": "Invalid recipient token account"
+    },
+    {
+      "code": 6025,
+      "name": "InvalidTempAccount",
+      "msg": "Invalid temporary WSOL account"
     }
   ],
   "types": [
@@ -1801,6 +1918,10 @@
           {
             "name": "output_ciphertexts",
             "type": "bytes"
+          },
+          {
+            "name": "deliver_sol",
+            "type": "bool"
           }
         ]
       }
@@ -2223,6 +2344,10 @@
           {
             "name": "output_ciphertexts",
             "type": "bytes"
+          },
+          {
+            "name": "deliver_sol",
+            "type": "bool"
           }
         ]
       }

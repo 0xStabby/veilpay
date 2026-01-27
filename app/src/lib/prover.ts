@@ -1,5 +1,13 @@
 import * as snarkjs from 'snarkjs';
-import { buildPoseidon } from 'circomlibjs';
+import {
+    bigIntToBytes32,
+    computeCommitment,
+    computeIdentityCommitment,
+    computeNullifier,
+    poseidonHash,
+} from '../../../sdk/src/prover';
+
+export { bigIntToBytes32, computeCommitment, computeIdentityCommitment, computeNullifier, poseidonHash };
 
 export type ProofResult = {
     proofBytes: Uint8Array;
@@ -8,50 +16,7 @@ export type ProofResult = {
     proof: unknown;
 };
 
-let poseidonPromise: Promise<ReturnType<typeof buildPoseidon>> | null = null;
 let vkeyPromise: Promise<unknown> | null = null;
-
-async function getPoseidon() {
-    if (!poseidonPromise) {
-        poseidonPromise = buildPoseidon();
-    }
-    return poseidonPromise;
-}
-
-export async function poseidonHash(inputs: bigint[]): Promise<bigint> {
-    const poseidon = await getPoseidon();
-    const hash = poseidon(inputs.map((value) => BigInt(value)));
-    return BigInt(poseidon.F.toString(hash));
-}
-
-export async function computeNullifier(senderSecret: bigint, leafIndex: bigint): Promise<bigint> {
-    return await poseidonHash([senderSecret, leafIndex]);
-}
-
-export async function computeCommitment(
-    amount: bigint,
-    randomness: bigint,
-    recipientTagHash: bigint
-): Promise<bigint> {
-    return await poseidonHash([amount, randomness, recipientTagHash]);
-}
-
-export async function computeIdentityCommitment(identitySecret: bigint): Promise<bigint> {
-    return await poseidonHash([identitySecret]);
-}
-
-export const bigIntToBytes32 = (value: bigint): Uint8Array => {
-    let hex = value.toString(16);
-    if (hex.length > 64) {
-        throw new Error('Value exceeds 32 bytes');
-    }
-    hex = hex.padStart(64, '0');
-    const out = new Uint8Array(32);
-    for (let i = 0; i < 32; i += 1) {
-        out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-    }
-    return out;
-};
 
 async function getVerificationKey(): Promise<unknown> {
     if (!vkeyPromise) {

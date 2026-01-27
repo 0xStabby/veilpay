@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{Mint, Token, TokenAccount};
+use anchor_spl::associated_token::{self, AssociatedToken};
+use anchor_spl::token::{self, CloseAccount, Mint, Token, TokenAccount, Transfer};
 use verifier::cpi::accounts::VerifyGroth16 as VerifyGroth16Cpi;
 
 declare_id!("4C6H1aqxks1AgjtsLPbNrDXFsb6DwQ6c1Jhw2ZugTLv2");
@@ -233,9 +234,9 @@ pub mod veilpay {
             args.proof.clone(),
             args.public_inputs.clone(),
         )?;
-        let parsed = parse_public_inputs(&args.public_inputs)?;
+        let parsed = Box::new(parse_public_inputs(&args.public_inputs)?);
         let output_ciphertexts =
-            parse_output_ciphertexts(&args.output_ciphertexts, parsed.output_enabled)?;
+            Box::new(parse_output_ciphertexts(&args.output_ciphertexts, parsed.output_enabled)?);
         require!(
             parsed.amount_out == args.amount,
             VeilpayError::AmountMismatch
@@ -292,17 +293,104 @@ pub mod veilpay {
             anchor_spl::token::transfer(cpi_ctx, fee_amount)?;
         }
 
-        let cpi_accounts = anchor_spl::token::Transfer {
-            from: ctx.accounts.vault_ata.to_account_info(),
-            to: ctx.accounts.recipient_ata.to_account_info(),
-            authority: ctx.accounts.vault.to_account_info(),
-        };
-        let cpi_ctx = CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
-            cpi_accounts,
-            signer_seeds,
-        );
-        anchor_spl::token::transfer(cpi_ctx, net_amount)?;
+        if args.deliver_sol {
+            require!(
+                ctx.accounts.mint.key() == anchor_spl::token::spl_token::native_mint::id(),
+                VeilpayError::UnsupportedSolDelivery
+            );
+            let expected_ata = associated_token::get_associated_token_address(
+                &ctx.accounts.temp_authority.key(),
+                &ctx.accounts.mint.key(),
+            );
+            require!(
+                ctx.accounts.temp_wsol_ata.key() == expected_ata,
+                VeilpayError::InvalidTempAccount
+            );
+            if ctx.accounts.temp_wsol_ata.data_is_empty() {
+                let cpi_accounts = associated_token::Create {
+                    payer: ctx.accounts.payer.to_account_info(),
+                    associated_token: ctx.accounts.temp_wsol_ata.to_account_info(),
+                    authority: ctx.accounts.temp_authority.to_account_info(),
+                    mint: ctx.accounts.mint.to_account_info(),
+                    system_program: ctx.accounts.system_program.to_account_info(),
+                    token_program: ctx.accounts.token_program.to_account_info(),
+                };
+                let cpi_ctx = CpiContext::new(
+                    ctx.accounts.associated_token_program.to_account_info(),
+                    cpi_accounts,
+                );
+                associated_token::create(cpi_ctx)?;
+            } else {
+                require!(
+                    ctx.accounts.temp_wsol_ata.owner == &ctx.accounts.token_program.key(),
+                    VeilpayError::InvalidTempAccount
+                );
+                let temp_ata: TokenAccount =
+                    TokenAccount::try_deserialize(&mut &ctx.accounts.temp_wsol_ata.data.borrow()[..])?;
+                require!(
+                    temp_ata.mint == ctx.accounts.mint.key(),
+                    VeilpayError::InvalidTempAccount
+                );
+                require!(
+                    temp_ata.owner == ctx.accounts.temp_authority.key(),
+                    VeilpayError::InvalidTempAccount
+                );
+            }
+            let cpi_accounts = Transfer {
+                from: ctx.accounts.vault_ata.to_account_info(),
+                to: ctx.accounts.temp_wsol_ata.to_account_info(),
+                authority: ctx.accounts.vault.to_account_info(),
+            };
+            let cpi_ctx = CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                cpi_accounts,
+                signer_seeds,
+            );
+            token::transfer(cpi_ctx, net_amount)?;
+            let temp_bump = ctx.bumps.temp_authority;
+            let recipient_key = ctx.accounts.recipient.key();
+            let vault_nonce_bytes = ctx.accounts.vault.nonce.to_le_bytes();
+            let temp_seeds: &[&[u8]] = &[
+                b"temp_wsol",
+                recipient_key.as_ref(),
+                vault_nonce_bytes.as_ref(),
+                &[temp_bump],
+            ];
+            let temp_signer: &[&[&[u8]]] = &[temp_seeds];
+            let cpi_accounts = CloseAccount {
+                account: ctx.accounts.temp_wsol_ata.to_account_info(),
+                destination: ctx.accounts.recipient.to_account_info(),
+                authority: ctx.accounts.temp_authority.to_account_info(),
+            };
+            let cpi_ctx = CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                cpi_accounts,
+                temp_signer,
+            );
+            token::close_account(cpi_ctx)?;
+        } else {
+            require!(
+                ctx.accounts.recipient_ata.owner == &ctx.accounts.token_program.key(),
+                VeilpayError::InvalidRecipientTokenAccount
+            );
+            let recipient_ata: TokenAccount =
+                TokenAccount::try_deserialize(&mut &ctx.accounts.recipient_ata.data.borrow()[..])?;
+            require!(
+                recipient_ata.mint == ctx.accounts.mint.key(),
+                VeilpayError::InvalidRecipientTokenAccount
+            );
+            let cpi_accounts = Transfer {
+                from: ctx.accounts.vault_ata.to_account_info(),
+                to: ctx.accounts.recipient_ata.to_account_info(),
+                authority: ctx.accounts.vault.to_account_info(),
+            };
+            let cpi_ctx = CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                cpi_accounts,
+                signer_seeds,
+            );
+            token::transfer(cpi_ctx, net_amount)?;
+        }
 
         let vault = &mut ctx.accounts.vault;
         vault.total_withdrawn = vault
@@ -343,9 +431,9 @@ pub mod veilpay {
             args.proof.clone(),
             args.public_inputs.clone(),
         )?;
-        let parsed = parse_public_inputs(&args.public_inputs)?;
+        let parsed = Box::new(parse_public_inputs(&args.public_inputs)?);
         let output_ciphertexts =
-            parse_output_ciphertexts(&args.output_ciphertexts, parsed.output_enabled)?;
+            Box::new(parse_output_ciphertexts(&args.output_ciphertexts, parsed.output_enabled)?);
         require!(parsed.amount_out == 0, VeilpayError::InvalidOutputFlags);
         require!(parsed.fee_amount == 0, VeilpayError::InvalidOutputFlags);
         require!(
@@ -414,17 +502,11 @@ pub mod veilpay {
             args.proof.clone(),
             args.public_inputs.clone(),
         )?;
-        let parsed = parse_public_inputs(&args.public_inputs)?;
+        let parsed = Box::new(parse_public_inputs(&args.public_inputs)?);
         let output_ciphertexts =
-            parse_output_ciphertexts(&args.output_ciphertexts, parsed.output_enabled)?;
-        require!(
-            parsed.amount_out == args.amount,
-            VeilpayError::AmountMismatch
-        );
-        require!(
-            parsed.output_enabled[0] == 0,
-            VeilpayError::InvalidOutputFlags
-        );
+            Box::new(parse_output_ciphertexts(&args.output_ciphertexts, parsed.output_enabled)?);
+        require!(parsed.amount_out == args.amount, VeilpayError::AmountMismatch);
+        require!(parsed.output_enabled[0] == 0, VeilpayError::InvalidOutputFlags);
         require!(
             ctx.accounts.config.circuit_ids.contains(&parsed.circuit_id),
             VeilpayError::CircuitNotAllowed
@@ -473,17 +555,104 @@ pub mod veilpay {
             anchor_spl::token::transfer(cpi_ctx, fee_amount)?;
         }
 
-        let cpi_accounts = anchor_spl::token::Transfer {
-            from: ctx.accounts.vault_ata.to_account_info(),
-            to: ctx.accounts.destination_ata.to_account_info(),
-            authority: ctx.accounts.vault.to_account_info(),
-        };
-        let cpi_ctx = CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
-            cpi_accounts,
-            signer_seeds,
-        );
-        anchor_spl::token::transfer(cpi_ctx, net_amount)?;
+        if args.deliver_sol {
+            require!(
+                ctx.accounts.mint.key() == anchor_spl::token::spl_token::native_mint::id(),
+                VeilpayError::UnsupportedSolDelivery
+            );
+            let expected_ata = associated_token::get_associated_token_address(
+                &ctx.accounts.temp_authority.key(),
+                &ctx.accounts.mint.key(),
+            );
+            require!(
+                ctx.accounts.temp_wsol_ata.key() == expected_ata,
+                VeilpayError::InvalidTempAccount
+            );
+            if ctx.accounts.temp_wsol_ata.data_is_empty() {
+                let cpi_accounts = associated_token::Create {
+                    payer: ctx.accounts.payer.to_account_info(),
+                    associated_token: ctx.accounts.temp_wsol_ata.to_account_info(),
+                    authority: ctx.accounts.temp_authority.to_account_info(),
+                    mint: ctx.accounts.mint.to_account_info(),
+                    system_program: ctx.accounts.system_program.to_account_info(),
+                    token_program: ctx.accounts.token_program.to_account_info(),
+                };
+                let cpi_ctx = CpiContext::new(
+                    ctx.accounts.associated_token_program.to_account_info(),
+                    cpi_accounts,
+                );
+                associated_token::create(cpi_ctx)?;
+            } else {
+                require!(
+                    ctx.accounts.temp_wsol_ata.owner == &ctx.accounts.token_program.key(),
+                    VeilpayError::InvalidTempAccount
+                );
+                let temp_ata: TokenAccount =
+                    TokenAccount::try_deserialize(&mut &ctx.accounts.temp_wsol_ata.data.borrow()[..])?;
+                require!(
+                    temp_ata.mint == ctx.accounts.mint.key(),
+                    VeilpayError::InvalidTempAccount
+                );
+                require!(
+                    temp_ata.owner == ctx.accounts.temp_authority.key(),
+                    VeilpayError::InvalidTempAccount
+                );
+            }
+            let cpi_accounts = Transfer {
+                from: ctx.accounts.vault_ata.to_account_info(),
+                to: ctx.accounts.temp_wsol_ata.to_account_info(),
+                authority: ctx.accounts.vault.to_account_info(),
+            };
+            let cpi_ctx = CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                cpi_accounts,
+                signer_seeds,
+            );
+            token::transfer(cpi_ctx, net_amount)?;
+            let temp_bump = ctx.bumps.temp_authority;
+            let recipient_key = ctx.accounts.recipient.key();
+            let vault_nonce_bytes = ctx.accounts.vault.nonce.to_le_bytes();
+            let temp_seeds: &[&[u8]] = &[
+                b"temp_wsol",
+                recipient_key.as_ref(),
+                vault_nonce_bytes.as_ref(),
+                &[temp_bump],
+            ];
+            let temp_signer: &[&[&[u8]]] = &[temp_seeds];
+            let cpi_accounts = CloseAccount {
+                account: ctx.accounts.temp_wsol_ata.to_account_info(),
+                destination: ctx.accounts.recipient.to_account_info(),
+                authority: ctx.accounts.temp_authority.to_account_info(),
+            };
+            let cpi_ctx = CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                cpi_accounts,
+                temp_signer,
+            );
+            token::close_account(cpi_ctx)?;
+        } else {
+            require!(
+                ctx.accounts.destination_ata.owner == &ctx.accounts.token_program.key(),
+                VeilpayError::InvalidRecipientTokenAccount
+            );
+            let destination_ata: TokenAccount =
+                TokenAccount::try_deserialize(&mut &ctx.accounts.destination_ata.data.borrow()[..])?;
+            require!(
+                destination_ata.mint == ctx.accounts.mint.key(),
+                VeilpayError::InvalidRecipientTokenAccount
+            );
+            let cpi_accounts = Transfer {
+                from: ctx.accounts.vault_ata.to_account_info(),
+                to: ctx.accounts.destination_ata.to_account_info(),
+                authority: ctx.accounts.vault.to_account_info(),
+            };
+            let cpi_ctx = CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                cpi_accounts,
+                signer_seeds,
+            );
+            token::transfer(cpi_ctx, net_amount)?;
+        }
 
         let vault = &mut ctx.accounts.vault;
         vault.total_withdrawn = vault
@@ -665,6 +834,8 @@ pub struct Deposit<'info> {
 pub struct Withdraw<'info> {
     #[account(seeds = [b"config", crate::ID.as_ref()], bump = config.bump)]
     pub config: Account<'info, Config>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
     #[account(mut, seeds = [b"vault", mint.key().as_ref()], bump = vault.bump)]
     pub vault: Account<'info, VaultPool>,
     #[account(mut)]
@@ -675,14 +846,32 @@ pub struct Withdraw<'info> {
     pub identity_registry: Box<Account<'info, IdentityRegistry>>,
     #[account(mut)]
     pub nullifier_set: Box<Account<'info, NullifierSet>>,
+    /// CHECK: Validated in instruction when needed.
     #[account(mut)]
-    pub recipient_ata: Box<Account<'info, TokenAccount>>,
+    pub recipient_ata: UncheckedAccount<'info>,
+    #[account(mut)]
+    pub recipient: SystemAccount<'info>,
+    /// CHECK: PDA signer for temporary WSOL ownership.
+    #[account(
+        seeds = [
+            b"temp_wsol",
+            recipient.key().as_ref(),
+            vault.nonce.to_le_bytes().as_ref()
+        ],
+        bump
+    )]
+    pub temp_authority: UncheckedAccount<'info>,
+    /// CHECK: Created/validated at runtime when SOL delivery is requested.
+    #[account(mut)]
+    pub temp_wsol_ata: UncheckedAccount<'info>,
     #[account(mut)]
     pub relayer_fee_ata: Option<Box<Account<'info, TokenAccount>>>,
     pub verifier_program: Program<'info, verifier::program::Verifier>,
     pub verifier_key: Account<'info, verifier::VerifierKey>,
     pub mint: Account<'info, Mint>,
     pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
@@ -704,6 +893,8 @@ pub struct InternalTransfer<'info> {
 pub struct ExternalTransfer<'info> {
     #[account(seeds = [b"config", crate::ID.as_ref()], bump = config.bump)]
     pub config: Account<'info, Config>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
     #[account(mut, seeds = [b"vault", mint.key().as_ref()], bump = vault.bump)]
     pub vault: Account<'info, VaultPool>,
     #[account(mut)]
@@ -714,14 +905,32 @@ pub struct ExternalTransfer<'info> {
     pub identity_registry: Box<Account<'info, IdentityRegistry>>,
     #[account(mut)]
     pub nullifier_set: Box<Account<'info, NullifierSet>>,
+    /// CHECK: Validated in instruction when needed.
     #[account(mut)]
-    pub destination_ata: Box<Account<'info, TokenAccount>>,
+    pub destination_ata: UncheckedAccount<'info>,
+    #[account(mut)]
+    pub recipient: SystemAccount<'info>,
+    /// CHECK: PDA signer for temporary WSOL ownership.
+    #[account(
+        seeds = [
+            b"temp_wsol",
+            recipient.key().as_ref(),
+            vault.nonce.to_le_bytes().as_ref()
+        ],
+        bump
+    )]
+    pub temp_authority: UncheckedAccount<'info>,
+    /// CHECK: Created/validated at runtime when SOL delivery is requested.
+    #[account(mut)]
+    pub temp_wsol_ata: UncheckedAccount<'info>,
     #[account(mut)]
     pub relayer_fee_ata: Option<Box<Account<'info, TokenAccount>>>,
     pub verifier_program: Program<'info, verifier::program::Verifier>,
     pub verifier_key: Account<'info, verifier::VerifierKey>,
     pub mint: Account<'info, Mint>,
     pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -749,6 +958,7 @@ pub struct WithdrawArgs {
     pub relayer_fee_bps: u16,
     pub new_root: Vec<u8>,
     pub output_ciphertexts: Vec<u8>,
+    pub deliver_sol: bool,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -767,6 +977,7 @@ pub struct ExternalTransferArgs {
     pub relayer_fee_bps: u16,
     pub new_root: Vec<u8>,
     pub output_ciphertexts: Vec<u8>,
+    pub deliver_sol: bool,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -1145,4 +1356,10 @@ pub enum VeilpayError {
     InvalidOutputFlags,
     #[msg("Missing nullifier account")]
     MissingNullifierAccount,
+    #[msg("Unsupported SOL delivery")]
+    UnsupportedSolDelivery,
+    #[msg("Invalid recipient token account")]
+    InvalidRecipientTokenAccount,
+    #[msg("Invalid temporary WSOL account")]
+    InvalidTempAccount,
 }
