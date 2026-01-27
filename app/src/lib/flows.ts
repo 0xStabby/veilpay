@@ -47,6 +47,7 @@ import { formatTokenAmount, parseTokenAmount } from './amount';
 import { buildMerkleTree, getMerklePath, MERKLE_DEPTH } from './merkle';
 import {
     addNote,
+    buildOutputCiphertexts,
     createNote,
     type NoteRecord,
     deriveViewKeypair,
@@ -54,7 +55,6 @@ import {
     loadNotes,
     listSpendableNotes,
     markNoteSpent,
-    noteCiphertext,
     parseViewKey,
     replaceNotes,
     saveCommitments,
@@ -80,8 +80,6 @@ const MAX_INPUTS = 4;
 const MAX_OUTPUTS = 2;
 const ZERO_PATH_ELEMENTS = Array.from({ length: MERKLE_DEPTH }, () => '0');
 const ZERO_PATH_INDEX = Array.from({ length: MERKLE_DEPTH }, () => 0);
-const ZERO_CIPHERTEXT = new Uint8Array(128);
-
 const computeRelayerFee = (amount: bigint, feeBps: number) => {
     if (feeBps <= 0) {
         return 0n;
@@ -93,17 +91,6 @@ const computeRelayerFee = (amount: bigint, feeBps: number) => {
     return fee;
 };
 
-const buildOutputCiphertexts = (notes: Array<NoteRecord | null>, enabled: number[]) => {
-    const out = new Uint8Array(256);
-    notes.forEach((note, index) => {
-        if (!note || !enabled[index]) {
-            out.set(ZERO_CIPHERTEXT, index * 128);
-            return;
-        }
-        out.set(noteCiphertext(note), index * 128);
-    });
-    return Buffer.from(out);
-};
 
 const getEnvLookupTable = async (
     provider: AnchorProvider,
