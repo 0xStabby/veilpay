@@ -19,6 +19,7 @@ import {
   getAssociatedTokenAddress,
   getMint,
   TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import {
   deriveConfig,
@@ -500,18 +501,23 @@ async function main() {
 
   console.log("Ensuring lookup table for veilpay...");
   const lutAddresses = [
+    veilpayProgram.programId,
     config,
     vault,
     vaultAta,
     shieldedState,
+    deriveNullifierSet(veilpayProgram.programId, mint, 0),
     deriveIdentityRegistry(veilpayProgram.programId),
     deriveVerifierKey(verifierProgram.programId, 0),
     verifierProgram.programId,
     mint,
     TOKEN_PROGRAM_ID,
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+    SystemProgram.programId,
   ];
   const relayerPubkey = env.VITE_RELAYER_PUBKEY || process.env.VITE_RELAYER_PUBKEY;
   if (relayerPubkey) {
+    lutAddresses.push(new PublicKey(relayerPubkey));
     const relayerFeeAta = await getAssociatedTokenAddress(
       mint,
       new PublicKey(relayerPubkey)
@@ -547,6 +553,9 @@ async function main() {
       lutAddresses.push(nullifierSet);
     }
   }
+  const uniqueLutAddresses = Array.from(
+    new Set(lutAddresses.map((address) => address.toBase58()))
+  ).map((value) => new PublicKey(value));
   const lutFromEnv = env.VITE_LUT_ADDRESS;
   const existingLut = lutFromEnv
     ? await connection
@@ -575,8 +584,8 @@ async function main() {
     }
     const lutAddress = await createLookupTable(connection, lutAuthorityPubkey, lutSend);
     const chunkSize = 20;
-    for (let i = 0; i < lutAddresses.length; i += chunkSize) {
-      const chunk = lutAddresses.slice(i, i + chunkSize);
+    for (let i = 0; i < uniqueLutAddresses.length; i += chunkSize) {
+      const chunk = uniqueLutAddresses.slice(i, i + chunkSize);
       const extendIx = AddressLookupTableProgram.extendLookupTable({
         lookupTable: lutAddress,
         authority: lutAuthorityPubkey,
@@ -601,6 +610,49 @@ async function main() {
     upsertEnv(envPath, "VITE_LUT_ADDRESS", lutAddress.toBase58());
   } else {
     console.log("Lookup table already present.");
+    const lutAddress = new PublicKey(lutFromEnv);
+    const relayerKeypairPath = path.resolve(process.cwd(), "relayer", "relayer-keypair.json");
+    const lutAuthority = fs.existsSync(relayerKeypairPath)
+      ? loadKeypairFromPath(relayerKeypairPath)
+      : keypair;
+    const lutAuthorityPubkey = lutAuthority.publicKey;
+    const lutBalance = await connection.getBalance(lutAuthorityPubkey);
+    if (lutBalance < 0.05 * 1e9) {
+      console.log(`Funding LUT authority ${lutAuthorityPubkey.toBase58()} with SOL...`);
+      const transferIx = SystemProgram.transfer({
+        fromPubkey: wallet.publicKey,
+        toPubkey: lutAuthorityPubkey,
+        lamports: 0.1 * 1e9,
+      });
+      const sig = await sendWithLogs("fundLutAuthority", () =>
+        sendTransactionLikeWallet(new Transaction().add(transferIx))
+      );
+      await confirmFinalized(connection, sig);
+    }
+    const existingSet = new Set(
+      existingLut.value.state.addresses.map((address) => address.toBase58())
+    );
+    const missing = uniqueLutAddresses.filter(
+      (address) => !existingSet.has(address.toBase58())
+    );
+    if (missing.length === 0) {
+      console.log("Lookup table already contains shared addresses.");
+    } else {
+      console.log(`Extending LUT with ${missing.length} shared address(es)...`);
+      const lutSend = (tx: Transaction) => sendTransactionWithKeypair(tx, lutAuthority);
+      const chunkSize = 20;
+      for (let i = 0; i < missing.length; i += chunkSize) {
+        const chunk = missing.slice(i, i + chunkSize);
+        const extendIx = AddressLookupTableProgram.extendLookupTable({
+          lookupTable: lutAddress,
+          authority: lutAuthorityPubkey,
+          payer: lutAuthorityPubkey,
+          addresses: chunk,
+        });
+        const sig = await lutSend(new Transaction().add(extendIx));
+        await confirmFinalized(connection, sig);
+      }
+    }
   }
 
   console.log("Admin bootstrap complete.");
