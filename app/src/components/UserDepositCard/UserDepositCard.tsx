@@ -1,11 +1,15 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { Program } from '@coral-xyz/anchor';
 import { PublicKey } from '@solana/web3.js';
 import styles from './UserDepositCard.module.css';
 import { formatTokenAmount } from '../../lib/amount';
 import { runDepositFlow } from '../../lib/flows';
+import { rescanNotesForOwner } from '../../lib/noteScanner';
 import { fetchTransactionDetails } from '../../lib/transactions';
+import { deriveViewKeypair } from '../../lib/notes';
+import { useWallet } from '@solana/wallet-adapter-react';
+import { WSOL_MINT } from '../../lib/config';
 
 const DEFAULT_AMOUNT = '50000';
 
@@ -16,6 +20,7 @@ type UserDepositCardProps = {
     onRootChange: (next: Uint8Array) => void;
     mintDecimals: number | null;
     walletBalance: bigint | null;
+    solBalance: bigint | null;
     onCredit: (amount: bigint) => void;
     onRecord?: (record: import('../../lib/transactions').TransactionRecord) => string;
     onRecordUpdate?: (id: string, patch: import('../../lib/transactions').TransactionRecordPatch) => void;
@@ -29,13 +34,16 @@ export const UserDepositCard: FC<UserDepositCardProps> = ({
     onRootChange,
     mintDecimals,
     walletBalance,
+    solBalance,
     onCredit,
     onRecord,
     onRecordUpdate,
     embedded = false,
 }) => {
     const [amount, setAmount] = useState(DEFAULT_AMOUNT);
+    const [depositAsset, setDepositAsset] = useState<'sol' | 'wsol'>('sol');
     const [busy, setBusy] = useState(false);
+    const { publicKey, signMessage } = useWallet();
 
     const parsedMint = useMemo(() => {
         if (!mintAddress) return null;
@@ -45,9 +53,18 @@ export const UserDepositCard: FC<UserDepositCardProps> = ({
             return null;
         }
     }, [mintAddress]);
+    const supportsSol = useMemo(() => parsedMint?.equals(WSOL_MINT) ?? false, [parsedMint]);
+    const solDecimals = 9;
+
+    useEffect(() => {
+        if (!supportsSol && depositAsset === 'sol') {
+            setDepositAsset('wsol');
+        }
+    }, [supportsSol, depositAsset]);
 
     const handleDeposit = async () => {
         if (!veilpayProgram || !parsedMint || mintDecimals === null) return;
+        const asset = supportsSol ? depositAsset : 'wsol';
         setBusy(true);
         try {
             const result = await runDepositFlow({
@@ -55,9 +72,29 @@ export const UserDepositCard: FC<UserDepositCardProps> = ({
                 mint: parsedMint,
                 amount,
                 mintDecimals,
+                depositAsset: asset,
                 onStatus,
                 onRootChange,
                 onCredit,
+                signMessage: signMessage ?? undefined,
+                rescanNotes: async () => {
+                    if (!publicKey || !signMessage) {
+                        throw new Error('Connect a wallet that can sign a message to rescan notes.');
+                    }
+                    await rescanNotesForOwner({
+                        program: veilpayProgram,
+                        mint: parsedMint,
+                        owner: publicKey,
+                        onStatus,
+                        signMessage,
+                    });
+                },
+                ensureRecipientSecret: async () => {
+                    if (!publicKey || !signMessage) {
+                        throw new Error('Connect a wallet that can sign a message to derive view keys.');
+                    }
+                    await deriveViewKeypair({ owner: publicKey, signMessage, index: 0 });
+                },
             });
             if (onRecord) {
                 const { createTransactionRecord } = await import('../../lib/transactions');
@@ -96,18 +133,49 @@ export const UserDepositCard: FC<UserDepositCardProps> = ({
                 {embedded ? <h3>Deposit</h3> : <h2>Deposit</h2>}
                 <p>Move funds into your private balance.</p>
             </header>
+            {supportsSol && (
+                <div className={styles.assetToggle}>
+                    <button
+                        type="button"
+                        className={depositAsset === 'sol' ? styles.assetActive : styles.assetButton}
+                        onClick={() => setDepositAsset('sol')}
+                        disabled={busy}
+                    >
+                        SOL
+                    </button>
+                    <button
+                        type="button"
+                        className={depositAsset === 'wsol' ? styles.assetActive : styles.assetButton}
+                        onClick={() => setDepositAsset('wsol')}
+                        disabled={busy}
+                    >
+                        WSOL
+                    </button>
+                </div>
+            )}
             <div className={styles.labelRow}>
                 <label className={styles.label}>
                     Amount (tokens)
                     <input value={amount} onChange={(event) => setAmount(event.target.value)} />
                 </label>
-                {walletBalance !== null && mintDecimals !== null && (
+                {walletBalance !== null &&
+                    mintDecimals !== null &&
+                    (!supportsSol || depositAsset === 'wsol') && (
                     <button
                         type="button"
                         className={styles.balanceButton}
                         onClick={() => setAmount(formatTokenAmount(walletBalance, mintDecimals))}
                     >
                         Wallet: {formatTokenAmount(walletBalance, mintDecimals)}
+                    </button>
+                )}
+                {supportsSol && depositAsset === 'sol' && solBalance !== null && (
+                    <button
+                        type="button"
+                        className={styles.balanceButton}
+                        onClick={() => setAmount(formatTokenAmount(solBalance, solDecimals))}
+                    >
+                        Wallet: {formatTokenAmount(solBalance, solDecimals)}
                     </button>
                 )}
             </div>

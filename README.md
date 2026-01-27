@@ -19,31 +19,44 @@ VeilPay is a Solana privacy-preserving payments protocol that uses escrow vaults
 pnpm install
 ```
 
-2) Configure app env (example in `app/.env.dev`):
+2) Configure app env (example in `app/.env.devnet`):
 ```
 VITE_RPC_ENDPOINT=...
 VITE_RELAYER_URL=...
 VITE_VEILPAY_PROGRAM_ID=...
 VITE_VERIFIER_PROGRAM_ID=...
 VITE_AIRDROP_URL=...   # optional, faucet link
+VITE_NULLIFIER_PADDING_CHUNKS=0  # optional, number of decoy nullifier chunks to include
+
+Notes:
+- `VITE_NULLIFIER_PADDING_CHUNKS` controls how many nullifier chunk accounts are included as decoys in each spend. Higher values improve privacy but increase transaction size.
+- Multi-input spends require the address lookup table (LUT) to include any nullifier chunk accounts referenced by the transaction. Use `scripts/admin-bootstrap.ts` to create the LUT and initialize the padding chunks.
+
+Extending the LUT for new nullifier chunks:
+```sh
+pnpm exec ts-node scripts/extend-nullifier-lut.ts --env .env --start 0 --count 32
+```
+
+Relayer auto-extend (optional):
+- Set `RELAYER_LUT_ADDRESS` to the LUT address.
+- Set `RELAYER_LUT_AUTHORITY_KEYPAIR` (or reuse `RELAYER_KEYPAIR`) so the relayer can extend the LUT when a transaction is too large.
 ```
 
 3) Run the app:
 ```
-pnpm --filter app dev --mode dev
+pnpm --filter app dev --mode devnet
 ```
 
 ## User guide (app)
 
 The app has two primary areas:
-- **User**: single-wallet deposit/withdraw/authorization/transfer flows (tabbed).
+- **User**: single-wallet deposit/withdraw/transfer flows (tabbed).
 - **Multi-Wallet Test**: generates local wallets to test unlinkability end-to-end.
 
 Recommended flow for users:
 1) **Deposit**: moves WSOL from your wallet into the shielded pool.
 2) **Withdraw**: pulls funds back to a public wallet address.
-3) **Authorization**: create a claimable invoice and settle it.
-4) **Transfers**: internal (VeilPay to VeilPay) or external (to any wallet).
+3) **Transfers**: internal (VeilPay to VeilPay) or external (to any wallet).
 
 Notes:
 - Proof generation runs in-browser and can take a few seconds.
@@ -91,8 +104,9 @@ const ix = await client.buildDepositIx({
 ### Relayer
 
 The relayer lives in `relayer/` and exposes:
-- `POST /intent` for authorization submissions
 - `GET /health` for health checks
+- `POST /execute-relayed` for relayer-signed transaction execution
+- `POST /proof` for proof generation
 
 Deploy scripts:
 - `./scripts/relayer-provision.sh`

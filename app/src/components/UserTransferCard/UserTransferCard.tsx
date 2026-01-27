@@ -3,9 +3,12 @@ import type { FC } from 'react';
 import { Buffer } from 'buffer';
 import { Program } from '@coral-xyz/anchor';
 import { PublicKey } from '@solana/web3.js';
+import { useWallet } from '@solana/wallet-adapter-react';
 import styles from './UserTransferCard.module.css';
 import { formatTokenAmount } from '../../lib/amount';
 import { runExternalTransferFlow, runInternalTransferFlow } from '../../lib/flows';
+import { parseViewKey } from '../../lib/notes';
+import { WSOL_MINT } from '../../lib/config';
 
 export type UserTransferCardProps = {
     veilpayProgram: Program | null;
@@ -39,9 +42,11 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
     embedded = false,
 }) => {
     const [internalRecipient, setInternalRecipient] = useState('');
+    const [internalAmount, setInternalAmount] = useState('250000');
     const [externalRecipient, setExternalRecipient] = useState('');
     const [externalAmount, setExternalAmount] = useState('250000');
     const [busy, setBusy] = useState(false);
+    const { signMessage } = useWallet();
 
     const parsedMint = useMemo(() => {
         if (!mintAddress) return null;
@@ -55,7 +60,7 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
     const parsedInternalRecipient = useMemo(() => {
         if (!internalRecipient) return null;
         try {
-            return new PublicKey(internalRecipient);
+            return parseViewKey(internalRecipient);
         } catch {
             return null;
         }
@@ -78,11 +83,14 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
                 program: veilpayProgram,
                 verifierProgram,
                 mint: parsedMint,
-                recipient: parsedInternalRecipient,
+                recipientViewKey: internalRecipient.trim(),
+                amount: internalAmount,
+                mintDecimals: mintDecimals ?? undefined,
                 root,
                 nextNullifier,
                 onStatus,
                 onRootChange,
+                signMessage: signMessage ?? undefined,
             });
             if (onRecord) {
                 const { createTransactionRecord } = await import('../../lib/transactions');
@@ -93,7 +101,7 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
                         status: 'confirmed',
                         details: {
                             mint: parsedMint.toBase58(),
-                            recipient: parsedInternalRecipient.toBase58(),
+                            recipient: internalRecipient.trim(),
                             nullifier: result.nullifier.toString(),
                             newRoot: Buffer.from(result.newRoot).toString('hex'),
                         },
@@ -117,10 +125,13 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
         }
     };
 
+
     const handleExternal = async () => {
         if (!veilpayProgram || !parsedMint || !parsedExternalRecipient || mintDecimals === null) return;
+        onStatus(`External transfer starting. mint=${parsedMint.toBase58()} recipient=${parsedExternalRecipient.toBase58()}`);
         setBusy(true);
         try {
+            const deliverAsset = parsedMint.equals(WSOL_MINT) ? 'sol' : 'wsol';
             const result = await runExternalTransferFlow({
                 program: veilpayProgram,
                 verifierProgram,
@@ -128,10 +139,13 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
                 recipient: parsedExternalRecipient,
                 amount: externalAmount,
                 mintDecimals,
+                deliverAsset,
                 root,
                 nextNullifier,
                 onStatus,
                 onDebit,
+                onRootChange,
+                signMessage: signMessage ?? undefined,
             });
             if (onRecord) {
                 const { createTransactionRecord } = await import('../../lib/transactions');
@@ -176,8 +190,25 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
             <div className={styles.column}>
                 <h3>Internal</h3>
                 <label className={styles.label}>
-                    Recipient wallet
-                    <input value={internalRecipient} onChange={(event) => setInternalRecipient(event.target.value)} />
+                    Amount (tokens)
+                    <input value={internalAmount} onChange={(event) => setInternalAmount(event.target.value)} />
+                </label>
+                {mintDecimals !== null && (
+                    <button
+                        type="button"
+                        className={styles.balanceButton}
+                        onClick={() => setInternalAmount(formatTokenAmount(shieldedBalance, mintDecimals))}
+                    >
+                        VeilPay balance: {formatTokenAmount(shieldedBalance, mintDecimals)}
+                    </button>
+                )}
+                <label className={styles.label}>
+                    Recipient view key
+                    <input
+                        value={internalRecipient}
+                        onChange={(event) => setInternalRecipient(event.target.value)}
+                        placeholder="recipient view key (x:y hex)"
+                    />
                 </label>
                 <button className={styles.button} disabled={!parsedInternalRecipient || !parsedMint || busy} onClick={handleInternal}>
                     Send internally

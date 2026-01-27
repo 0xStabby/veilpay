@@ -1,1 +1,0 @@
-export { WithdrawCard } from './WithdrawCard';

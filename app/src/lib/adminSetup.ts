@@ -1,5 +1,12 @@
 import { Program } from '@coral-xyz/anchor';
-import { Connection, PublicKey, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
+import type { AnchorProvider } from '@coral-xyz/anchor';
+import {
+    Connection,
+    PublicKey,
+    SystemProgram,
+    TransactionInstruction,
+    VersionedTransaction,
+} from '@solana/web3.js';
 import {
     NATIVE_MINT,
     TOKEN_PROGRAM_ID,
@@ -10,11 +17,38 @@ import {
     getMint,
 } from '@solana/spl-token';
 import { AIRDROP_URL } from './config';
-import { deriveConfig, deriveNullifierSet, deriveShielded, deriveVault, deriveVkRegistry, deriveVerifierKey } from './pda';
+import {
+    deriveConfig,
+    deriveIdentityRegistry,
+    deriveNullifierSet,
+    deriveShielded,
+    deriveVault,
+    deriveVkRegistry,
+    deriveVerifierKey,
+} from './pda';
 import { verifierKeyFixture } from './fixtures';
 import { parseTokenAmount } from './amount';
+import { buildLutVersionedTransaction, sendLutVersionedTransaction } from './lut';
 
 type StatusHandler = (message: string) => void;
+
+const getProvider = (program: Program): AnchorProvider => {
+    const provider = program.provider as AnchorProvider;
+    if (!provider.wallet) {
+        throw new Error('Connect a wallet to continue.');
+    }
+    return provider;
+};
+
+const sendProgramInstructions = async (program: Program, instructions: TransactionInstruction[]) => {
+    const provider = getProvider(program);
+    return await sendLutVersionedTransaction({
+        connection: provider.connection,
+        payer: provider.wallet.publicKey,
+        instructions,
+        signTransaction: provider.wallet.signTransaction.bind(provider.wallet),
+    });
+};
 
 async function ensureLegacyMint(connection: Connection, mint: PublicKey, onStatus: StatusHandler): Promise<boolean> {
     try {
@@ -68,7 +102,7 @@ export async function initializeConfig(params: {
         onStatus('Initializing config...');
         const config = deriveConfig(program.programId);
         const vkRegistry = deriveVkRegistry(program.programId);
-        await program.methods
+        const ix = await program.methods
             .initializeConfig({
                 feeBps: 25,
                 relayerFeeBpsMax: 50,
@@ -81,7 +115,8 @@ export async function initializeConfig(params: {
                 admin,
                 systemProgram: SystemProgram.programId,
             })
-            .rpc();
+            .instruction();
+        await sendProgramInstructions(program, [ix]);
         onStatus('Config initialized.');
         return true;
     } catch (error) {
@@ -99,18 +134,45 @@ export async function initializeVkRegistry(params: {
     try {
         onStatus('Initializing VK registry...');
         const vkRegistry = deriveVkRegistry(program.programId);
-        await program.methods
+        const ix = await program.methods
             .initializeVkRegistry()
             .accounts({
                 vkRegistry,
                 admin,
                 systemProgram: SystemProgram.programId,
             })
-            .rpc();
+            .instruction();
+        await sendProgramInstructions(program, [ix]);
         onStatus('VK registry initialized.');
         return true;
     } catch (error) {
         onStatus(`VK registry failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+        return false;
+    }
+}
+
+export async function initializeIdentityRegistry(params: {
+    program: Program;
+    admin: PublicKey;
+    onStatus: StatusHandler;
+}): Promise<boolean> {
+    const { program, admin, onStatus } = params;
+    try {
+        onStatus('Initializing identity registry...');
+        const identityRegistry = deriveIdentityRegistry(program.programId);
+        const ix = await program.methods
+            .initializeIdentityRegistry()
+            .accounts({
+                identityRegistry,
+                admin,
+                systemProgram: SystemProgram.programId,
+            })
+            .instruction();
+        await sendProgramInstructions(program, [ix]);
+        onStatus('Identity registry initialized.');
+        return true;
+    } catch (error) {
+        onStatus(`Identity registry failed: ${error instanceof Error ? error.message : 'unknown error'}`);
         return false;
     }
 }
@@ -125,7 +187,7 @@ export async function initializeVerifierKey(params: {
         onStatus('Writing Groth16 verifying key...');
         const keyId = 0;
         const verifierKey = deriveVerifierKey(program.programId, keyId);
-        await program.methods
+        const ix = await program.methods
             .initializeVerifierKey({
                 keyId,
                 alphaG1: Buffer.from(verifierKeyFixture.alphaG1),
@@ -141,7 +203,8 @@ export async function initializeVerifierKey(params: {
                 admin,
                 systemProgram: SystemProgram.programId,
             })
-            .rpc();
+            .instruction();
+        await sendProgramInstructions(program, [ix]);
         onStatus('Verifier key stored.');
         return true;
     } catch (error) {
@@ -165,13 +228,14 @@ export async function registerMint(params: {
         }
         onStatus('Registering mint...');
         const config = deriveConfig(program.programId);
-        await program.methods
+        const ix = await program.methods
             .registerMint(mint)
             .accounts({
                 config,
                 admin,
             })
-            .rpc();
+            .instruction();
+        await sendProgramInstructions(program, [ix]);
         onStatus('Mint registered.');
         return true;
     } catch (error) {
@@ -185,7 +249,11 @@ export async function initializeMintState(params: {
     admin: PublicKey;
     mint: PublicKey;
     connection: Connection;
-    sendTransaction: (tx: Transaction, connection: Connection) => Promise<string>;
+    sendTransaction: (
+        tx: VersionedTransaction,
+        connection: Connection,
+        options?: { minContextSlot?: number }
+    ) => Promise<string>;
     onStatus: StatusHandler;
 }): Promise<boolean> {
     const { program, admin, mint, connection, sendTransaction, onStatus } = params;
@@ -213,10 +281,15 @@ export async function initializeMintState(params: {
         await maybeCreateAta(vaultAta, vault);
 
         if (instructions.length > 0) {
-            await sendTransaction(new Transaction().add(...instructions), connection);
+            const { tx, minContextSlot } = await buildLutVersionedTransaction({
+                connection,
+                payer: admin,
+                instructions,
+            });
+            await sendTransaction(tx, connection, { minContextSlot });
         }
 
-        await program.methods
+        const ix = await program.methods
             .initializeMintState(0)
             .accounts({
                 config,
@@ -228,7 +301,8 @@ export async function initializeMintState(params: {
                 mint,
                 systemProgram: SystemProgram.programId,
             })
-            .rpc();
+            .instruction();
+        await sendProgramInstructions(program, [ix]);
         onStatus('Mint state initialized.');
         return true;
     } catch (error) {
@@ -241,7 +315,11 @@ export async function wrapSolToWsol(params: {
     connection: Connection;
     admin: PublicKey;
     amount: string;
-    sendTransaction: (tx: Transaction, connection: Connection) => Promise<string>;
+    sendTransaction: (
+        tx: VersionedTransaction,
+        connection: Connection,
+        options?: { minContextSlot?: number }
+    ) => Promise<string>;
     onStatus: StatusHandler;
 }): Promise<boolean> {
     const { connection, admin, amount, sendTransaction, onStatus } = params;
@@ -270,7 +348,12 @@ export async function wrapSolToWsol(params: {
             createSyncNativeInstruction(ata)
         );
 
-        await sendTransaction(new Transaction().add(...instructions), connection);
+        const { tx, minContextSlot } = await buildLutVersionedTransaction({
+            connection,
+            payer: admin,
+            instructions,
+        });
+        await sendTransaction(tx, connection, { minContextSlot });
         onStatus('Wrapped SOL into WSOL.');
         return true;
     } catch (error) {

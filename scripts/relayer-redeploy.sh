@@ -50,10 +50,10 @@ rsync -az \
   "${RELAYER_DIR}/pnpm-lock.yaml" \
   "${SSH_USER}@${SERVER_IP}:/opt/veilpay-relayer/"
 
-if [[ -f "${RELAYER_DIR}/.env.dev" ]]; then
+if [[ -f "${RELAYER_DIR}/.env.devnet" ]]; then
   rsync -az \
     -e "ssh ${SSH_OPTS[*]}" \
-    "${RELAYER_DIR}/.env.dev" \
+    "${RELAYER_DIR}/.env.devnet" \
     "${SSH_USER}@${SERVER_IP}:/opt/veilpay-relayer/.env"
 fi
 

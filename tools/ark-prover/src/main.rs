@@ -24,6 +24,23 @@ fn parse_big(value: &Value) -> Result<BigUint> {
     }
 }
 
+fn push_inputs(builder: &mut CircomBuilder<Fr>, key: &str, value: &Value) -> Result<()> {
+    match value {
+        Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                let indexed = format!("{key}[{index}]");
+                push_inputs(builder, &indexed, item)?;
+            }
+        }
+        _ => {
+            let big = parse_big(value)?;
+            let big_int = BigInt::from(big);
+            builder.push_input(key, big_int);
+        }
+    }
+    Ok(())
+}
+
 fn fq_to_be(fq: &impl BigInteger) -> [u8; 32] {
     let mut out = [0u8; 32];
     let bytes = fq.to_bytes_be();
@@ -78,9 +95,7 @@ fn run() -> Result<()> {
         .map_err(|err| anyhow!("circom config failed: {err:?}"))?;
     let mut builder = CircomBuilder::new(cfg);
     for (key, value) in input_obj {
-        let big = parse_big(value)?;
-        let big_int = BigInt::from(big);
-        builder.push_input(key, big_int);
+        push_inputs(&mut builder, key, value)?;
     }
 
     let circom = builder
@@ -92,15 +107,35 @@ fn run() -> Result<()> {
 
     let expected_inputs = [
         "root",
-        "nullifier",
-        "recipient_tag_hash",
-        "ciphertext_commitment",
+        "identity_root",
+        "nullifier[0]",
+        "nullifier[1]",
+        "nullifier[2]",
+        "nullifier[3]",
+        "output_commitment[0]",
+        "output_commitment[1]",
+        "output_enabled[0]",
+        "output_enabled[1]",
+        "amount_out",
+        "fee_amount",
         "circuit_id",
     ];
     for (index, name) in expected_inputs.iter().enumerate() {
-        let value = input_obj
-            .get(*name)
-            .ok_or_else(|| anyhow!("missing input {name}"))?;
+        let value = if let Some((base, idx)) = name.split_once('[') {
+            let idx = idx.trim_end_matches(']').parse::<usize>()?;
+            let array = input_obj
+                .get(base)
+                .ok_or_else(|| anyhow!("missing input {base}"))?
+                .as_array()
+                .ok_or_else(|| anyhow!("input {base} must be array"))?;
+            array
+                .get(idx)
+                .ok_or_else(|| anyhow!("missing input {base}[{idx}]"))?
+        } else {
+            input_obj
+                .get(*name)
+                .ok_or_else(|| anyhow!("missing input {name}"))?
+        };
         let big = parse_big(value)?;
         let fr = Fr::from_be_bytes_mod_order(&big.to_bytes_be());
         if public_inputs

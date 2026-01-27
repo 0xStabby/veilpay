@@ -37,5 +37,5 @@ export function useShieldedBalance(mintAddress: string, owner: PublicKey | null)
         write(next >= 0n ? next : 0n);
     }, [balance, write]);
 
-    return { balance, credit, debit };
+    return { balance, credit, debit, setBalance: write };
 }

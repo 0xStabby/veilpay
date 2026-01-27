@@ -2,7 +2,8 @@ import { useCallback, useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { WalletNotConnectedError } from '@solana/wallet-adapter-base';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import { Keypair, SystemProgram, Transaction } from '@solana/web3.js';
+import { Keypair, SystemProgram } from '@solana/web3.js';
+import { buildLutVersionedTransaction } from '../../lib/lut';
 import styles from './SendSolCard.module.css';
 
 export const SendSolCard: FC = () => {
@@ -26,20 +27,19 @@ export const SendSolCard: FC = () => {
         try {
             const lamports = await connection.getMinimumBalanceForRentExemption(0);
 
-            const transaction = new Transaction().add(
-                SystemProgram.transfer({
-                    fromPubkey: publicKey,
-                    toPubkey: Keypair.generate().publicKey,
-                    lamports,
-                })
-            );
+            const { tx, minContextSlot, blockhash, lastValidBlockHeight } = await buildLutVersionedTransaction({
+                connection,
+                payer: publicKey,
+                instructions: [
+                    SystemProgram.transfer({
+                        fromPubkey: publicKey,
+                        toPubkey: Keypair.generate().publicKey,
+                        lamports,
+                    }),
+                ],
+            });
 
-            const {
-                context: { slot: minContextSlot },
-                value: { blockhash, lastValidBlockHeight },
-            } = await connection.getLatestBlockhashAndContext();
-
-            const signature = await sendTransaction(transaction, connection, { minContextSlot });
+            const signature = await sendTransaction(tx, connection, { minContextSlot });
 
             setStatus('Confirming on-chain...');
             await connection.confirmTransaction({ blockhash, lastValidBlockHeight, signature });

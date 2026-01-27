@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ROOT_ENV_FILE="${ROOT_ENV_FILE:-$ROOT_DIR/.env.dev}"
-APP_ENV_FILE="${APP_ENV_FILE:-$ROOT_DIR/app/.env.dev}"
+ROOT_ENV_FILE="${ROOT_ENV_FILE:-$ROOT_DIR/.env.devnet}"
+APP_ENV_FILE="${APP_ENV_FILE:-$ROOT_DIR/app/.env.devnet}"
 AUTHORITY="${AUTHORITY:-}"
 RECIPIENT="${RECIPIENT:-}"
 

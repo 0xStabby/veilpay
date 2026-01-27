@@ -1,11 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FC } from 'react';
 import { AnchorProvider, Program } from '@coral-xyz/anchor';
-import { Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
+import nacl from 'tweetnacl';
+import {
+    Keypair,
+    PublicKey,
+    SystemProgram,
+    TransactionInstruction,
+    VersionedTransaction,
+} from '@solana/web3.js';
 import {
     TOKEN_PROGRAM_ID,
     createAssociatedTokenAccountInstruction,
     createCloseAccountInstruction,
+    createSyncNativeInstruction,
     createTransferInstruction,
     getAccount,
     getAssociatedTokenAddress,
@@ -16,19 +24,14 @@ import veilpayIdl from '../../idl/veilpay.json';
 import verifierIdl from '../../idl/verifier.json';
 import { formatTokenAmount, parseTokenAmount } from '../../lib/amount';
 import { AIRDROP_URL, IS_DEVNET, WSOL_MINT } from '../../lib/config';
+import { buildLutVersionedTransaction } from '../../lib/lut';
 import { PubkeyBadge } from '../PubkeyBadge';
 import { wrapSolToWsol } from '../../lib/adminSetup';
-import {
-    runCreateAuthorizationFlow,
-    runDepositFlow,
-    runExternalTransferFlow,
-    runInternalTransferFlow,
-    runSettleAuthorizationFlow,
-    runWithdrawFlow,
-} from '../../lib/flows';
+import { runDepositFlow, runExternalTransferFlow, runInternalTransferFlow, runWithdrawFlow } from '../../lib/flows';
+import { rescanNotesForOwner } from '../../lib/noteScanner';
+import { deriveViewKeypair, serializeViewKey } from '../../lib/notes';
 import type { TransactionRecord, TransactionRecordPatch } from '../../lib/transactions';
 import { createTransactionRecord, fetchTransactionDetails } from '../../lib/transactions';
-import nacl from 'tweetnacl';
 
 type MultiWalletTesterCardProps = {
     connection: import('@solana/web3.js').Connection | null;
@@ -96,14 +99,16 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
     const [busy, setBusy] = useState(false);
     const [stepStatus, setStepStatus] = useState<Record<string, 'idle' | 'running' | 'success' | 'error'>>({});
     const rootRef = useRef(root);
-    const isDevMode = import.meta.env.MODE === 'dev';
-    const hideFundTokens = IS_DEVNET || Boolean(AIRDROP_URL);
+    const isLocalMode = import.meta.env.MODE === 'localnet';
+    const isDevnetMode = import.meta.env.MODE === 'devnet';
+    const isTestMode = isLocalMode || isDevnetMode;
+    const hideFundTokens = IS_DEVNET || Boolean(AIRDROP_URL) || isLocalMode;
     const [selected, setSelected] = useState({
+        airdropWallets: true,
         deposit: true,
         withdraw: true,
         internal: true,
         external: true,
-        authorization: true,
         wrapSol: true,
         fundWallets: true,
         cleanupWallets: true,
@@ -142,12 +147,20 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
         if (!connection) return null;
         const wallet = {
             publicKey: keypair.publicKey,
-            signTransaction: async (tx: Transaction) => {
+            signTransaction: async (tx: Transaction | VersionedTransaction) => {
+                if (tx instanceof VersionedTransaction) {
+                    tx.sign([keypair]);
+                    return tx;
+                }
                 tx.partialSign(keypair);
                 return tx;
             },
-            signAllTransactions: async (txs: Transaction[]) => {
+            signAllTransactions: async (txs: Array<Transaction | VersionedTransaction>) => {
                 return txs.map((tx) => {
+                    if (tx instanceof VersionedTransaction) {
+                        tx.sign([keypair]);
+                        return tx;
+                    }
                     tx.partialSign(keypair);
                     return tx;
                 });
@@ -164,6 +177,17 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
             verifier: new Program(normalizeIdl(verifierIdl) as any, provider),
         };
     };
+
+    const ensureRecipientSecretFor = async (keypair: Keypair) => {
+        await deriveViewKeypair({
+            owner: keypair.publicKey,
+            signMessage: async (message) => nacl.sign.detached(message, keypair.secretKey),
+            index: 0,
+        });
+    };
+
+    const signMessageFor = (keypair: Keypair) => async (message: Uint8Array) =>
+        nacl.sign.detached(message, keypair.secretKey);
 
     const refreshSolBalance = async () => {
         if (!connection || !publicKey) {
@@ -193,7 +217,7 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
     }, [parsedMint, selected.wrapSol, wrapAmount]);
 
     const showSolWarning =
-        isDevMode && publicKey && solBalance !== null && solBalance < requiredLamports;
+        IS_DEVNET && publicKey && solBalance !== null && solBalance < requiredLamports;
 
     const formatSol = (lamports: number) => (lamports / 1e9).toFixed(3);
 
@@ -244,7 +268,7 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
         }
     };
 
-    const fundGeneratedWalletTokens = async () => {
+    const fundGeneratedWalletTokens = async (status: (message: string) => void = onStatus) => {
         if (
             !connection ||
             !publicKey ||
@@ -257,7 +281,7 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
         ) {
             throw new Error('Provide a mint and connect a wallet before funding tokens.');
         }
-        onStatus('Funding tokens to Wallet A/B/C...');
+        status('Funding tokens to Wallet A/B/C...');
         const adminAta = await getAssociatedTokenAddress(parsedMint, publicKey);
         const ataA = await getAssociatedTokenAddress(parsedMint, walletA.publicKey);
         const ataB = await getAssociatedTokenAddress(parsedMint, walletB.publicKey);
@@ -286,7 +310,7 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                 throw new Error('Insufficient token balance to fund generated wallets.');
             }
             if (maxPerWallet < perWalletUnits) {
-                onStatus(
+                status(
                     `Funding amount reduced to ${formatTokenAmount(maxPerWallet, mintDecimals)} per wallet (insufficient balance).`
                 );
                 perWalletUnits = maxPerWallet;
@@ -297,8 +321,13 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
         instructions.push(createTransferInstruction(adminAta, ataB, publicKey, perWalletUnits, [], TOKEN_PROGRAM_ID));
         instructions.push(createTransferInstruction(adminAta, ataC, publicKey, perWalletUnits, [], TOKEN_PROGRAM_ID));
 
-        await sendTransaction(new Transaction().add(...instructions), connection);
-        onStatus('Funded tokens to Wallet A/B/C.');
+        const { tx, minContextSlot } = await buildLutVersionedTransaction({
+            connection,
+            payer: publicKey,
+            instructions,
+        });
+        await sendTransaction(tx, connection, { minContextSlot });
+        status('Funded tokens to Wallet A/B/C.');
     };
 
     const handleFundTokens = async () => {
@@ -310,43 +339,47 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
         }
     };
 
-    const fundGeneratedWallets = async () => {
+    const fundGeneratedWallets = async (status: (message: string) => void = onStatus) => {
         if (!connection || !publicKey || !sendTransaction || !walletA || !walletB || !walletC) {
             throw new Error('Connect a wallet and generate test wallets first.');
         }
-        onStatus('Funding wallets A/B/C from connected wallet...');
+        status('Funding wallets A/B/C from connected wallet...');
         const lamportsPerWallet = 200_000_000;
-        const tx = new Transaction().add(
-            SystemProgram.transfer({
-                fromPubkey: publicKey,
-                toPubkey: walletA.publicKey,
-                lamports: lamportsPerWallet,
-            }),
-            SystemProgram.transfer({
-                fromPubkey: publicKey,
-                toPubkey: walletB.publicKey,
-                lamports: lamportsPerWallet,
-            }),
-            SystemProgram.transfer({
-                fromPubkey: publicKey,
-                toPubkey: walletC.publicKey,
-                lamports: lamportsPerWallet,
-            })
-        );
-        await sendTransaction(tx, connection);
-        onStatus('Funded wallets A/B/C.');
+        const { tx, minContextSlot } = await buildLutVersionedTransaction({
+            connection,
+            payer: publicKey,
+            instructions: [
+                SystemProgram.transfer({
+                    fromPubkey: publicKey,
+                    toPubkey: walletA.publicKey,
+                    lamports: lamportsPerWallet,
+                }),
+                SystemProgram.transfer({
+                    fromPubkey: publicKey,
+                    toPubkey: walletB.publicKey,
+                    lamports: lamportsPerWallet,
+                }),
+                SystemProgram.transfer({
+                    fromPubkey: publicKey,
+                    toPubkey: walletC.publicKey,
+                    lamports: lamportsPerWallet,
+                }),
+            ],
+        });
+        await sendTransaction(tx, connection, { minContextSlot });
+        status('Funded wallets A/B/C.');
         await refreshSolBalance();
         if (parsedMint && mintDecimals !== null) {
-            await fundGeneratedWalletTokens();
+            await fundGeneratedWalletTokens(status);
         }
     };
 
-    const wrapSolForFunding = async () => {
+    const wrapSolForFunding = async (status: (message: string) => void = onStatus) => {
         if (!connection || !publicKey || !sendTransaction) {
             throw new Error('Connect a wallet before wrapping SOL.');
         }
         if (!parsedMint?.equals(WSOL_MINT)) {
-            onStatus('Wrap step skipped: mint is not WSOL.');
+            status('Wrap step skipped: mint is not WSOL.');
             return;
         }
         const ok = await wrapSolToWsol({
@@ -354,7 +387,7 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
             admin: publicKey,
             amount: wrapAmount,
             sendTransaction,
-            onStatus,
+            onStatus: status,
         });
         if (!ok) {
             throw new Error('Wrap SOL failed.');
@@ -362,11 +395,74 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
         await refreshSolBalance();
     };
 
-    const waitForWalletAFunding = async () => {
+    const wrapSolForWallet = async (
+        keypair: Keypair,
+        lamports: number,
+        status: (message: string) => void = onStatus
+    ) => {
+        if (!connection) {
+            throw new Error('Missing connection for wrapping SOL.');
+        }
+        if (!parsedMint?.equals(WSOL_MINT)) {
+            status('Wrap step skipped: mint is not WSOL.');
+            return;
+        }
+        if (lamports <= 0) {
+            status('Wrap step skipped: amount is zero.');
+            return;
+        }
+        const ata = await getAssociatedTokenAddress(parsedMint, keypair.publicKey);
+        const instructions: TransactionInstruction[] = [];
+        try {
+            await getAccount(connection, ata);
+        } catch {
+            instructions.push(createAssociatedTokenAccountInstruction(keypair.publicKey, ata, keypair.publicKey, parsedMint));
+        }
+        instructions.push(
+            SystemProgram.transfer({
+                fromPubkey: keypair.publicKey,
+                toPubkey: ata,
+                lamports,
+            })
+        );
+        instructions.push(createSyncNativeInstruction(ata));
+        const { tx, blockhash, lastValidBlockHeight } = await buildLutVersionedTransaction({
+            connection,
+            payer: keypair.publicKey,
+            instructions,
+        });
+        tx.sign([keypair]);
+        const signature = await connection.sendRawTransaction(tx.serialize());
+        await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+    };
+
+    const airdropAndWrapWallets = async (status: (message: string) => void = onStatus) => {
+        if (!connection || !walletA || !walletB || !walletC) {
+            throw new Error('Generate test wallets before airdropping.');
+        }
+        status('Airdropping SOL to wallets A/B/C...');
+        const lamports = 2 * 1e9;
+        const signatures = await Promise.all([
+            connection.requestAirdrop(walletA.publicKey, lamports),
+            connection.requestAirdrop(walletB.publicKey, lamports),
+            connection.requestAirdrop(walletC.publicKey, lamports),
+        ]);
+        await Promise.all(signatures.map((sig) => connection.confirmTransaction(sig, 'confirmed')));
+        status('Airdrop complete. Wrapping SOL to WSOL...');
+        const wrapLamports = Math.max(0, Math.floor(Number.parseFloat(wrapAmount) * 1e9));
+        if (wrapLamports > 0) {
+            await wrapSolForWallet(walletA, wrapLamports, status);
+            await wrapSolForWallet(walletB, wrapLamports, status);
+            await wrapSolForWallet(walletC, wrapLamports, status);
+        }
+        status('Airdrop + wrap complete.');
+    };
+
+    const waitForWalletAFunding = async (status: (message: string) => void = onStatus) => {
         if (!connection || !walletA) return;
         const maxAttempts = 15;
         const delayMs = 1000;
-        onStatus('Waiting for Wallet A funding to land...');
+        status('Waiting for Wallet A funding to land...');
         for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
             const solBalance = await connection.getBalance(walletA.publicKey);
             let tokenBalance = 0n;
@@ -382,7 +478,7 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
             const hasSol = solBalance > 0;
             const hasTokens = !parsedMint || mintDecimals === null || tokenBalance > 0n;
             if (hasSol && hasTokens) {
-                onStatus('Wallet A funded.');
+                status('Wallet A funded.');
                 return;
             }
             await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -395,11 +491,12 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
             throw new Error('Connect a wallet before cleanup.');
         }
         const sendWithKeypair = async (instructions: TransactionInstruction[]) => {
-            const tx = new Transaction().add(...instructions);
-            const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-            tx.feePayer = keypair.publicKey;
-            tx.recentBlockhash = blockhash;
-            tx.sign(keypair);
+            const { tx, blockhash, lastValidBlockHeight } = await buildLutVersionedTransaction({
+                connection,
+                payer: keypair.publicKey,
+                instructions,
+            });
+            tx.sign([keypair]);
             const signature = await connection.sendRawTransaction(tx.serialize());
             await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
         };
@@ -433,41 +530,48 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
 
         const balance = await connection.getBalance(keypair.publicKey, 'confirmed');
         if (balance > 0) {
-            const tx = new Transaction().add(
-                SystemProgram.transfer({
-                    fromPubkey: keypair.publicKey,
-                    toPubkey: publicKey,
-                    lamports: 0,
-                })
-            );
-            const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-            tx.feePayer = keypair.publicKey;
-            tx.recentBlockhash = blockhash;
-            const fee = await connection.getFeeForMessage(tx.compileMessage());
+            const feeProbe = await buildLutVersionedTransaction({
+                connection,
+                payer: keypair.publicKey,
+                instructions: [
+                    SystemProgram.transfer({
+                        fromPubkey: keypair.publicKey,
+                        toPubkey: publicKey,
+                        lamports: 0,
+                    }),
+                ],
+            });
+            const fee = await connection.getFeeForMessage(feeProbe.tx.message);
             const feeLamports = fee.value ?? 0;
             const lamports = balance - feeLamports;
             if (lamports > 0) {
-                tx.instructions[0] = SystemProgram.transfer({
-                    fromPubkey: keypair.publicKey,
-                    toPubkey: publicKey,
-                    lamports,
+                const { tx, blockhash, lastValidBlockHeight } = await buildLutVersionedTransaction({
+                    connection,
+                    payer: keypair.publicKey,
+                    instructions: [
+                        SystemProgram.transfer({
+                            fromPubkey: keypair.publicKey,
+                            toPubkey: publicKey,
+                            lamports,
+                        }),
+                    ],
                 });
-                tx.sign(keypair);
+                tx.sign([keypair]);
                 const signature = await connection.sendRawTransaction(tx.serialize());
                 await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
             }
         }
     };
 
-    const cleanupGeneratedWallets = async () => {
+    const cleanupGeneratedWallets = async (status: (message: string) => void = onStatus) => {
         if (!connection || !walletA || !walletB || !walletC || !publicKey) {
             throw new Error('Connect a wallet and generate test wallets first.');
         }
-        onStatus('Returning tokens + SOL to connected wallet...');
+        status('Returning tokens + SOL to connected wallet...');
         await cleanupWallet(walletA);
         await cleanupWallet(walletB);
         await cleanupWallet(walletC);
-        onStatus('Cleanup complete.');
+        status('Cleanup complete.');
         await refreshSolBalance();
     };
 
@@ -500,13 +604,26 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
         const programsC = buildPrograms(walletC);
         if (!programsA || !programsB || !programsC) return;
         setBusy(true);
+        const stepStatus = (label: string) => (message: string) => onStatus(`[${label}] ${message}`);
         try {
             onStatus('Running multi-wallet flow...');
-            if (isDevMode && selected.fundWallets) {
+            if (isLocalMode && !IS_DEVNET && selected.airdropWallets) {
+                setStatus('airdrop-wallets', 'running');
+                try {
+                    const logStep = stepStatus('Airdrop + wrap');
+                    await airdropAndWrapWallets(logStep);
+                    await waitForWalletAFunding(logStep);
+                    setStatus('airdrop-wallets', 'success');
+                } catch {
+                    setStatus('airdrop-wallets', 'error');
+                    throw new Error('Airdrop + wrap failed.');
+                }
+            }
+            if (isDevnetMode && IS_DEVNET && selected.fundWallets) {
                 if (selected.wrapSol) {
                     setStatus('wrap-sol', 'running');
                     try {
-                        await wrapSolForFunding();
+                        await wrapSolForFunding(stepStatus('Wrap SOL'));
                         setStatus('wrap-sol', 'success');
                     } catch {
                         setStatus('wrap-sol', 'error');
@@ -515,8 +632,9 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                 }
                 setStatus('fund-wallets', 'running');
                 try {
-                    await fundGeneratedWallets();
-                    await waitForWalletAFunding();
+                    const logStep = stepStatus('Fund wallets');
+                    await fundGeneratedWallets(logStep);
+                    await waitForWalletAFunding(logStep);
                     setStatus('fund-wallets', 'success');
                 } catch {
                     setStatus('fund-wallets', 'error');
@@ -543,7 +661,7 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                     baseUnits = walletBalance;
                 }
             }
-            const spendSteps = ['withdraw', 'external', 'authorization'].filter(
+            const spendSteps = ['withdraw', 'external'].filter(
                 (key) => selected[key as keyof typeof selected]
             ).length;
             const perSpendRaw = spendSteps > 0 ? baseUnits / BigInt(spendSteps) : baseUnits;
@@ -556,17 +674,32 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
 
             if (selected.deposit) {
                 setStatus('deposit', 'running');
+                const depositAsset = parsedMint.equals(WSOL_MINT) ? 'sol' : 'wsol';
                 const result = await runDepositFlow({
                     program: programsA.veilpay,
                     mint: parsedMint,
                     amount: amountString,
                     mintDecimals,
-                    onStatus,
+                    depositAsset,
+                    onStatus: stepStatus('Deposit A'),
                     onRootChange: (next) => {
                         rootRef.current = next;
                         onRootChange(next);
                     },
                     onCredit: () => undefined,
+                    signMessage: signMessageFor(walletA),
+                    rescanNotes: async () => {
+                        await rescanNotesForOwner({
+                            program: programsA.veilpay,
+                            mint: parsedMint,
+                            owner: walletA.publicKey,
+                            onStatus: stepStatus('Rescan A'),
+                            signMessage: signMessageFor(walletA),
+                        });
+                    },
+                    ensureRecipientSecret: async () => {
+                        await ensureRecipientSecretFor(walletA);
+                    },
                 });
                 await recordTx('wallet-a:deposit', result.signature, false, {
                     mint: parsedMint.toBase58(),
@@ -578,86 +711,76 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
 
             if (selected.internal) {
                 setStatus('internal-a-b', 'running');
+                const recipientViewKeyB = serializeViewKey(
+                    (
+                        await deriveViewKeypair({
+                            owner: walletB.publicKey,
+                            signMessage: signMessageFor(walletB),
+                            index: 0,
+                        })
+                    ).pubkey
+                );
                 const result = await runInternalTransferFlow({
                     program: programsA.veilpay,
                     verifierProgram: programsA.verifier,
                     mint: parsedMint,
-                    recipient: walletB.publicKey,
+                    recipientViewKey: recipientViewKeyB,
+                    amount: spendAmountString,
+                    mintDecimals,
                     root: rootRef.current,
                     nextNullifier,
-                    onStatus,
+                    onStatus: stepStatus('Internal A→B'),
                     onRootChange: (next) => {
                         rootRef.current = next;
                         onRootChange(next);
                     },
+                    ensureRecipientSecret: async () => {
+                        await ensureRecipientSecretFor(walletA);
+                    },
+                    signMessage: signMessageFor(walletA),
                 });
                 await recordTx('wallet-a:internal', result.signature, false, {
                     mint: parsedMint.toBase58(),
-                    recipient: walletB.publicKey.toBase58(),
+                    recipient: recipientViewKeyB,
                     wallet: walletA.publicKey.toBase58(),
                 });
                 setStatus('internal-a-b', 'success');
             }
 
-            if (selected.authorization) {
-                setStatus('authorization', 'running');
-                const createResult = await runCreateAuthorizationFlow({
-                    program: programsA.veilpay,
-                    mint: parsedMint,
-                    payer: walletA.publicKey,
-                    signMessage: async (message: Uint8Array) =>
-                        nacl.sign.detached(message, walletA.secretKey),
-                    payee: walletB.publicKey,
-                    amount: spendAmountString,
-                    expirySlots: '200',
-                    onStatus,
-                });
-                await recordTx('wallet-a:auth-create', createResult.signature, false, {
-                    mint: parsedMint.toBase58(),
-                    payee: walletB.publicKey.toBase58(),
-                    amount: spendAmountString,
-                    wallet: walletA.publicKey.toBase58(),
-                });
-                const settleResult = await runSettleAuthorizationFlow({
-                    program: programsB.veilpay,
-                    verifierProgram: programsB.verifier,
-                    mint: parsedMint,
-                    payee: walletB.publicKey,
-                    amount: spendAmountString,
-                    mintDecimals,
-                    root: rootRef.current,
-                    nextNullifier,
-                    intentHash: createResult.intentHash,
-                    onStatus,
-                    onDebit: () => undefined,
-                });
-                await recordTx('wallet-b:auth-settle', settleResult.signature, true, {
-                    mint: parsedMint.toBase58(),
-                    payee: walletB.publicKey.toBase58(),
-                    amount: spendAmountString,
-                    wallet: walletB.publicKey.toBase58(),
-                });
-                setStatus('authorization', 'success');
-            }
 
             if (selected.internal) {
                 setStatus('internal-b-c', 'running');
+                const recipientViewKeyC = serializeViewKey(
+                    (
+                        await deriveViewKeypair({
+                            owner: walletC.publicKey,
+                            signMessage: signMessageFor(walletC),
+                            index: 0,
+                        })
+                    ).pubkey
+                );
                 const result = await runInternalTransferFlow({
                     program: programsB.veilpay,
                     verifierProgram: programsB.verifier,
                     mint: parsedMint,
-                    recipient: walletC.publicKey,
+                    recipientViewKey: recipientViewKeyC,
+                    amount: spendAmountString,
+                    mintDecimals,
                     root: rootRef.current,
                     nextNullifier,
-                    onStatus,
+                    onStatus: stepStatus('Internal B→C'),
                     onRootChange: (next) => {
                         rootRef.current = next;
                         onRootChange(next);
                     },
+                    ensureRecipientSecret: async () => {
+                        await ensureRecipientSecretFor(walletB);
+                    },
+                    signMessage: signMessageFor(walletB),
                 });
                 await recordTx('wallet-b:internal', result.signature, false, {
                     mint: parsedMint.toBase58(),
-                    recipient: walletC.publicKey.toBase58(),
+                    recipient: recipientViewKeyC,
                     wallet: walletB.publicKey.toBase58(),
                 });
                 setStatus('internal-b-c', 'success');
@@ -665,6 +788,7 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
 
             if (selected.withdraw) {
                 setStatus('withdraw', 'running');
+                const withdrawAsset = parsedMint.equals(WSOL_MINT) ? 'sol' : 'wsol';
                 const result = await runWithdrawFlow({
                     program: programsC.veilpay,
                     verifierProgram: programsC.verifier,
@@ -672,10 +796,19 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                     recipient: walletC.publicKey,
                     amount: spendAmountString,
                     mintDecimals,
+                    withdrawAsset,
                     root: rootRef.current,
                     nextNullifier,
-                    onStatus,
+                    onStatus: stepStatus('Withdraw C'),
                     onDebit: () => undefined,
+                    onRootChange: (next) => {
+                        rootRef.current = next;
+                        onRootChange(next);
+                    },
+                    ensureRecipientSecret: async () => {
+                        await ensureRecipientSecretFor(walletC);
+                    },
+                    signMessage: signMessageFor(walletC),
                 });
                 await recordTx('wallet-c:withdraw', result.signature, true, {
                     mint: parsedMint.toBase58(),
@@ -696,10 +829,19 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                     recipient: target,
                     amount: spendAmountString,
                     mintDecimals,
+                    deliverAsset: parsedMint.equals(WSOL_MINT) ? 'sol' : 'wsol',
                     root: rootRef.current,
                     nextNullifier,
-                    onStatus,
+                    onStatus: stepStatus('External B→C'),
                     onDebit: () => undefined,
+                    onRootChange: (next) => {
+                        rootRef.current = next;
+                        onRootChange(next);
+                    },
+                    ensureRecipientSecret: async () => {
+                        await ensureRecipientSecretFor(walletB);
+                    },
+                    signMessage: signMessageFor(walletB),
                 });
                 await recordTx('wallet-b:external', result.signature, true, {
                     mint: parsedMint.toBase58(),
@@ -710,10 +852,10 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                 setStatus('external', 'success');
             }
 
-            if (isDevMode && selected.cleanupWallets) {
+            if (isTestMode && selected.cleanupWallets) {
                 setStatus('cleanup-wallets', 'running');
                 try {
-                    await cleanupGeneratedWallets();
+                    await cleanupGeneratedWallets(stepStatus('Cleanup'));
                     setStatus('cleanup-wallets', 'success');
                 } catch {
                     setStatus('cleanup-wallets', 'error');
@@ -770,7 +912,7 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                     Fund amount (tokens)
                     <input value={fundAmount} onChange={(event) => setFundAmount(event.target.value)} />
                 </label>
-                {isDevMode && (
+                {isTestMode && (
                     <label className={styles.label}>
                         Wrap amount (SOL)
                         <input value={wrapAmount} onChange={(event) => setWrapAmount(event.target.value)} />
@@ -797,19 +939,22 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
 
             <div className={styles.flowList}>
                 {[
-                    ...(isDevMode
+                    ...(isTestMode
                         ? [
-                              { id: 'wrap-sol', label: 'Wrap SOL for funding', toggle: 'wrapSol' },
-                              { id: 'fund-wallets', label: 'Fund wallets from connected', toggle: 'fundWallets' },
+                              ...(IS_DEVNET
+                                  ? [
+                                        { id: 'wrap-sol', label: 'Wrap SOL for funding', toggle: 'wrapSol' },
+                                        { id: 'fund-wallets', label: 'Fund wallets from connected', toggle: 'fundWallets' },
+                                    ]
+                                  : [{ id: 'airdrop-wallets', label: 'Airdrop + wrap wallets', toggle: 'airdropWallets' }]),
                           ]
                         : []),
                     { id: 'deposit', label: 'Deposit A' },
                     { id: 'internal-a-b', label: 'Internal A→B', toggle: 'internal' },
-                    { id: 'authorization', label: 'Auth A→B', toggle: 'authorization' },
                     { id: 'internal-b-c', label: 'Internal B→C', toggle: 'internal' },
                     { id: 'withdraw', label: 'Withdraw C' },
                     { id: 'external', label: 'External B→C', toggle: 'external' },
-                    ...(isDevMode
+                    ...(isTestMode
                         ? [
                               { id: 'cleanup-wallets', label: 'Return tokens + SOL to connected', toggle: 'cleanupWallets' },
                           ]
@@ -859,9 +1004,6 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                     Run multi-wallet flow
                 </button>
             </div>
-            <p className={styles.note}>
-                Uses local wallets for signing, so authorization flows are supported here as well.
-            </p>
         </section>
     );
 };

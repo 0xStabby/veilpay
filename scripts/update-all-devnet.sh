@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_ENV_FILE="${APP_ENV_FILE:-$ROOT_DIR/app/.env.dev}"
-RELAYER_ENV_FILE="${RELAYER_ENV_FILE:-$ROOT_DIR/relayer/.env.dev}"
+APP_ENV_FILE="${APP_ENV_FILE:-$ROOT_DIR/app/.env.devnet}"
+RELAYER_ENV_FILE="${RELAYER_ENV_FILE:-$ROOT_DIR/relayer/.env.devnet}"
 SKIP_INSTALL=0
 SKIP_APP_BUILD=0
 SKIP_RELAYER_BUILD=0

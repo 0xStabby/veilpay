@@ -1,6 +1,6 @@
 {
   "framework": "vite",
   "installCommand": "pnpm install",
-  "buildCommand": "pnpm -C app build --mode dev",
+  "buildCommand": "pnpm -C app build --mode devnet",
   "outputDirectory": "app/dist"
 }

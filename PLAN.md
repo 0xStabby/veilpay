@@ -7,18 +7,17 @@ Goal: Implement the unlinkable escrow-based privacy payments protocol end-to-end
 - Ensure recipient tags derive from recipient secrets, not public keys.
 - Ensure all proof inputs are tied to existing notes and valid Merkle paths.
 - Clarify the privacy model for external transfers (recipient public).
-- Clarify whether relayers are trusted with payer identity; if not, redesign authorization intents to hide payer.
 - Add documentation: `docs/privacy.md` and `docs/required-changes.md`.
 
 ## Phase 1: Program Core (Anchor)
 - Expand `programs/veilpay/src/lib.rs` into modules:
-  - `state` (config, vault, shielded state, nullifier, authorization, vk registry)
+  - `state` (config, vault, shielded state, nullifier, vk registry)
   - `instructions` (initialize/configure/deposit/withdraw/etc.)
   - `errors` (protocol-level errors)
 - Implement CPI token transfers for deposit/withdraw/settle flows.
 - Add PDA initialization helpers for vaults, shielded state, nullifier chunks, and VK registry.
 - Enforce mint allowlist and fee constraints in all public instructions.
-- Emit events for: deposit, withdraw, authorization created, authorization settled, internal transfer.
+- Emit events for: deposit, withdraw, internal transfer.
 
 ## Phase 2: Verifier Interface (Stage 1 mock + Stage 2 real)
 - Create separate `verifier` program with Groth16 verification using Solana bn254 syscalls.
@@ -47,7 +46,6 @@ Goal: Implement the unlinkable escrow-based privacy payments protocol end-to-end
 - Anchor tests:
   - initialize/configure
   - deposit/withdraw with mock proofs
-  - authorization creation/settle
   - internal/external transfer
   - nullifier double-spend prevention
   - replay/expiry behavior

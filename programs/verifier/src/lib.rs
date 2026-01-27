@@ -7,7 +7,7 @@ use solana_bn254::prelude::{
 
 declare_id!("CKzPKEVD9Bq5Q4iJzALC1Zuk66wwGwK52XsKmFDELYZe");
 
-const MAX_PUBLIC_INPUTS: usize = 8;
+const MAX_PUBLIC_INPUTS: usize = 16;
 
 #[program]
 pub mod verifier {
@@ -21,24 +21,73 @@ pub mod verifier {
             args.gamma_abc.len() <= MAX_PUBLIC_INPUTS + 1,
             VerifierError::TooManyInputs
         );
-        require!(
-            args.public_inputs_len as usize + 1 == args.gamma_abc.len(),
-            VerifierError::InvalidInputCount
-        );
+        if args.mock {
+            require!(args.public_inputs_len as usize <= MAX_PUBLIC_INPUTS, VerifierError::InvalidInputCount);
+            require!(!args.gamma_abc.is_empty(), VerifierError::InvalidInputCount);
+        } else {
+            require!(
+                args.public_inputs_len as usize + 1 == args.gamma_abc.len(),
+                VerifierError::InvalidInputCount
+            );
+        }
 
         let key = &mut ctx.accounts.verifier_key;
-        key.alpha_g1 = to_fixed_64(&args.alpha_g1)?;
-        key.beta_g2 = to_fixed_128(&args.beta_g2)?;
-        key.gamma_g2 = to_fixed_128(&args.gamma_g2)?;
-        key.delta_g2 = to_fixed_128(&args.delta_g2)?;
+        key.alpha_g1 = args.alpha_g1;
+        key.beta_g2 = args.beta_g2;
+        key.gamma_g2 = args.gamma_g2;
+        key.delta_g2 = args.delta_g2;
         key.public_inputs_len = args.public_inputs_len;
-        key.gamma_abc = args
-            .gamma_abc
-            .into_iter()
-            .map(|v| to_fixed_64(&v))
-            .collect::<Result<Vec<[u8; 64]>>>()?;
+        key.gamma_abc = args.gamma_abc;
         key.mock = args.mock;
         key.bump = ctx.bumps.verifier_key;
+        Ok(())
+    }
+
+    pub fn initialize_verifier_key_header(
+        ctx: Context<InitializeVerifierKeyHeader>,
+        args: InitializeVerifierKeyHeaderArgs,
+    ) -> Result<()> {
+        require!(
+            args.gamma_abc_len as usize <= MAX_PUBLIC_INPUTS + 1,
+            VerifierError::TooManyInputs
+        );
+        if args.mock {
+            require!(
+                args.public_inputs_len as usize <= MAX_PUBLIC_INPUTS,
+                VerifierError::InvalidInputCount
+            );
+            require!(args.gamma_abc_len > 0, VerifierError::InvalidInputCount);
+        } else {
+            require!(
+                args.public_inputs_len as usize + 1 == args.gamma_abc_len as usize,
+                VerifierError::InvalidInputCount
+            );
+        }
+
+        let key = &mut ctx.accounts.verifier_key;
+        key.alpha_g1 = args.alpha_g1;
+        key.beta_g2 = args.beta_g2;
+        key.gamma_g2 = args.gamma_g2;
+        key.delta_g2 = args.delta_g2;
+        key.public_inputs_len = args.public_inputs_len;
+        key.gamma_abc = vec![[0u8; 64]; args.gamma_abc_len as usize];
+        key.mock = args.mock;
+        key.bump = ctx.bumps.verifier_key;
+        Ok(())
+    }
+
+    pub fn set_verifier_key_gamma_abc(
+        ctx: Context<SetVerifierKeyGammaAbc>,
+        args: SetVerifierKeyGammaAbcArgs,
+    ) -> Result<()> {
+        require!(!args.gamma_abc.is_empty(), VerifierError::InvalidInputCount);
+        let key = &mut ctx.accounts.verifier_key;
+        let start = args.start_index as usize;
+        let end = start + args.gamma_abc.len();
+        require!(end <= key.gamma_abc.len(), VerifierError::InvalidInputCount);
+        for (offset, entry) in args.gamma_abc.iter().enumerate() {
+            key.gamma_abc[start + offset] = *entry;
+        }
         Ok(())
     }
 
@@ -53,7 +102,6 @@ pub mod verifier {
             VerifierError::InvalidInputCount
         );
         if key.mock {
-            let _ = parse_proof(&proof)?;
             return Ok(());
         }
 
@@ -97,6 +145,34 @@ pub struct InitializeVerifierKey<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(args: InitializeVerifierKeyHeaderArgs)]
+pub struct InitializeVerifierKeyHeader<'info> {
+    #[account(
+        init,
+        payer = admin,
+        space = 8 + VerifierKey::INIT_SPACE,
+        seeds = [b"verifier_key", args.key_id.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub verifier_key: Account<'info, VerifierKey>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(args: SetVerifierKeyGammaAbcArgs)]
+pub struct SetVerifierKeyGammaAbc<'info> {
+    #[account(
+        mut,
+        seeds = [b"verifier_key", args.key_id.to_le_bytes().as_ref()],
+        bump = verifier_key.bump
+    )]
+    pub verifier_key: Account<'info, VerifierKey>,
+    pub admin: Signer<'info>,
+}
+
+#[derive(Accounts)]
 pub struct VerifyGroth16<'info> {
     pub verifier_key: Account<'info, VerifierKey>,
 }
@@ -118,13 +194,32 @@ pub struct VerifierKey {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct InitializeVerifierKeyArgs {
     pub key_id: u32,
-    pub alpha_g1: Vec<u8>,
-    pub beta_g2: Vec<u8>,
-    pub gamma_g2: Vec<u8>,
-    pub delta_g2: Vec<u8>,
+    pub alpha_g1: [u8; 64],
+    pub beta_g2: [u8; 128],
+    pub gamma_g2: [u8; 128],
+    pub delta_g2: [u8; 128],
     pub public_inputs_len: u32,
-    pub gamma_abc: Vec<Vec<u8>>,
+    pub gamma_abc: Vec<[u8; 64]>,
     pub mock: bool,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct InitializeVerifierKeyHeaderArgs {
+    pub key_id: u32,
+    pub alpha_g1: [u8; 64],
+    pub beta_g2: [u8; 128],
+    pub gamma_g2: [u8; 128],
+    pub delta_g2: [u8; 128],
+    pub public_inputs_len: u32,
+    pub gamma_abc_len: u32,
+    pub mock: bool,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct SetVerifierKeyGammaAbcArgs {
+    pub key_id: u32,
+    pub start_index: u32,
+    pub gamma_abc: Vec<[u8; 64]>,
 }
 
 fn parse_proof(proof: &[u8]) -> Result<([u8; 64], [u8; 128], [u8; 64])> {

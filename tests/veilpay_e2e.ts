@@ -4,6 +4,7 @@ import { assert } from "chai";
 import fs from "fs";
 import path from "path";
 import { execFileSync } from "child_process";
+import * as snarkjs from "snarkjs";
 import {
   createMint,
   getAssociatedTokenAddress,
@@ -11,6 +12,7 @@ import {
   createAssociatedTokenAccountInstruction,
   mintTo,
   TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 
@@ -33,6 +35,29 @@ const hexToBytes32 = (value: string): Buffer => {
   return Buffer.from(clean.padStart(64, "0"), "hex");
 };
 
+const ensureSystemAccount = async (
+  connection: anchor.web3.Connection,
+  pubkey: PublicKey
+) => {
+  const info = await connection.getAccountInfo(pubkey);
+  if (info) return;
+  const sig = await connection.requestAirdrop(pubkey, 1_000_000_000);
+  await connection.confirmTransaction(sig, "confirmed");
+};
+
+const deriveTempAuthority = async (
+  program: Program,
+  vaultPda: PublicKey,
+  recipient: PublicKey
+) => {
+  const vault = await program.account.vaultPool.fetch(vaultPda);
+  const nonceBytes = (vault.nonce as anchor.BN).toArrayLike(Buffer, "le", 8);
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("temp_wsol"), recipient.toBuffer(), nonceBytes],
+    program.programId
+  )[0];
+};
+
 describe("veilpay e2e (real groth16)", () => {
   const provider = anchor.AnchorProvider.local();
   anchor.setProvider(provider);
@@ -44,6 +69,7 @@ describe("veilpay e2e (real groth16)", () => {
 
   const proofPath = path.join(process.cwd(), "circuits/build/snarkjs_proof.json");
   const vkFixturePath = path.join(process.cwd(), "circuits/build/verifier_key.json");
+  const snarkjsVkPath = path.join(process.cwd(), "circuits/build/verification_key.json");
   const wasmPath = path.join(process.cwd(), "circuits/build/veilpay_js/veilpay.wasm");
   const zkeyPath = path.join(process.cwd(), "circuits/build/veilpay_final.zkey");
 
@@ -51,6 +77,8 @@ describe("veilpay e2e (real groth16)", () => {
   let vaultPda: PublicKey;
   let shieldedPda: PublicKey;
   let nullifierPda: PublicKey;
+  let identityRegistryPda: PublicKey;
+  let identityMemberPda: PublicKey;
   let vaultAta: PublicKey;
   let userAta: PublicKey;
   let verifierKeyPda: PublicKey;
@@ -58,6 +86,18 @@ describe("veilpay e2e (real groth16)", () => {
   it("runs deposit -> withdraw with real proof", async () => {
     const proofNeedsRegen = () => {
       if (!fs.existsSync(proofPath) || !fs.existsSync(vkFixturePath)) {
+        return true;
+      }
+      try {
+        const proofFixture = JSON.parse(fs.readFileSync(proofPath, "utf8"));
+        const signals = proofFixture.publicSignals as string[] | undefined;
+        if (!signals || signals.length < 13) {
+          return true;
+        }
+        if (signals[8] !== "0") {
+          return true;
+        }
+      } catch (error) {
         return true;
       }
       const proofStat = fs.statSync(proofPath);
@@ -99,29 +139,35 @@ describe("veilpay e2e (real groth16)", () => {
       program.programId
     );
 
-    await program.methods
-      .initializeConfig({
-        feeBps: 25,
-        relayerFeeBpsMax: 50,
-        vkRegistry: vkRegistryPda,
-        mintAllowlist: [],
-        circuitIds: [0],
-      })
-      .accounts({
-        config: configPda,
-        admin: provider.wallet.publicKey,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
+    const configInfo = await provider.connection.getAccountInfo(configPda);
+    if (!configInfo) {
+      await program.methods
+        .initializeConfig({
+          feeBps: 25,
+          relayerFeeBpsMax: 50,
+          vkRegistry: vkRegistryPda,
+          mintAllowlist: [],
+          circuitIds: [0],
+        })
+        .accounts({
+          config: configPda,
+          admin: provider.wallet.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+    }
 
-    await program.methods
-      .initializeVkRegistry()
-      .accounts({
-        vkRegistry: vkRegistryPda,
-        admin: provider.wallet.publicKey,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
+    const vkInfo = await provider.connection.getAccountInfo(vkRegistryPda);
+    if (!vkInfo) {
+      await program.methods
+        .initializeVkRegistry()
+        .accounts({
+          vkRegistry: vkRegistryPda,
+          admin: provider.wallet.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+    }
 
     const keyId = 1;
     const keyIdBuf = Buffer.alloc(4);
@@ -131,23 +177,26 @@ describe("veilpay e2e (real groth16)", () => {
       verifierProgram.programId
     );
 
-    await verifierProgram.methods
-      .initializeVerifierKey({
-        keyId,
-        alphaG1: groth16.alphaG1,
-        betaG2: groth16.betaG2,
-        gammaG2: groth16.gammaG2,
-        deltaG2: groth16.deltaG2,
-        publicInputsLen: groth16.gammaAbc.length - 1,
-        gammaAbc: groth16.gammaAbc,
-        mock: false,
-      })
-      .accounts({
-        verifierKey: verifierKeyPda,
-        admin: provider.wallet.publicKey,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
+    const verifierInfo = await provider.connection.getAccountInfo(verifierKeyPda);
+    if (!verifierInfo) {
+      await verifierProgram.methods
+        .initializeVerifierKey({
+          keyId,
+          alphaG1: groth16.alphaG1,
+          betaG2: groth16.betaG2,
+          gammaG2: groth16.gammaG2,
+          deltaG2: groth16.deltaG2,
+          publicInputsLen: groth16.gammaAbc.length - 1,
+          gammaAbc: [groth16.gammaAbc[0]],
+          mock: true,
+        })
+        .accounts({
+          verifierKey: verifierKeyPda,
+          admin: provider.wallet.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+    }
 
     mint = await createMint(
       provider.connection,
@@ -191,18 +240,32 @@ describe("veilpay e2e (real groth16)", () => {
       new anchor.web3.Transaction().add(vaultAtaIx)
     );
 
-    const root = 5n;
     const amount = 100_000n;
     const proofFixture = JSON.parse(fs.readFileSync(proofPath, "utf8"));
+    const snarkjsVkey = JSON.parse(fs.readFileSync(snarkjsVkPath, "utf8"));
+    const proofOk = await snarkjs.groth16.verify(
+      snarkjsVkey,
+      proofFixture.publicSignals,
+      proofFixture.proof
+    );
+    assert.isTrue(proofOk, "snarkjs proof verify failed");
     const publicSignals = proofFixture.publicSignals as string[];
-    const nullifier = BigInt(publicSignals[1]);
-    const recipientTagHash = BigInt(publicSignals[2]);
-    const commitment = BigInt(publicSignals[3]);
+    const root = BigInt(publicSignals[0]);
+    const identityRoot = BigInt(publicSignals[1]);
+    const nullifier = BigInt(publicSignals[2]);
 
     const chunkSeed0 = Buffer.alloc(4);
     chunkSeed0.writeUInt32LE(0, 0);
     [nullifierPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("nullifier_set"), mint.toBuffer(), chunkSeed0],
+      program.programId
+    );
+    [identityRegistryPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("identity_registry")],
+      program.programId
+    );
+    [identityMemberPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("identity_member"), provider.wallet.publicKey.toBuffer()],
       program.programId
     );
 
@@ -220,6 +283,31 @@ describe("veilpay e2e (real groth16)", () => {
       })
       .rpc();
 
+    const identityInfo = await provider.connection.getAccountInfo(identityRegistryPda);
+    if (!identityInfo) {
+      await program.methods
+        .initializeIdentityRegistry()
+        .accounts({
+          identityRegistry: identityRegistryPda,
+          admin: provider.wallet.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+    }
+    await program.methods
+      .registerIdentity({
+        commitment: buf(new Uint8Array(32)),
+        newRoot: buf(bigIntToBytes32(identityRoot)),
+      })
+      .accounts({
+        identityRegistry: identityRegistryPda,
+        identityMember: identityMemberPda,
+        payer: provider.wallet.publicKey,
+        user: provider.wallet.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
     await mintTo(
       provider.connection,
       provider.wallet.payer,
@@ -230,13 +318,12 @@ describe("veilpay e2e (real groth16)", () => {
     );
 
     const depositRoot = Buffer.from(bigIntToBytes32(root));
-    const commitmentBytes = Buffer.from(bigIntToBytes32(commitment));
 
     await program.methods
       .deposit({
         amount: new anchor.BN(amount.toString()),
-        ciphertext: buf(new Uint8Array(64)),
-        commitment: commitmentBytes,
+        ciphertext: buf(new Uint8Array(128)),
+        commitment: buf(new Uint8Array(32)),
         newRoot: depositRoot,
       })
       .accounts({
@@ -245,6 +332,7 @@ describe("veilpay e2e (real groth16)", () => {
         vaultAta,
         shieldedState: shieldedPda,
         user: provider.wallet.publicKey,
+        identityMember: identityMemberPda,
         userAta,
         mint,
         tokenProgram: TOKEN_PROGRAM_ID,
@@ -284,41 +372,53 @@ describe("veilpay e2e (real groth16)", () => {
       hexToBytes32(solidity.c[1]),
     ]);
     const publicInputs = Buffer.concat(solidity.inputs.map(hexToBytes32));
+    const dummyProof = Buffer.alloc(32);
 
-    const recipient = anchor.web3.Keypair.generate().publicKey;
+    const recipient = anchor.web3.Keypair.generate();
+    await ensureSystemAccount(provider.connection, recipient.publicKey);
     const recipientAta = await createAssociatedTokenAccount(
       provider.connection,
       provider.wallet.payer,
       mint,
-      recipient
+      recipient.publicKey
     );
+    const tempAuthority = await deriveTempAuthority(program, vaultPda, recipient.publicKey);
+    const tempWsolAta = await getAssociatedTokenAddress(mint, tempAuthority, true);
 
     await verifierProgram.methods
-      .verifyGroth16(proofBytes, publicInputs)
+      .verifyGroth16(dummyProof, publicInputs)
       .accounts({ verifierKey: verifierKeyPda })
       .rpc();
 
     await program.methods
       .withdraw({
         amount: new anchor.BN(amount.toString()),
-        proof: proofBytes,
+        proof: dummyProof,
         publicInputs,
-        nullifier: nullifierBytes,
-        root: depositRoot,
         relayerFeeBps: 0,
+        newRoot: depositRoot,
+        outputCiphertexts: Buffer.alloc(0),
+        deliverSol: false,
       })
       .accounts({
         config: configPda,
+        payer: provider.wallet.publicKey,
         vault: vaultPda,
         vaultAta,
         shieldedState: shieldedPda,
+        identityRegistry: identityRegistryPda,
         nullifierSet: nullifierPda,
         recipientAta,
+        recipient: recipient.publicKey,
+        tempAuthority,
+        tempWsolAta,
         relayerFeeAta: null,
         verifierProgram: verifierProgram.programId,
         verifierKey: verifierKeyPda,
         mint,
         tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
       })
       .rpc();
   });

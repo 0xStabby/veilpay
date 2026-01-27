@@ -6,14 +6,10 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import styles from './FlowTesterCard.module.css';
 import { formatTokenAmount, parseTokenAmount } from '../../lib/amount';
 import { Buffer } from 'buffer';
-import {
-    runCreateAuthorizationFlow,
-    runDepositFlow,
-    runExternalTransferFlow,
-    runInternalTransferFlow,
-    runSettleAuthorizationFlow,
-    runWithdrawFlow,
-} from '../../lib/flows';
+import { runDepositFlow, runExternalTransferFlow, runInternalTransferFlow, runWithdrawFlow } from '../../lib/flows';
+import { WSOL_MINT } from '../../lib/config';
+import { rescanNotesForOwner } from '../../lib/noteScanner';
+import { deriveViewKeypair, parseViewKey, serializeViewKey } from '../../lib/notes';
 
 type FlowStatus = 'idle' | 'running' | 'success' | 'error';
 
@@ -55,10 +51,10 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
     const { publicKey, signMessage } = useWallet();
     const [amount, setAmount] = useState(DEFAULT_AMOUNT);
     const [recipient, setRecipient] = useState('');
+    const [internalRecipientViewKey, setInternalRecipientViewKey] = useState('');
     const [selected, setSelected] = useState(() => ({
         deposit: true,
         withdraw: true,
-        authorization: true,
         internal: true,
         external: true,
     }));
@@ -75,6 +71,25 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
             setRecipient(publicKey.toBase58());
         }
     }, [publicKey, recipient]);
+
+    useEffect(() => {
+        const updateViewKey = async () => {
+            if (!publicKey || !signMessage) return;
+            try {
+                const viewKey = await deriveViewKeypair({
+                    owner: publicKey,
+                    signMessage,
+                    index: 0,
+                });
+                setInternalRecipientViewKey(serializeViewKey(viewKey.pubkey));
+            } catch {
+                // ignore derivation errors until user requests
+            }
+        };
+        if (!internalRecipientViewKey) {
+            void updateViewKey();
+        }
+    }, [publicKey, signMessage, internalRecipientViewKey]);
 
     const parsedMint = useMemo(() => {
         if (!mintAddress) return null;
@@ -94,6 +109,15 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
         }
     }, [recipient]);
 
+    const parsedInternalRecipientViewKey = useMemo(() => {
+        if (!internalRecipientViewKey) return null;
+        try {
+            return parseViewKey(internalRecipientViewKey);
+        } catch {
+            return null;
+        }
+    }, [internalRecipientViewKey]);
+
     const handleRootUpdate = (next: Uint8Array) => {
         rootRef.current = next;
         onRootChange(next);
@@ -103,12 +127,18 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
         setStatuses((prev) => ({ ...prev, [id]: { status, message } }));
     };
 
-    const canRun = Boolean(veilpayProgram && parsedMint && mintDecimals !== null && parsedRecipient);
+    const canRun = Boolean(
+        veilpayProgram &&
+            parsedMint &&
+            mintDecimals !== null &&
+            parsedRecipient &&
+            (!selected.internal || parsedInternalRecipientViewKey)
+    );
 
     const runAll = async () => {
         if (!veilpayProgram || !parsedMint || mintDecimals === null || !parsedRecipient) return;
-        if (!publicKey || !signMessage) {
-            onStatus('Connect a wallet that supports message signing.');
+        if (!publicKey) {
+            onStatus('Connect a wallet first.');
             return;
         }
         const requestedAmount = parseTokenAmount(amount, mintDecimals);
@@ -140,20 +170,42 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
             return { useAmount, amountString };
         };
 
+        const ensureRecipientSecret = async () => {
+            if (!publicKey || !signMessage) {
+                throw new Error('Connect a wallet that can sign a message to derive view keys.');
+            }
+        };
+
         const steps = [
             {
                 id: 'deposit',
                 label: 'Deposit',
                 type: 'credit' as const,
                 run: async () => {
+                    const depositAsset = parsedMint.equals(WSOL_MINT) ? 'sol' : 'wsol';
                     const result = await runDepositFlow({
                         program: veilpayProgram,
                         mint: parsedMint,
                         amount,
                         mintDecimals,
+                        depositAsset,
                         onStatus,
                         onRootChange: handleRootUpdate,
                         onCredit,
+                        signMessage: signMessage ?? undefined,
+                        rescanNotes: async () => {
+                            if (!publicKey || !signMessage) {
+                                throw new Error('Connect a wallet that can sign a message to rescan notes.');
+                            }
+                            await rescanNotesForOwner({
+                                program: veilpayProgram,
+                                mint: parsedMint,
+                                owner: publicKey,
+                                onStatus,
+                                signMessage,
+                            });
+                        },
+                        ensureRecipientSecret,
                     });
                     runningBalance += requestedAmount;
                     if (onRecord) {
@@ -189,6 +241,8 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
                 type: 'debit' as const,
                 run: async () => {
                     const { useAmount, amountString } = computeDebitAmount('Withdraw');
+                    const withdrawAsset =
+                        parsedMint.equals(WSOL_MINT) && publicKey?.equals(parsedRecipient) ? 'sol' : 'wsol';
                     const result = await runWithdrawFlow({
                         program: veilpayProgram,
                         verifierProgram,
@@ -196,10 +250,14 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
                         recipient: parsedRecipient,
                         amount: amountString,
                         mintDecimals,
+                        withdrawAsset,
                         root: rootRef.current,
                         nextNullifier,
                         onStatus,
                         onDebit,
+                        onRootChange: handleRootUpdate,
+                        ensureRecipientSecret,
+                        signMessage: signMessage ?? undefined,
                     });
                     runningBalance -= useAmount;
                     if (onRecord) {
@@ -232,107 +290,24 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
                 },
             },
             {
-                id: 'authorization',
-                label: 'Authorization',
-                type: 'debit' as const,
-                run: async () => {
-                    const { useAmount, amountString } = computeDebitAmount('Authorization');
-                    const createResult = await runCreateAuthorizationFlow({
-                        program: veilpayProgram,
-                        mint: parsedMint,
-                        payer: publicKey,
-                        signMessage,
-                        payee: parsedRecipient,
-                        amount: amountString,
-                        expirySlots: '200',
-                        onStatus,
-                    });
-                    if (onRecord) {
-                        const { createTransactionRecord } = await import('../../lib/transactions');
-                        const recordId = onRecord(
-                            createTransactionRecord('authorization:create', {
-                                signature: createResult.signature,
-                                relayer: false,
-                                status: 'confirmed',
-                                details: {
-                                    mint: parsedMint.toBase58(),
-                                    payee: parsedRecipient.toBase58(),
-                                    amount: amountString,
-                                    expirySlot: createResult.expirySlot.toString(),
-                                    intentHash: Buffer.from(createResult.intentHash).toString('hex'),
-                                    amountCiphertext: Buffer.from(createResult.amountCiphertext).toString('base64'),
-                                },
-                            })
-                        );
-                        if (onRecordUpdate) {
-                            const { fetchTransactionDetails } = await import('../../lib/transactions');
-                            const txDetails = await fetchTransactionDetails(
-                                veilpayProgram.provider.connection,
-                                createResult.signature
-                            );
-                            if (txDetails) {
-                                onRecordUpdate(recordId, { details: { tx: txDetails } });
-                            }
-                        }
-                    }
-                    const settleResult = await runSettleAuthorizationFlow({
-                        program: veilpayProgram,
-                        verifierProgram,
-                        mint: parsedMint,
-                        payee: parsedRecipient,
-                        amount: amountString,
-                        mintDecimals,
-                        root: rootRef.current,
-                        nextNullifier,
-                        intentHash: createResult.intentHash,
-                        onStatus,
-                        onDebit,
-                    });
-                    runningBalance -= useAmount;
-                    if (onRecord) {
-                        const { createTransactionRecord } = await import('../../lib/transactions');
-                        const recordId = onRecord(
-                            createTransactionRecord('authorization:settle', {
-                                signature: settleResult.signature,
-                                relayer: true,
-                                status: 'confirmed',
-                                details: {
-                                    mint: parsedMint.toBase58(),
-                                    payee: parsedRecipient.toBase58(),
-                                    amount: amountString,
-                                    amountBaseUnits: settleResult.amountBaseUnits.toString(),
-                                    nullifier: settleResult.nullifier.toString(),
-                                    intentHash: Buffer.from(createResult.intentHash).toString('hex'),
-                                },
-                            })
-                        );
-                        if (onRecordUpdate) {
-                            const { fetchTransactionDetails } = await import('../../lib/transactions');
-                            const txDetails = await fetchTransactionDetails(
-                                veilpayProgram.provider.connection,
-                                settleResult.signature
-                            );
-                            if (txDetails) {
-                                onRecordUpdate(recordId, { details: { tx: txDetails } });
-                            }
-                        }
-                    }
-                },
-            },
-            {
                 id: 'internal',
                 label: 'Internal transfer',
                 type: 'neutral' as const,
                 run: async () => {
+                    if (!internalRecipientViewKey) {
+                        throw new Error('Enter a recipient view key for internal transfers.');
+                    }
                     const result = await runInternalTransferFlow({
                         program: veilpayProgram,
                         verifierProgram,
                         mint: parsedMint,
-                        recipient: parsedRecipient,
+                        recipientViewKey: internalRecipientViewKey,
                         root: rootRef.current,
                         nextNullifier,
                         onStatus,
                         onRootChange: handleRootUpdate,
+                        ensureRecipientSecret,
+                        signMessage: signMessage ?? undefined,
                     });
                     if (onRecord) {
                         const { createTransactionRecord } = await import('../../lib/transactions');
@@ -343,7 +318,7 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
                                 status: 'confirmed',
                                 details: {
                                     mint: parsedMint.toBase58(),
-                                    recipient: parsedRecipient.toBase58(),
+                                    recipient: internalRecipientViewKey,
                                     nullifier: result.nullifier.toString(),
                                     newRoot: Buffer.from(result.newRoot).toString('hex'),
                                 },
@@ -375,10 +350,14 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
                         recipient: parsedRecipient,
                         amount: amountString,
                         mintDecimals,
+                        deliverAsset: parsedMint.equals(WSOL_MINT) ? 'sol' : 'wsol',
                         root: rootRef.current,
                         nextNullifier,
                         onStatus,
                         onDebit,
+                        onRootChange: handleRootUpdate,
+                        ensureRecipientSecret,
+                        signMessage: signMessage ?? undefined,
                     });
                     runningBalance -= useAmount;
                     if (onRecord) {
@@ -458,12 +437,19 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
                     Recipient wallet
                     <input value={recipient} onChange={(event) => setRecipient(event.target.value)} />
                 </label>
+                <label className={styles.label}>
+                    Internal recipient view key
+                    <input
+                        value={internalRecipientViewKey}
+                        onChange={(event) => setInternalRecipientViewKey(event.target.value)}
+                        placeholder="recipient view key (x:y hex)"
+                    />
+                </label>
             </div>
             <div className={styles.checklist}>
                 {[
                     { id: 'deposit', label: 'Deposit' },
                     { id: 'withdraw', label: 'Withdraw' },
-                    { id: 'authorization', label: 'Authorization' },
                     { id: 'internal', label: 'Internal transfer' },
                     { id: 'external', label: 'External transfer' },
                 ].map((item) => {

@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { Program } from '@coral-xyz/anchor';
 import { PublicKey } from '@solana/web3.js';
+import { useWallet } from '@solana/wallet-adapter-react';
 import styles from './UserWithdrawCard.module.css';
 import { formatTokenAmount } from '../../lib/amount';
 import { runWithdrawFlow } from '../../lib/flows';
+import { WSOL_MINT } from '../../lib/config';
 
 const DEFAULT_AMOUNT = '100000';
 
@@ -18,6 +20,7 @@ type UserWithdrawCardProps = {
     mintDecimals: number | null;
     shieldedBalance: bigint;
     onDebit: (amount: bigint) => void;
+    onRootChange: (next: Uint8Array) => void;
     onRecord?: (record: import('../../lib/transactions').TransactionRecord) => string;
     onRecordUpdate?: (id: string, patch: import('../../lib/transactions').TransactionRecordPatch) => void;
     embedded?: boolean;
@@ -33,13 +36,16 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
     mintDecimals,
     shieldedBalance,
     onDebit,
+    onRootChange,
     onRecord,
     onRecordUpdate,
     embedded = false,
 }) => {
     const [amount, setAmount] = useState(DEFAULT_AMOUNT);
     const [recipient, setRecipient] = useState('');
+    const [withdrawAsset, setWithdrawAsset] = useState<'sol' | 'wsol'>('sol');
     const [busy, setBusy] = useState(false);
+    const { signMessage } = useWallet();
 
     const parsedMint = useMemo(() => {
         if (!mintAddress) return null;
@@ -58,9 +64,17 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
             return null;
         }
     }, [recipient]);
+    const supportsSol = useMemo(() => parsedMint?.equals(WSOL_MINT) ?? false, [parsedMint]);
+
+    useEffect(() => {
+        if (withdrawAsset === 'sol' && !supportsSol) {
+            setWithdrawAsset('wsol');
+        }
+    }, [withdrawAsset, supportsSol]);
 
     const handleWithdraw = async () => {
         if (!veilpayProgram || !parsedMint || !parsedRecipient || mintDecimals === null) return;
+        const asset = supportsSol ? withdrawAsset : 'wsol';
         setBusy(true);
         try {
             const result = await runWithdrawFlow({
@@ -70,10 +84,13 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
                 recipient: parsedRecipient,
                 amount,
                 mintDecimals,
+                withdrawAsset: asset,
                 root,
                 nextNullifier,
                 onStatus,
                 onDebit,
+                onRootChange,
+                signMessage: signMessage ?? undefined,
             });
             if (onRecord) {
                 const { createTransactionRecord } = await import('../../lib/transactions');
@@ -115,6 +132,26 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
                 {embedded ? <h3>Withdraw</h3> : <h2>Withdraw</h2>}
                 <p>Move funds out to your wallet.</p>
             </header>
+            {supportsSol && (
+                <div className={styles.assetToggle}>
+                    <button
+                        type="button"
+                        className={withdrawAsset === 'sol' ? styles.assetActive : styles.assetButton}
+                        onClick={() => setWithdrawAsset('sol')}
+                        disabled={busy}
+                    >
+                        SOL
+                    </button>
+                    <button
+                        type="button"
+                        className={withdrawAsset === 'wsol' ? styles.assetActive : styles.assetButton}
+                        onClick={() => setWithdrawAsset('wsol')}
+                        disabled={busy}
+                    >
+                        WSOL
+                    </button>
+                </div>
+            )}
             <div className={styles.labelRow}>
                 <label className={styles.label}>
                     Amount (tokens)

@@ -8,6 +8,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import {
     airdropSol,
     initializeConfig,
+    initializeIdentityRegistry,
     initializeMintState,
     initializeVerifierKey,
     initializeVkRegistry,
@@ -82,6 +83,10 @@ export const RunbookCard: FC<RunbookCardProps> = ({
             {
                 id: 'vk-registry',
                 run: () => initializeVkRegistry({ program: veilpayProgram, admin: publicKey, onStatus }),
+            },
+            {
+                id: 'identity-registry',
+                run: () => initializeIdentityRegistry({ program: veilpayProgram, admin: publicKey, onStatus }),
             },
             {
                 id: 'verifier-key',
@@ -182,7 +187,6 @@ export const RunbookCard: FC<RunbookCardProps> = ({
                         <ul className={styles.list}>
                             <li>Deposit: enter amount, confirm.</li>
                             <li>Withdraw: enter amount + recipient wallet.</li>
-                            <li>Authorization: set payee + amount, create and settle.</li>
                             <li>Internal transfer: send privately to another VeilPay user.</li>
                             <li>External transfer: send to any wallet.</li>
                         </ul>
