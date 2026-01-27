@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { FC } from 'react';
 import styles from './UserFlowCard.module.css';
 import type { Program } from '@coral-xyz/anchor';
@@ -6,6 +6,9 @@ import { UserDepositCard } from '../UserDepositCard';
 import { UserReceiveCard } from '../UserReceiveCard';
 import { UserWithdrawCard } from '../UserWithdrawCard';
 import { UserTransferCard } from '../UserTransferCard';
+import { deriveIdentityMember } from '../../lib/pda';
+import { registerIdentityFlow } from '../../lib/flows';
+import { useWallet } from '@solana/wallet-adapter-react';
 
 type UserFlowCardProps = {
     veilpayProgram: Program | null;
@@ -17,6 +20,7 @@ type UserFlowCardProps = {
     nextNullifier: () => number;
     mintDecimals: number | null;
     walletBalance: bigint | null;
+    solBalance: bigint | null;
     shieldedBalance: bigint;
     onCredit: (amount: bigint) => void;
     onDebit: (amount: bigint) => void;
@@ -42,6 +46,7 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
     nextNullifier,
     mintDecimals,
     walletBalance,
+    solBalance,
     shieldedBalance,
     onCredit,
     onDebit,
@@ -55,6 +60,80 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
     onViewKeyIndicesChange,
 }) => {
     const [activeTab, setActiveTab] = useState<FlowTab>('deposit');
+    const [registrationState, setRegistrationState] = useState<'loading' | 'registered' | 'unregistered'>(
+        'loading'
+    );
+    const [registerBusy, setRegisterBusy] = useState(false);
+    const { publicKey, signMessage } = useWallet();
+
+    useEffect(() => {
+        let alive = true;
+        const checkRegistration = async () => {
+            if (!veilpayProgram || !publicKey) {
+                if (alive) setRegistrationState('unregistered');
+                return;
+            }
+            setRegistrationState('loading');
+            try {
+                const identityMember = deriveIdentityMember(veilpayProgram.programId, publicKey);
+                const info = await veilpayProgram.provider.connection.getAccountInfo(identityMember);
+                if (!alive) return;
+                setRegistrationState(info ? 'registered' : 'unregistered');
+            } catch {
+                if (!alive) return;
+                setRegistrationState('unregistered');
+            }
+        };
+        void checkRegistration();
+        return () => {
+            alive = false;
+        };
+    }, [veilpayProgram, publicKey]);
+
+    const handleRegister = async () => {
+        if (!veilpayProgram || !publicKey) {
+            onStatus('Connect a wallet before registering.');
+            return;
+        }
+        if (!signMessage) {
+            onStatus('Wallet must support message signing to register.');
+            return;
+        }
+        setRegisterBusy(true);
+        try {
+            await registerIdentityFlow({
+                program: veilpayProgram,
+                owner: publicKey,
+                onStatus,
+                signMessage,
+            });
+            setRegistrationState('registered');
+            onStatus('Registration complete.');
+        } catch (error) {
+            onStatus(`Registration failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+        } finally {
+            setRegisterBusy(false);
+        }
+    };
+
+    if (registrationState !== 'registered') {
+        return (
+            <section className={styles.card}>
+                <header className={styles.headerSimple}>
+                    <h3 className={styles.title}>Register</h3>
+                    <p className={styles.subtitle}>Create your identity before using VeilPay flows.</p>
+                </header>
+                <button
+                    className={styles.registerButton}
+                    type="button"
+                    onClick={handleRegister}
+                    disabled={registerBusy || registrationState === 'loading' || !publicKey}
+                >
+                    {registerBusy ? 'Registering...' : registrationState === 'loading' ? 'Checking...' : 'Register'}
+                </button>
+            </section>
+        );
+    }
 
     return (
         <section className={styles.card}>
@@ -112,6 +191,7 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
                         onRootChange={onRootChange}
                         mintDecimals={mintDecimals}
                         walletBalance={walletBalance}
+                        solBalance={solBalance}
                         onCredit={onCredit}
                         onRecord={onRecord}
                         onRecordUpdate={onRecordUpdate}

@@ -6,11 +6,24 @@ import {
   getAssociatedTokenAddress,
   createAssociatedTokenAccount,
   createAssociatedTokenAccountInstruction,
+  createSyncNativeInstruction,
   mintTo,
   getAccount,
+  NATIVE_MINT,
   TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import { PublicKey, Keypair, SystemProgram, Connection } from "@solana/web3.js";
+import {
+  AddressLookupTableAccount,
+  AddressLookupTableProgram,
+  PublicKey,
+  Keypair,
+  SystemProgram,
+  Connection,
+  Transaction,
+  TransactionMessage,
+  VersionedTransaction,
+} from "@solana/web3.js";
 import nacl from "tweetnacl";
 import {
   bytesToBigIntBE,
@@ -26,17 +39,18 @@ import {
   eciesEncrypt,
   eciesDecrypt,
 } from "../sdk/src/notes";
-import { rescanIdentityRegistry } from "../app/src/lib/identityScanner";
-import { rescanNotesForOwner } from "../app/src/lib/noteScanner";
+import { deriveViewKeypairFromSeed, recipientTagHashFromViewKey } from "../sdk/src/noteStore";
+import { rescanIdentityRegistry } from "../sdk/src/identityScanner";
+import { rescanNotesForOwner } from "../sdk/src/noteScanner";
 import {
   restoreIdentitySecret,
   loadIdentityCommitments,
   saveIdentityCommitments,
   getIdentityMerklePath,
-} from "../app/src/lib/identity";
-import { buildMerkleTree } from "../app/src/lib/merkle";
-import { computeIdentityCommitment } from "../app/src/lib/prover";
-import { selectNotesForAmount } from "../app/src/lib/notes";
+} from "../sdk/src/identity";
+import { buildMerkleTree } from "../sdk/src/merkle";
+import { computeIdentityCommitment } from "../sdk/src/prover";
+import { selectNotesForAmount } from "../sdk/src/noteStore";
 
 const NULLIFIER = new Uint8Array(32);
 NULLIFIER[0] = 0;
@@ -66,6 +80,98 @@ const u32ToBytes32 = (value: number) => {
   const out = Buffer.alloc(32);
   out.writeUInt32BE(value, 28);
   return out;
+};
+
+const buildLookupTable = async (
+  connection: Connection,
+  payer: Keypair,
+  addresses: PublicKey[]
+): Promise<AddressLookupTableAccount> => {
+  const recentSlot = await connection.getSlot("finalized");
+  const [createIx, lookupTableAddress] = AddressLookupTableProgram.createLookupTable({
+    authority: payer.publicKey,
+    payer: payer.publicKey,
+    recentSlot,
+  });
+  const createSig = await connection.sendTransaction(new Transaction().add(createIx), [payer], {
+    skipPreflight: false,
+    preflightCommitment: "confirmed",
+  });
+  await connection.confirmTransaction(createSig, "finalized");
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const info = await connection.getAccountInfo(lookupTableAddress, "finalized");
+    if (info && info.owner.equals(AddressLookupTableProgram.programId)) {
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  const unique = Array.from(new Set(addresses.map((key) => key.toBase58()))).map(
+    (value) => new PublicKey(value)
+  );
+  const chunkSize = 20;
+  for (let i = 0; i < unique.length; i += chunkSize) {
+    const chunk = unique.slice(i, i + chunkSize);
+    if (chunk.length === 0) continue;
+    const extendIx = AddressLookupTableProgram.extendLookupTable({
+      payer: payer.publicKey,
+      authority: payer.publicKey,
+      lookupTable: lookupTableAddress,
+      addresses: chunk,
+    });
+    const extendSig = await connection.sendTransaction(new Transaction().add(extendIx), [payer], {
+      skipPreflight: false,
+      preflightCommitment: "confirmed",
+    });
+    await connection.confirmTransaction(extendSig, "finalized");
+  }
+  const table = await connection.getAddressLookupTable(lookupTableAddress);
+  if (!table.value) {
+    throw new Error("Failed to create lookup table.");
+  }
+  return table.value;
+};
+
+const sendVersionedWithLookupTable = async (params: {
+  connection: Connection;
+  payer: Keypair;
+  instructions: anchor.web3.TransactionInstruction[];
+  lookupTable: AddressLookupTableAccount;
+}) => {
+  const { connection, payer, instructions, lookupTable } = params;
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+  const message = new TransactionMessage({
+    payerKey: payer.publicKey,
+    recentBlockhash: blockhash,
+    instructions,
+  }).compileToV0Message([lookupTable]);
+  const tx = new VersionedTransaction(message);
+  tx.sign([payer]);
+  const signature = await connection.sendRawTransaction(tx.serialize());
+  await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
+  return signature;
+};
+
+const ensureSystemAccount = async (
+  connection: anchor.web3.Connection,
+  pubkey: PublicKey
+) => {
+  const info = await connection.getAccountInfo(pubkey);
+  if (info) return;
+  const sig = await connection.requestAirdrop(pubkey, 1_000_000_000);
+  await connection.confirmTransaction(sig, "confirmed");
+};
+
+const deriveTempAuthority = async (
+  program: Program,
+  vaultPda: PublicKey,
+  recipient: PublicKey
+) => {
+  const vault = await program.account.vaultPool.fetch(vaultPda);
+  const nonceBytes = (vault.nonce as anchor.BN).toArrayLike(Buffer, "le", 8);
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("temp_wsol"), recipient.toBuffer(), nonceBytes],
+    program.programId
+  )[0];
 };
 const makePublicInputs = (params: {
   root: Buffer;
@@ -404,12 +510,15 @@ describe("veilpay", () => {
       .rpc();
 
     const recipient = Keypair.generate();
+    await ensureSystemAccount(provider.connection, recipient.publicKey);
     const recipientAta = await createAssociatedTokenAccount(
       provider.connection,
       provider.wallet.payer,
       mint,
       recipient.publicKey
     );
+    const tempAuthority = await deriveTempAuthority(program, vaultPda, recipient.publicKey);
+    const tempWsolAta = await getAssociatedTokenAddress(mint, tempAuthority, true);
 
     const { rootBytes, identityRootBytes } = await getRoots();
     const publicInputs = makePublicInputs({
@@ -431,20 +540,27 @@ describe("veilpay", () => {
         relayerFeeBps: 0,
         newRoot: buf(NEW_ROOT),
         outputCiphertexts: Buffer.alloc(0),
+        deliverSol: false,
       })
       .accounts({
         config: configPda,
+        payer: provider.wallet.publicKey,
         vault: vaultPda,
         vaultAta,
         shieldedState: shieldedPda,
         identityRegistry: identityRegistryPda,
         nullifierSet: nullifierPda,
         recipientAta,
+        recipient: recipient.publicKey,
+        tempAuthority,
+        tempWsolAta,
         relayerFeeAta: null,
         verifierProgram: verifierProgram.programId,
         verifierKey: verifierKeyPda,
         mint,
         tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
       })
       .rpc();
 
@@ -466,12 +582,15 @@ describe("veilpay", () => {
     );
 
     const recipient = Keypair.generate();
+    await ensureSystemAccount(provider.connection, recipient.publicKey);
     const recipientAta = await createAssociatedTokenAccount(
       provider.connection,
       provider.wallet.payer,
       mint,
       recipient.publicKey
     );
+    const tempAuthority = await deriveTempAuthority(program, vaultPda, recipient.publicKey);
+    const tempWsolAta = await getAssociatedTokenAddress(mint, tempAuthority, true);
 
     const feeNullifier = new Uint8Array(32);
     feeNullifier[0] = 0;
@@ -489,7 +608,7 @@ describe("veilpay", () => {
       circuitId: 0,
     });
 
-    await program.methods
+    const withdrawIx = await program.methods
       .withdraw({
         amount: new anchor.BN(100_000),
         proof: dummyProof,
@@ -497,22 +616,43 @@ describe("veilpay", () => {
         relayerFeeBps: 25,
         newRoot: buf(NEW_ROOT),
         outputCiphertexts: Buffer.alloc(0),
+        deliverSol: false,
       })
       .accounts({
         config: configPda,
+        payer: provider.wallet.publicKey,
         vault: vaultPda,
         vaultAta,
         shieldedState: shieldedPda,
         identityRegistry: identityRegistryPda,
         nullifierSet: nullifierPda,
         recipientAta,
+        recipient: recipient.publicKey,
+        tempAuthority,
+        tempWsolAta,
         relayerFeeAta: relayerAta,
         verifierProgram: verifierProgram.programId,
         verifierKey: verifierKeyPda,
         mint,
         tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
       })
-      .rpc();
+      .instruction();
+    const lut = await buildLookupTable(provider.connection, provider.wallet.payer, [
+      program.programId,
+      verifierProgram.programId,
+      TOKEN_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID,
+      SystemProgram.programId,
+      ...withdrawIx.keys.map((key) => key.pubkey),
+    ]);
+    await sendVersionedWithLookupTable({
+      connection: provider.connection,
+      payer: provider.wallet.payer,
+      instructions: [withdrawIx],
+      lookupTable: lut,
+    });
 
     const recipientAccount = await getAccount(provider.connection, recipientAta);
     const relayerAccount = await getAccount(provider.connection, relayerAta);
@@ -526,12 +666,15 @@ describe("veilpay", () => {
       program.programId
     );
     const recipient = Keypair.generate();
+    await ensureSystemAccount(provider.connection, recipient.publicKey);
     const recipientAta = await createAssociatedTokenAccount(
       provider.connection,
       provider.wallet.payer,
       mint,
       recipient.publicKey
     );
+    const tempAuthority = await deriveTempAuthority(program, vaultPda, recipient.publicKey);
+    const tempWsolAta = await getAssociatedTokenAddress(mint, tempAuthority, true);
 
     let threw = false;
     try {
@@ -554,20 +697,27 @@ describe("veilpay", () => {
           relayerFeeBps: 0,
           newRoot: buf(NEW_ROOT),
           outputCiphertexts: Buffer.alloc(0),
+          deliverSol: false,
         })
         .accounts({
           config: configPda,
+          payer: provider.wallet.publicKey,
           vault: vaultPda,
           vaultAta,
           shieldedState: shieldedPda,
           identityRegistry: identityRegistryPda,
           nullifierSet: nullifierPda,
           recipientAta,
+          recipient: recipient.publicKey,
+          tempAuthority,
+          tempWsolAta,
           relayerFeeAta: null,
           verifierProgram: verifierProgram.programId,
           verifierKey: verifierKeyPda,
           mint,
           tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
         })
         .rpc();
     } catch (err) {
@@ -582,12 +732,15 @@ describe("veilpay", () => {
       program.programId
     );
     const recipient = Keypair.generate();
+    await ensureSystemAccount(provider.connection, recipient.publicKey);
     const recipientAta = await createAssociatedTokenAccount(
       provider.connection,
       provider.wallet.payer,
       mint,
       recipient.publicKey
     );
+    const tempAuthority = await deriveTempAuthority(program, vaultPda, recipient.publicKey);
+    const tempWsolAta = await getAssociatedTokenAddress(mint, tempAuthority, true);
 
     const newNullifier = new Uint8Array(32);
     newNullifier[0] = 0;
@@ -614,20 +767,27 @@ describe("veilpay", () => {
         relayerFeeBps: 0,
         newRoot: buf(NEW_ROOT),
         outputCiphertexts: Buffer.alloc(0),
+        deliverSol: false,
       })
         .accounts({
           config: configPda,
+          payer: provider.wallet.publicKey,
           vault: vaultPda,
           vaultAta,
           shieldedState: shieldedPda,
           identityRegistry: identityRegistryPda,
           nullifierSet: nullifierPda,
           recipientAta,
+          recipient: recipient.publicKey,
+          tempAuthority,
+          tempWsolAta,
           relayerFeeAta: null,
           verifierProgram: verifierProgram.programId,
           verifierKey: verifierKeyPda,
           mint,
           tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
         })
         .rpc();
     } catch (err) {
@@ -686,12 +846,15 @@ describe("veilpay", () => {
     externalNullifier[4] = 12;
 
     const recipient = Keypair.generate();
+    await ensureSystemAccount(provider.connection, recipient.publicKey);
     const recipientAta = await createAssociatedTokenAccount(
       provider.connection,
       provider.wallet.payer,
       mint,
       recipient.publicKey
     );
+    const tempAuthority = await deriveTempAuthority(program, vaultPda, recipient.publicKey);
+    const tempWsolAta = await getAssociatedTokenAddress(mint, tempAuthority, true);
 
     const externalInputs = makePublicInputs({
       root: buf(internalRoot),
@@ -712,25 +875,207 @@ describe("veilpay", () => {
         relayerFeeBps: 0,
         newRoot: buf(NEW_ROOT),
         outputCiphertexts: Buffer.alloc(0),
+        deliverSol: false,
       })
       .accounts({
         config: configPda,
+        payer: provider.wallet.publicKey,
         vault: vaultPda,
         vaultAta,
         shieldedState: shieldedPda,
         identityRegistry: identityRegistryPda,
         nullifierSet: nullifierPda,
         destinationAta: recipientAta,
+        recipient: recipient.publicKey,
+        tempAuthority,
+        tempWsolAta,
         relayerFeeAta: null,
         verifierProgram: verifierProgram.programId,
         verifierKey: verifierKeyPda,
         mint,
         tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
       })
       .rpc();
 
     const recipientAccount = await getAccount(provider.connection, recipientAta);
     assert.equal(Number(recipientAccount.amount), 25_000);
+  });
+
+  it("supports external transfers delivering SOL", async () => {
+    const [configPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("config"), program.programId.toBuffer()],
+      program.programId
+    );
+
+    const wsolMint = NATIVE_MINT;
+    await program.methods
+      .registerMint(wsolMint)
+      .accounts({
+        config: configPda,
+        admin: provider.wallet.publicKey,
+      })
+      .rpc();
+
+    const [wsolVaultPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("vault"), wsolMint.toBuffer()],
+      program.programId
+    );
+    const [wsolShieldedPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("shielded"), wsolMint.toBuffer()],
+      program.programId
+    );
+    const [wsolNullifierPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("nullifier_set"), wsolMint.toBuffer(), Buffer.from([0, 0, 0, 0])],
+      program.programId
+    );
+
+    const wsolVaultAta = await getAssociatedTokenAddress(wsolMint, wsolVaultPda, true);
+    const vaultAtaInfo = await provider.connection.getAccountInfo(wsolVaultAta);
+    if (!vaultAtaInfo) {
+      const vaultAtaIx = createAssociatedTokenAccountInstruction(
+        provider.wallet.publicKey,
+        wsolVaultAta,
+        wsolVaultPda,
+        wsolMint
+      );
+      await provider.sendAndConfirm(new anchor.web3.Transaction().add(vaultAtaIx));
+    }
+
+    const vaultInfo = await provider.connection.getAccountInfo(wsolVaultPda);
+    if (!vaultInfo) {
+      await program.methods
+        .initializeMintState(0)
+        .accounts({
+          config: configPda,
+          vault: wsolVaultPda,
+          vaultAta: wsolVaultAta,
+          shieldedState: wsolShieldedPda,
+          nullifierSet: wsolNullifierPda,
+          admin: provider.wallet.publicKey,
+          mint: wsolMint,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+    }
+
+    const fundLamports = 200_000;
+    const fundIx = SystemProgram.transfer({
+      fromPubkey: provider.wallet.publicKey,
+      toPubkey: wsolVaultAta,
+      lamports: fundLamports,
+    });
+    const syncIx = createSyncNativeInstruction(wsolVaultAta);
+    await provider.sendAndConfirm(new anchor.web3.Transaction().add(fundIx, syncIx));
+
+    const wsolShielded = await program.account.shieldedState.fetch(wsolShieldedPda);
+    const identity = await program.account.identityRegistry.fetch(identityRegistryPda);
+    const wsolRootBytes = Buffer.from(
+      (wsolShielded.merkleRoot as number[] | undefined) ??
+        (wsolShielded.merkle_root as number[] | undefined) ??
+        []
+    );
+    const identityRootBytes = Buffer.from(
+      (identity.merkleRoot as number[] | undefined) ??
+        (identity.merkle_root as number[] | undefined) ??
+        []
+    );
+
+    const internalNullifier = new Uint8Array(32);
+    internalNullifier[0] = 0;
+    internalNullifier[4] = 21;
+    const internalRoot = new Uint8Array(32);
+    internalRoot[0] = 77;
+    const internalInputs = makePublicInputs({
+      root: wsolRootBytes,
+      identityRoot: identityRootBytes,
+      nullifiers: [buf(internalNullifier), zero32(), zero32(), zero32()],
+      outputCommitments: [zero32(), zero32()],
+      outputEnabled: [1, 0],
+      amountOut: 0n,
+      feeAmount: 0n,
+      circuitId: 0,
+    });
+
+    await program.methods
+      .internalTransfer({
+        proof: dummyProof,
+        publicInputs: internalInputs,
+        newRoot: buf(internalRoot),
+        outputCiphertexts: Buffer.alloc(128),
+      })
+      .accounts({
+        config: configPda,
+        shieldedState: wsolShieldedPda,
+        identityRegistry: identityRegistryPda,
+        nullifierSet: wsolNullifierPda,
+        verifierProgram: verifierProgram.programId,
+        verifierKey: verifierKeyPda,
+        mint: wsolMint,
+      })
+      .rpc();
+
+    const recipient = Keypair.generate();
+    await ensureSystemAccount(provider.connection, recipient.publicKey);
+    const recipientAta = await createAssociatedTokenAccount(
+      provider.connection,
+      provider.wallet.payer,
+      wsolMint,
+      recipient.publicKey
+    );
+    const tempAuthority = await deriveTempAuthority(program, wsolVaultPda, recipient.publicKey);
+    const tempWsolAta = await getAssociatedTokenAddress(wsolMint, tempAuthority, true);
+
+    const externalNullifier = new Uint8Array(32);
+    externalNullifier[0] = 0;
+    externalNullifier[4] = 22;
+    const amountOut = 100_000n;
+    const externalInputs = makePublicInputs({
+      root: buf(internalRoot),
+      identityRoot: identityRootBytes,
+      nullifiers: [buf(externalNullifier), zero32(), zero32(), zero32()],
+      outputCommitments: [zero32(), zero32()],
+      outputEnabled: [0, 0],
+      amountOut,
+      feeAmount: 0n,
+      circuitId: 0,
+    });
+
+    const beforeBalance = await provider.connection.getBalance(recipient.publicKey);
+    await program.methods
+      .externalTransfer({
+        amount: new anchor.BN(amountOut.toString()),
+        proof: dummyProof,
+        publicInputs: externalInputs,
+        relayerFeeBps: 0,
+        newRoot: buf(NEW_ROOT),
+        outputCiphertexts: Buffer.alloc(0),
+        deliverSol: true,
+      })
+      .accounts({
+        config: configPda,
+        payer: provider.wallet.publicKey,
+        vault: wsolVaultPda,
+        vaultAta: wsolVaultAta,
+        shieldedState: wsolShieldedPda,
+        identityRegistry: identityRegistryPda,
+        nullifierSet: wsolNullifierPda,
+        destinationAta: recipientAta,
+        recipient: recipient.publicKey,
+        tempAuthority,
+        tempWsolAta,
+        relayerFeeAta: null,
+        verifierProgram: verifierProgram.programId,
+        verifierKey: verifierKeyPda,
+        mint: wsolMint,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+    const afterBalance = await provider.connection.getBalance(recipient.publicKey);
+    assert.isAtLeast(afterBalance - beforeBalance, Number(amountOut));
   });
 
   it("emits note outputs that can be recovered with a view-key signature", async () => {
@@ -751,7 +1096,7 @@ describe("veilpay", () => {
       `VeilPay:view-key:${owner.publicKey.toBase58()}`
     );
     const signature = nacl.sign.detached(viewMessage, owner.secretKey);
-    const viewSecret = sha256(signature);
+    const viewSecret = await sha256(signature);
 
     const amount = 42_000n;
     const randomness = modField(bytesToBigIntBE(randomBytes32()));
@@ -902,9 +1247,10 @@ describe("veilpay", () => {
       `VeilPay:view-key:${owner.publicKey.toBase58()}`
     );
     const viewSignature = nacl.sign.detached(viewMessage, owner.secretKey);
-    const viewSecret = sha256(viewSignature);
-    const tagHash = await recipientTagHashFromSecret(viewSecret);
-    const { pubkey } = await deriveRecipientKeypair(viewSecret);
+    const viewSecret = await sha256(viewSignature);
+    const viewKey = await deriveViewKeypairFromSeed(viewSecret, 0);
+    const tagHash = await recipientTagHashFromViewKey(viewKey.pubkey);
+    const pubkey = viewKey.pubkey;
 
     const awaitLogs = async (signature: string) => {
       for (let attempt = 0; attempt < 20; attempt += 1) {

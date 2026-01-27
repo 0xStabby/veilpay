@@ -11,6 +11,7 @@ import { usePrograms } from './hooks/usePrograms';
 import { useNullifierCounter } from './hooks/useNullifierCounter';
 import { useMintInfo } from './hooks/useMintInfo';
 import { useTokenBalance } from './hooks/useTokenBalance';
+import { useSolBalance } from './hooks/useSolBalance';
 import { useShieldedBalance } from './hooks/useShieldedBalance';
 import { randomBytes } from './lib/crypto';
 import type { TransactionRecord } from './lib/transactions';
@@ -44,6 +45,7 @@ const App = () => {
     const { decimals, loading: mintLoading } = useMintInfo(connection ?? null, mintAddress);
     const walletPubkey = wallet?.publicKey ?? null;
     const { balance: walletBalance } = useTokenBalance(connection ?? null, mintAddress, walletPubkey);
+    const { balance: solBalance } = useSolBalance(connection ?? null, walletPubkey);
     const { balance: shieldedBalance, credit, debit, setBalance } = useShieldedBalance(mintAddress, walletPubkey);
     const [rescanBusy, setRescanBusy] = useState(false);
     const [rescanIdentityBusy, setRescanIdentityBusy] = useState(false);
@@ -263,9 +265,10 @@ const App = () => {
                             onRootChange={setRoot}
                             root={root}
                             nextNullifier={next}
-                            mintDecimals={decimals}
-                            walletBalance={walletBalance}
-                            shieldedBalance={shieldedBalance}
+                        mintDecimals={decimals}
+                        walletBalance={walletBalance}
+                        solBalance={solBalance}
+                        shieldedBalance={shieldedBalance}
                             onCredit={credit}
                             onDebit={debit}
                             onRecord={handleRecord}

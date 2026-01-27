@@ -5,13 +5,15 @@ import {
     AddressLookupTableAccount,
     PublicKey,
     SystemProgram,
-    Transaction,
+    TransactionInstruction,
     TransactionMessage,
     VersionedTransaction,
 } from '@solana/web3.js';
 import {
     TOKEN_PROGRAM_ID,
+    ASSOCIATED_TOKEN_PROGRAM_ID,
     createAssociatedTokenAccountInstruction,
+    createSyncNativeInstruction,
     getAccount,
     getAssociatedTokenAddress,
 } from '@solana/spl-token';
@@ -32,12 +34,13 @@ import {
 } from './prover';
 import { ensureNullifierSets } from './nullifier';
 import {
-    LUT_ADDRESS,
     NULLIFIER_PADDING_CHUNKS,
     RELAYER_FEE_BPS,
     RELAYER_PUBKEY,
     VERIFIER_PROGRAM_ID,
+    WSOL_MINT,
 } from './config';
+import { sendLutVersionedTransaction, getRequiredLookupTable } from './lut';
 import { submitViaRelayerSigned } from './relayer';
 import { checkVerifierKeyMatch } from './verifierKey';
 import { formatTokenAmount, parseTokenAmount } from './amount';
@@ -91,16 +94,6 @@ const computeRelayerFee = (amount: bigint, feeBps: number) => {
 };
 
 const buildOutputCiphertexts = (notes: Array<NoteRecord | null>, enabled: number[]) => {
-    const enabledCount = enabled.reduce((sum, value) => sum + (value ? 1 : 0), 0);
-    if (enabledCount === 0) {
-        return new Uint8Array(0);
-    }
-    if (enabledCount === 1) {
-        if (enabled[0]) {
-            return noteCiphertext(notes[0]!);
-        }
-        return noteCiphertext(notes[1]!);
-    }
     const out = new Uint8Array(256);
     notes.forEach((note, index) => {
         if (!note || !enabled[index]) {
@@ -109,26 +102,32 @@ const buildOutputCiphertexts = (notes: Array<NoteRecord | null>, enabled: number
         }
         out.set(noteCiphertext(note), index * 128);
     });
-    return out;
+    return Buffer.from(out);
 };
 
 const getEnvLookupTable = async (
     provider: AnchorProvider,
     _addresses: PublicKey[]
-): Promise<AddressLookupTableAccount | null> => {
-    if (!LUT_ADDRESS) {
-        return null;
-    }
-    const existing = await provider.connection.getAddressLookupTable(new PublicKey(LUT_ADDRESS));
-    if (!existing.value) {
-        throw new Error('Lookup table not found for LUT_ADDRESS.');
-    }
-    return existing.value;
+): Promise<AddressLookupTableAccount> => {
+    return await getRequiredLookupTable(provider.connection);
 };
 
 const getMissingLutAddresses = (lookupTable: AddressLookupTableAccount, addresses: PublicKey[]) => {
     const lutSet = new Set(lookupTable.state.addresses.map((addr) => addr.toBase58()));
     return addresses.filter((addr) => !lutSet.has(addr.toBase58()));
+};
+
+const getLutIndexViolations = (lookupTable: AddressLookupTableAccount, addresses: PublicKey[]) => {
+    const indexByKey = new Map(
+        lookupTable.state.addresses.map((addr, index) => [addr.toBase58(), index])
+    );
+    return addresses
+        .map((addr) => ({ addr, index: indexByKey.get(addr.toBase58()) }))
+        .filter((entry) => entry.index !== undefined && entry.index > 255)
+        .map((entry) => ({
+            address: entry.addr.toBase58(),
+            index: entry.index as number,
+        }));
 };
 
 const padArray = <T,>(values: T[], length: number, filler: T): T[] => {
@@ -145,6 +144,14 @@ const padMatrix = <T,>(rows: T[][], length: number, filler: T[]): T[][] => {
         out.push(filler.slice());
     }
     return out;
+};
+
+const ensureDummySignatures = (tx: VersionedTransaction) => {
+    const required = tx.message.header.numRequiredSignatures;
+    if (tx.signatures.length === required && required > 0) {
+        return;
+    }
+    tx.signatures = Array.from({ length: required }, () => new Uint8Array(64));
 };
 
 const formatAmount = (amount: bigint, decimals: number) => formatTokenAmount(amount, decimals);
@@ -335,7 +342,12 @@ async function ensureAta(
         await getAccount(provider.connection, ata);
     } catch {
         const ix = createAssociatedTokenAccountInstruction(provider.wallet.publicKey, ata, owner, mint);
-        await provider.sendAndConfirm(new Transaction().add(ix));
+        await sendLutVersionedTransaction({
+            connection: provider.connection,
+            payer: provider.wallet.publicKey,
+            instructions: [ix],
+            signTransaction: provider.wallet.signTransaction.bind(provider.wallet),
+        });
     }
     return ata;
 }
@@ -387,6 +399,7 @@ async function ensureIdentityRegistered(
     onStatus?: StatusHandler,
     signMessage?: (message: Uint8Array) => Promise<Uint8Array>
 ) {
+    const provider = getProvider(program);
     const { identityRegistry, rootBytes, commitmentCount } = await fetchIdentityRegistry(program);
     let localCommitments = loadIdentityCommitments(program.programId);
     if (localCommitments.length !== Number(commitmentCount)) {
@@ -407,7 +420,7 @@ async function ensureIdentityRegistered(
             const commitment = await getIdentityCommitment(owner, program.programId, signMessage);
             const { root } = await buildMerkleTree([commitment]);
             const newRoot = bigIntToBytes32(root);
-            await program.methods
+            const ix = await program.methods
                 .registerIdentity({
                     commitment: Buffer.from(bigIntToBytes32(commitment)),
                     newRoot: Buffer.from(newRoot),
@@ -419,7 +432,13 @@ async function ensureIdentityRegistered(
                     user: owner,
                     systemProgram: SystemProgram.programId,
                 })
-                .rpc();
+                .instruction();
+            await sendLutVersionedTransaction({
+                connection: provider.connection,
+                payer: owner,
+                instructions: [ix],
+                signTransaction: provider.wallet.signTransaction.bind(provider.wallet),
+            });
             saveIdentityCommitments(program.programId, [commitment]);
             setIdentityLeafIndex(owner, program.programId, 0);
             return { identityRegistry, rootBytes: newRoot };
@@ -432,7 +451,7 @@ async function ensureIdentityRegistered(
         const { root } = await buildMerkleTree(newCommitments);
         const newRoot = bigIntToBytes32(root);
         onStatus?.('Registering identity...');
-        await program.methods
+        const ix = await program.methods
             .registerIdentity({
                 commitment: Buffer.from(bigIntToBytes32(commitment)),
                 newRoot: Buffer.from(newRoot),
@@ -444,7 +463,13 @@ async function ensureIdentityRegistered(
                 user: owner,
                 systemProgram: SystemProgram.programId,
             })
-            .rpc();
+            .instruction();
+        await sendLutVersionedTransaction({
+            connection: provider.connection,
+            payer: owner,
+            instructions: [ix],
+            signTransaction: provider.wallet.signTransaction.bind(provider.wallet),
+        });
         saveIdentityCommitments(program.programId, newCommitments);
         index = newCommitments.length - 1;
         setIdentityLeafIndex(owner, program.programId, index);
@@ -452,6 +477,21 @@ async function ensureIdentityRegistered(
     }
     setIdentityLeafIndex(owner, program.programId, index);
     return { identityRegistry, rootBytes };
+}
+
+export async function registerIdentityFlow(params: {
+    program: Program;
+    owner?: PublicKey;
+    onStatus?: StatusHandler;
+    signMessage?: (message: Uint8Array) => Promise<Uint8Array>;
+}): Promise<void> {
+    const { program, owner, onStatus, signMessage } = params;
+    const provider = getProvider(program);
+    const actualOwner = owner ?? provider.wallet.publicKey;
+    if (!signMessage) {
+        throw new Error('Wallet must support message signing to register identity.');
+    }
+    await ensureIdentityRegistered(program, actualOwner, onStatus, signMessage);
 }
 
 async function buildSpendProofInput(params: {
@@ -641,6 +681,7 @@ export async function runDepositFlow(params: {
     mint: PublicKey;
     amount: string;
     mintDecimals: number;
+    depositAsset?: 'sol' | 'wsol';
     onStatus: StatusHandler;
     onRootChange: (next: Uint8Array) => void;
     onCredit: (amount: bigint) => void;
@@ -653,6 +694,7 @@ export async function runDepositFlow(params: {
         mint,
         amount,
         mintDecimals,
+        depositAsset = 'sol',
         onStatus,
         onRootChange,
         onCredit,
@@ -663,6 +705,10 @@ export async function runDepositFlow(params: {
     const provider = getProvider(program);
     const owner = provider.wallet.publicKey;
     const baseUnits = parseTokenAmount(amount, mintDecimals);
+    const wantsSol = depositAsset === 'sol';
+    if (wantsSol && !mint.equals(WSOL_MINT)) {
+        throw new Error('SOL deposits are only supported for the WSOL mint.');
+    }
     onStatus(
         `Depositing into VeilPay vault (amount=${formatTokenAmount(baseUnits, mintDecimals)} mint=${mint.toBase58()})...`
     );
@@ -679,6 +725,11 @@ export async function runDepositFlow(params: {
     }
     const vaultAta = await getAssociatedTokenAddress(mint, vault, true);
     const userAta = await getAssociatedTokenAddress(mint, owner);
+    const instructions: TransactionInstruction[] = [];
+    const userAtaInfo = await provider.connection.getAccountInfo(userAta);
+    if (!userAtaInfo) {
+        instructions.push(createAssociatedTokenAccountInstruction(owner, userAta, owner, mint));
+    }
 
     let commitments: bigint[];
     try {
@@ -723,13 +774,28 @@ export async function runDepositFlow(params: {
     const { root } = await buildMerkleTree(commitments);
     const newRoot = bigIntToBytes32(root);
 
-    const signature = await program.methods
+    if (wantsSol) {
+        onStatus('Wrapping SOL into WSOL for deposit...');
+        if (baseUnits > BigInt(Number.MAX_SAFE_INTEGER)) {
+            throw new Error('Deposit amount is too large to wrap into WSOL.');
+        }
+        instructions.push(
+            SystemProgram.transfer({
+                fromPubkey: owner,
+                toPubkey: userAta,
+                lamports: Number(baseUnits),
+            })
+        );
+        instructions.push(createSyncNativeInstruction(userAta));
+    }
+
+    const ix = await program.methods
         .deposit({
             amount: new BN(baseUnits.toString()),
-        ciphertext: Buffer.from(ciphertext),
-        commitment: Buffer.from(bigIntToBytes32(commitmentValue)),
-        newRoot: Buffer.from(newRoot),
-    })
+            ciphertext: Buffer.from(ciphertext),
+            commitment: Buffer.from(bigIntToBytes32(commitmentValue)),
+            newRoot: Buffer.from(newRoot),
+        })
         .accounts({
             config,
             vault,
@@ -741,7 +807,14 @@ export async function runDepositFlow(params: {
             mint,
             tokenProgram: TOKEN_PROGRAM_ID,
         })
-        .rpc();
+        .instruction();
+    instructions.push(ix);
+    const signature = await sendLutVersionedTransaction({
+        connection: provider.connection,
+        payer: owner,
+        instructions,
+        signTransaction: provider.wallet.signTransaction.bind(provider.wallet),
+    });
 
     addNote(mint, owner, note);
     saveCommitments(mint, owner, commitments, true);
@@ -760,6 +833,7 @@ export async function runWithdrawFlow(params: {
     recipient: PublicKey;
     amount: string;
     mintDecimals: number;
+    withdrawAsset?: 'sol' | 'wsol';
     root: Uint8Array;
     nextNullifier: () => number;
     onStatus: StatusHandler;
@@ -776,6 +850,7 @@ export async function runWithdrawFlow(params: {
         recipient,
         amount,
         mintDecimals,
+        withdrawAsset = 'sol',
         root,
         nextNullifier: _nextNullifier,
         onStatus,
@@ -787,14 +862,34 @@ export async function runWithdrawFlow(params: {
     } = params;
     const provider = getProvider(program);
     const owner = provider.wallet.publicKey;
+    const wantsSol = withdrawAsset === 'sol';
+    if (wantsSol && !mint.equals(WSOL_MINT)) {
+        throw new Error('SOL withdrawals are only supported for the WSOL mint.');
+    }
     onStatus('Generating proof...');
     const config = deriveConfig(program.programId);
     const vault = deriveVault(program.programId, mint);
     const { shieldedState, rootBytes, commitmentCount } = await fetchShieldedState(program, mint);
     await ensureIdentityRegistered(program, owner, onStatus, signMessage);
     const vaultAta = await getAssociatedTokenAddress(mint, vault, true);
-    const recipientAta = await ensureAta(provider, mint, recipient);
+    const recipientAta =
+        wantsSol && mint.equals(WSOL_MINT)
+            ? await getAssociatedTokenAddress(mint, recipient)
+            : await ensureAta(provider, mint, recipient);
     const verifierKey = deriveVerifierKey(VERIFIER_PROGRAM_ID, 0);
+    const vaultAccount = await program.account.vaultPool.fetch(vault);
+    const vaultNonce = new BN(
+        vaultAccount.nonce?.toString?.() ?? vaultAccount.nonce ?? '0'
+    );
+    const [tempAuthority] = PublicKey.findProgramAddressSync(
+        [
+            Buffer.from('temp_wsol'),
+            recipient.toBuffer(),
+            vaultNonce.toArrayLike(Buffer, 'le', 8),
+        ],
+        program.programId
+    );
+    const tempWsolAta = await getAssociatedTokenAddress(mint, tempAuthority, true);
 
     let baseUnits = parseTokenAmount(amount, mintDecimals);
     let commitments: bigint[];
@@ -951,20 +1046,27 @@ export async function runWithdrawFlow(params: {
             relayerFeeBps: 0,
             newRoot: Buffer.from(newRootBytes),
             outputCiphertexts: Buffer.from(outputCiphertexts),
+            deliverSol: wantsSol && mint.equals(WSOL_MINT),
         })
         .accounts({
             config,
+            payer: RELAYER_PUBKEY,
             vault,
             vaultAta,
             shieldedState,
             identityRegistry: deriveIdentityRegistry(program.programId),
             nullifierSet: nullifierSets[0],
             recipientAta,
-            relayerFeeAta: recipientAta,
+            recipient,
+            tempAuthority,
+            tempWsolAta,
+            relayerFeeAta: null,
             verifierProgram: VERIFIER_PROGRAM_ID,
             verifierKey,
             mint,
             tokenProgram: TOKEN_PROGRAM_ID,
+            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
         } as any)
         .remainingAccounts(
             nullifierSets.slice(1).map((account) => ({
@@ -977,114 +1079,59 @@ export async function runWithdrawFlow(params: {
 
     const lookupTable = await getEnvLookupTable(provider, [
         config,
+        RELAYER_PUBKEY,
         vault,
         vaultAta,
         shieldedState,
         deriveIdentityRegistry(program.programId),
         recipientAta,
+        recipient,
+        tempAuthority,
+        tempWsolAta,
         verifierKey,
         VERIFIER_PROGRAM_ID,
         mint,
         TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+        SystemProgram.programId,
         ...nullifierSets,
     ]);
     const lookupTableAddressList = lookupTable
         ? lookupTable.state.addresses.map((addr) => addr.toBase58())
         : undefined;
-    if (lookupTable) {
-        const { blockhash } = await provider.connection.getLatestBlockhash();
-        const message = new TransactionMessage({
-            payerKey: RELAYER_PUBKEY,
-            recentBlockhash: blockhash,
-            instructions: [ix],
-        }).compileToV0Message([lookupTable]);
-        const tx = new VersionedTransaction(message);
-        const relayerResult = await submitViaRelayerSigned(
-            provider,
-            tx,
-            provider.wallet.publicKey,
-            signMessage,
-            lookupTableAddressList
-        );
-        onStatus(`Relayer submitted tx: ${relayerResult.signature}`);
-        await logNoteOutputsForSignature(program, relayerResult.signature, onStatus);
-        let didRescan = false;
-        const relayerTx = await program.provider.connection.getTransaction(relayerResult.signature, {
-            maxSupportedTransactionVersion: 0,
-            commitment: 'confirmed',
-        });
-        const minContextSlot = relayerTx?.slot;
-        const expectedCommitments = commitmentCount + BigInt(outputEnabled[0] + outputEnabled[1]);
-        const expectedRoot = outputEnabled[1] ? newRootBytes : undefined;
-        const synced = await waitForShieldedStateUpdate({
-            program,
-            mint,
-            expectedCommitments,
-            expectedRoot,
-            onStatus,
-            minContextSlot,
-        });
-        if (!synced) {
-            onStatus('Relayed transfer not yet reflected on current RPC. Rescanning notes...');
-            if (signMessage) {
-                await rescanNotesForOwner({
-                    program,
-                    mint,
-                    owner,
-                    onStatus,
-                    signMessage,
-                });
-                didRescan = true;
-                const verified = await waitForShieldedStateUpdate({
-                    program,
-                    mint,
-                    expectedCommitments,
-                    expectedRoot,
-                    onStatus,
-                    minContextSlot,
-                });
-                if (!verified) {
-                    throw new Error('Relayed transfer not reflected on chain after rescan.');
-                }
-            } else {
-                throw new Error('Relayed transfer not yet reflected on current RPC. Connect a wallet to rescan.');
-            }
-        } else {
-            onStatus(
-                `Shielded state synced: commitments=${synced.commitmentCount.toString()} root=${Buffer.from(synced.rootBytes)
-                    .toString('hex')
-                    .slice(0, 16)}...`
-            );
-        }
-        if (!didRescan) {
-            inputNotes.forEach((note) => markNoteSpent(mint, owner, note.id));
-            outputNotes.forEach((note, index) => {
-                if (note && outputEnabled[index]) {
-                    addNote(mint, owner, note);
-                }
-            });
-            saveCommitments(mint, owner, updatedCommitments, true);
-        }
-        if (outputEnabled.some((flag) => flag === 1)) {
-            onRootChange?.(newRootBytes);
-        }
-        onDebit(baseUnits);
-        onStatus('Withdraw complete.');
-        return {
-            signature: relayerResult.signature,
-            amountBaseUnits: baseUnits,
-            nullifier: built.nullifierValues[0] ?? 0n,
-        };
+    const { blockhash } = await provider.connection.getLatestBlockhash();
+    let lookupStats = 'lutStats=unknown';
+    const message = new TransactionMessage({
+        payerKey: RELAYER_PUBKEY,
+        recentBlockhash: blockhash,
+        instructions: [ix],
+    }).compileToV0Message([lookupTable]);
+    const lookup = message.addressTableLookups?.[0];
+    const maxWritable = lookup?.writableIndexes?.reduce((max, value) => Math.max(max, value), -1) ?? -1;
+    const maxReadonly = lookup?.readonlyIndexes?.reduce((max, value) => Math.max(max, value), -1) ?? -1;
+    const maxIndex = Math.max(maxWritable, maxReadonly);
+    lookupStats = `lutCount=${lookupTable.state.addresses.length} maxIndex=${maxIndex} writable=${lookup?.writableIndexes.length ?? 0} readonly=${lookup?.readonlyIndexes.length ?? 0}`;
+    onStatus(`Relayer LUT stats: ${lookupStats}`);
+    if (lookup && maxIndex > 255) {
+        onStatus('Lookup index exceeds u8 range (index > 255). Recreate LUT with fewer entries.');
+        throw new Error('Lookup index exceeds u8 range (index > 255).');
     }
-
-    const legacyTx = new Transaction().add(ix);
-    legacyTx.feePayer = RELAYER_PUBKEY;
-        const relayerResult = await submitViaRelayerSigned(
-            provider,
-            legacyTx,
-            provider.wallet.publicKey,
-            signMessage
-        );
+    const tx = new VersionedTransaction(message);
+    ensureDummySignatures(tx);
+    onStatus(
+        `Relayer tx meta: requiredSignatures=${tx.message.header.numRequiredSignatures} signatures=${tx.signatures.length} staticKeys=${tx.message.staticAccountKeys.length}`
+    );
+    const relayerBytes = tx.serialize();
+    onStatus(
+        `Relayer tx bytes: len=${relayerBytes.length} firstByte=${relayerBytes[0]} versioned=${(relayerBytes[0] & 0x80) !== 0}`
+    );
+    const relayerResult = await submitViaRelayerSigned(
+        provider,
+        tx,
+        provider.wallet.publicKey,
+        signMessage,
+        lookupTableAddressList
+    );
     onStatus(`Relayer submitted tx: ${relayerResult.signature}`);
     await logNoteOutputsForSignature(program, relayerResult.signature, onStatus);
     let didRescan = false;
@@ -1394,16 +1441,16 @@ export async function runInternalTransferFlow(params: {
         ...nullifierSets,
     ];
     const lookupTable = await getEnvLookupTable(provider, lookupTableAddresses);
-    let useLookupTable = Boolean(lookupTable);
-    const lookupTableAddressList = lookupTable
-        ? lookupTable.state.addresses.map((addr) => addr.toBase58())
-        : undefined;
+    const lutViolations = getLutIndexViolations(lookupTable, lookupTableAddresses);
+    if (lutViolations.length > 0) {
+        const sample = lutViolations[0];
+        onStatus(
+            `Lookup table index too large for v0: ${sample.address} at index ${sample.index}. Recreate LUT with required addresses in first 256 entries.`
+        );
+        throw new Error('Lookup table indices exceed u8 range (index > 255).');
+    }
+    const lookupTableAddressList = lookupTable.state.addresses.map((addr) => addr.toBase58());
     if (inputNotes.length > 1) {
-        if (!lookupTable) {
-            throw new Error(
-                'Internal transfer needs a lookup table for multi-input spends. Configure LUT_ADDRESS or reduce inputs.'
-            );
-        }
         const missing = getMissingLutAddresses(lookupTable, lookupTableAddresses);
         if (missing.length > 0) {
             onStatus(
@@ -1416,40 +1463,23 @@ export async function runInternalTransferFlow(params: {
     if (RELAYER_PUBKEY) {
         onStatus('Preparing relayer transaction...');
         const { blockhash } = await provider.connection.getLatestBlockhash();
-        if (useLookupTable && lookupTable) {
-            const message = new TransactionMessage({
-                payerKey: RELAYER_PUBKEY,
-                recentBlockhash: blockhash,
-                instructions: [ix],
-            }).compileToV0Message([lookupTable]);
-            const tx = new VersionedTransaction(message);
-            const relayerResult = await submitViaRelayerSigned(
-                provider,
-                tx,
-                provider.wallet.publicKey,
-                signMessage,
-                lookupTableAddressList
-            );
-            signature = relayerResult.signature;
-        } else {
-            if (lookupTable && !useLookupTable) {
-                onStatus('Proceeding without LUT due to missing addresses.');
-            }
-            const tx = new Transaction();
-            tx.feePayer = RELAYER_PUBKEY;
-            tx.recentBlockhash = blockhash;
-            tx.add(ix);
-            const relayerResult = await submitViaRelayerSigned(
-                provider,
-                tx,
-                provider.wallet.publicKey,
-                signMessage
-            );
-            signature = relayerResult.signature;
-        }
+        const message = new TransactionMessage({
+            payerKey: RELAYER_PUBKEY,
+            recentBlockhash: blockhash,
+            instructions: [ix],
+        }).compileToV0Message([lookupTable]);
+        const tx = new VersionedTransaction(message);
+        const relayerResult = await submitViaRelayerSigned(
+            provider,
+            tx,
+            provider.wallet.publicKey,
+            signMessage,
+            lookupTableAddressList
+        );
+        signature = relayerResult.signature;
         onStatus(`Relayer submitted tx: ${signature}`);
         await provider.connection.confirmTransaction(signature, 'confirmed');
-    } else if (useLookupTable && lookupTable) {
+    } else {
         const { blockhash } = await provider.connection.getLatestBlockhash();
         const message = new TransactionMessage({
             payerKey: provider.wallet.publicKey,
@@ -1460,31 +1490,6 @@ export async function runInternalTransferFlow(params: {
         const signed = await provider.wallet.signTransaction(tx);
         signature = await provider.connection.sendRawTransaction(signed.serialize());
         await provider.connection.confirmTransaction(signature, 'confirmed');
-    } else {
-        signature = await program.methods
-            .internalTransfer({
-                proof: Buffer.from(proofBytes),
-                publicInputs: Buffer.from(publicInputsBytes),
-                newRoot: Buffer.from(newRoot),
-                outputCiphertexts: Buffer.from(outputCiphertexts),
-            })
-            .accounts({
-                config,
-                shieldedState,
-                identityRegistry: deriveIdentityRegistry(program.programId),
-                nullifierSet: nullifierSets[0],
-                verifierProgram: VERIFIER_PROGRAM_ID,
-                verifierKey,
-                mint,
-            })
-            .remainingAccounts(
-                nullifierSets.slice(1).map((account) => ({
-                    pubkey: account,
-                    isWritable: true,
-                    isSigner: false,
-                }))
-            )
-            .rpc();
     }
  
     inputNotes.forEach((note) => markNoteSpent(mint, owner, note.id));
@@ -1506,6 +1511,7 @@ export async function runExternalTransferFlow(params: {
     recipient: PublicKey;
     amount: string;
     mintDecimals: number;
+    deliverAsset?: 'sol' | 'wsol';
     root: Uint8Array;
     nextNullifier: () => number;
     onStatus: StatusHandler;
@@ -1522,6 +1528,7 @@ export async function runExternalTransferFlow(params: {
         recipient,
         amount,
         mintDecimals,
+        deliverAsset = 'sol',
         root,
         nextNullifier: _nextNullifier,
         onStatus,
@@ -1533,14 +1540,34 @@ export async function runExternalTransferFlow(params: {
     } = params;
     const provider = getProvider(program);
     const owner = provider.wallet.publicKey;
+    const wantsSol = deliverAsset === 'sol';
+    if (wantsSol && !mint.equals(WSOL_MINT)) {
+        throw new Error('SOL transfers are only supported for the WSOL mint.');
+    }
     onStatus('Generating proof...');
     const config = deriveConfig(program.programId);
     const vault = deriveVault(program.programId, mint);
     const { shieldedState, rootBytes, commitmentCount } = await fetchShieldedState(program, mint);
     await ensureIdentityRegistered(program, owner, onStatus, signMessage);
     const vaultAta = await getAssociatedTokenAddress(mint, vault, true);
-    const destinationAta = await ensureAta(provider, mint, recipient);
+    const destinationAta =
+        wantsSol && mint.equals(WSOL_MINT)
+            ? await getAssociatedTokenAddress(mint, recipient)
+            : await ensureAta(provider, mint, recipient);
     const verifierKey = deriveVerifierKey(VERIFIER_PROGRAM_ID, 0);
+    const vaultAccount = await program.account.vaultPool.fetch(vault);
+    const vaultNonce = new BN(
+        vaultAccount.nonce?.toString?.() ?? vaultAccount.nonce ?? '0'
+    );
+    const [tempAuthority] = PublicKey.findProgramAddressSync(
+        [
+            Buffer.from('temp_wsol'),
+            recipient.toBuffer(),
+            vaultNonce.toArrayLike(Buffer, 'le', 8),
+        ],
+        program.programId
+    );
+    const tempWsolAta = await getAssociatedTokenAddress(mint, tempAuthority, true);
 
     let baseUnits = parseTokenAmount(amount, mintDecimals);
     let inputNotes: NoteRecord[] = [];
@@ -1747,21 +1774,28 @@ export async function runExternalTransferFlow(params: {
             publicInputs: Buffer.from(publicInputsBytes),
             relayerFeeBps,
             newRoot: Buffer.from(newRootBytes),
-            outputCiphertexts: Buffer.from(outputCiphertexts),
+            outputCiphertexts,
+            deliverSol: wantsSol && mint.equals(WSOL_MINT),
         })
         .accounts({
             config,
+            payer: RELAYER_PUBKEY,
             vault,
             vaultAta,
             shieldedState,
             identityRegistry: deriveIdentityRegistry(program.programId),
             nullifierSet: nullifierSets[0],
             destinationAta,
+            recipient,
+            tempAuthority,
+            tempWsolAta,
             relayerFeeAta,
             verifierProgram: VERIFIER_PROGRAM_ID,
             verifierKey,
             mint,
             tokenProgram: TOKEN_PROGRAM_ID,
+            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
         } as any)
         .remainingAccounts(
             nullifierSets.slice(1).map((account) => ({
@@ -1774,15 +1808,21 @@ export async function runExternalTransferFlow(params: {
 
     const lookupTableAddresses = [
         config,
+        RELAYER_PUBKEY,
         vault,
         vaultAta,
         shieldedState,
         deriveIdentityRegistry(program.programId),
         destinationAta,
+        recipient,
+        tempAuthority,
+        tempWsolAta,
         verifierKey,
         VERIFIER_PROGRAM_ID,
         mint,
         TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+        SystemProgram.programId,
         ...nullifierSets,
     ];
     if (relayerFeeAta) {
@@ -1794,12 +1834,15 @@ export async function runExternalTransferFlow(params: {
         );
     }
     const lookupTable = await getEnvLookupTable(provider, lookupTableAddresses);
+    const lutViolations = getLutIndexViolations(lookupTable, lookupTableAddresses);
+    if (lutViolations.length > 0) {
+        const sample = lutViolations[0];
+        onStatus(
+            `Lookup table index too large for v0: ${sample.address} at index ${sample.index}. Recreate LUT with required addresses in first 256 entries.`
+        );
+        throw new Error('Lookup table indices exceed u8 range (index > 255).');
+    }
     if (inputNotes.length > 1) {
-        if (!lookupTable) {
-            throw new Error(
-                'External transfer needs a lookup table for multi-input spends. Configure LUT_ADDRESS or reduce inputs.'
-            );
-        }
         const missing = getMissingLutAddresses(lookupTable, lookupTableAddresses);
         if (missing.length > 0) {
             onStatus(
@@ -1807,24 +1850,104 @@ export async function runExternalTransferFlow(params: {
             );
         }
     }
-    const lookupTableAddressList = lookupTable
-        ? lookupTable.state.addresses.map((addr) => addr.toBase58())
-        : undefined;
-    if (lookupTable) {
-        const { blockhash } = await provider.connection.getLatestBlockhash();
-        const message = new TransactionMessage({
-            payerKey: RELAYER_PUBKEY,
-            recentBlockhash: blockhash,
-            instructions: [ix],
-        }).compileToV0Message([lookupTable]);
-        const tx = new VersionedTransaction(message);
-        const relayerResult = await submitViaRelayerSigned(
-            provider,
-            tx,
-            provider.wallet.publicKey,
-            signMessage,
-            lookupTableAddressList
+    const lookupTableAddressList = lookupTable.state.addresses.map((addr) => addr.toBase58());
+    const { blockhash } = await provider.connection.getLatestBlockhash();
+    let lookupStats = 'lutStats=unknown';
+    const message = new TransactionMessage({
+        payerKey: RELAYER_PUBKEY,
+        recentBlockhash: blockhash,
+        instructions: [ix],
+    }).compileToV0Message([lookupTable]);
+    const lookup = message.addressTableLookups?.[0];
+    const maxWritable = lookup?.writableIndexes?.reduce((max, value) => Math.max(max, value), -1) ?? -1;
+    const maxReadonly = lookup?.readonlyIndexes?.reduce((max, value) => Math.max(max, value), -1) ?? -1;
+    const maxIndex = Math.max(maxWritable, maxReadonly);
+    lookupStats = `lutCount=${lookupTable.state.addresses.length} maxIndex=${maxIndex} writable=${lookup?.writableIndexes.length ?? 0} readonly=${lookup?.readonlyIndexes.length ?? 0}`;
+    onStatus(`Relayer LUT stats: ${lookupStats}`);
+    if (lookup && maxIndex > 255) {
+        onStatus('Lookup index exceeds u8 range (index > 255). Recreate LUT with fewer entries.');
+        throw new Error('Lookup index exceeds u8 range (index > 255).');
+    }
+    onStatus(
+        `Relayer ix meta: keys=${ix.keys.length} dataLen=${ix.data.length ?? 'unknown'} dataByteLen=${
+            (ix.data as Uint8Array | undefined)?.byteLength ?? 'unknown'
+        } dataType=${ix.data?.constructor?.name ?? 'unknown'}`
+    );
+    onStatus(
+        `Relayer message meta: staticKeys=${message.staticAccountKeys.length} instructions=${message.compiledInstructions.length}`
+    );
+    if (message.addressTableLookups && message.addressTableLookups.length > 0) {
+        const firstLookup = message.addressTableLookups[0];
+        onStatus(
+            `Relayer message lookup meta: writable=${firstLookup.writableIndexes.length} readonly=${firstLookup.readonlyIndexes.length}`
         );
+    }
+    const compiled = message.compiledInstructions;
+    if (compiled.length > 0) {
+        const maxProgram = Math.max(...compiled.map((ix) => ix.programIdIndex));
+        const maxAccount = Math.max(...compiled.flatMap((ix) => Array.from(ix.accountKeyIndexes)));
+        onStatus(`Relayer ix indexes: maxProgram=${maxProgram} maxAccount=${maxAccount}`);
+        const dataSizes = compiled.map((ix) => ix.data.length);
+        onStatus(`Relayer ix data sizes: ${dataSizes.join(',')}`);
+    }
+    const tx = new VersionedTransaction(message);
+    ensureDummySignatures(tx);
+    onStatus(
+        `Relayer tx meta: requiredSignatures=${tx.message.header.numRequiredSignatures} signatures=${tx.signatures.length} staticKeys=${tx.message.staticAccountKeys.length}`
+    );
+    try {
+        const msgBytes = message.serialize();
+        onStatus(`Relayer message bytes: len=${msgBytes.length}`);
+        if (lookup) {
+            const maxWritableIndex =
+                lookup.writableIndexes.length > 0 ? Math.max(...lookup.writableIndexes) : -1;
+            const maxReadonlyIndex =
+                lookup.readonlyIndexes.length > 0 ? Math.max(...lookup.readonlyIndexes) : -1;
+            onStatus(
+                `Relayer lookup indexes: writableMax=${maxWritableIndex} readonlyMax=${maxReadonlyIndex}`
+            );
+        }
+    } catch (error) {
+        onStatus(
+            `Relayer message serialize failed: ${error instanceof Error ? error.message : 'unknown error'} (${lookupStats})`
+        );
+        try {
+            const fallback = new TransactionMessage({
+                payerKey: RELAYER_PUBKEY,
+                recentBlockhash: blockhash,
+                instructions: [ix],
+            }).compileToV0Message([]);
+            const fallbackBytes = fallback.serialize();
+            onStatus(`Relayer fallback message bytes: len=${fallbackBytes.length}`);
+        } catch (fallbackError) {
+            onStatus(
+                `Relayer fallback serialize failed: ${
+                    fallbackError instanceof Error ? fallbackError.message : 'unknown error'
+                }`
+            );
+        }
+        throw error;
+    }
+    let relayerBytes: Uint8Array;
+    try {
+        relayerBytes = tx.serialize();
+    } catch (error) {
+        onStatus(
+            `Relayer tx serialize failed: ${error instanceof Error ? error.message : 'unknown error'} (${lookupStats})`
+        );
+        throw error;
+    }
+    onStatus(
+        `Relayer tx bytes: len=${relayerBytes.length} firstByte=${relayerBytes[0]} versioned=${(relayerBytes[0] & 0x80) !== 0}`
+    );
+    onStatus(`Relayer url: ${RELAYER_URL}`);
+    const relayerResult = await submitViaRelayerSigned(
+        provider,
+        tx,
+        provider.wallet.publicKey,
+        signMessage,
+        lookupTableAddressList
+    );
         onStatus(`Relayer submitted tx: ${relayerResult.signature}`);
         await logNoteOutputsForSignature(program, relayerResult.signature, onStatus);
         let didRescan = false;
@@ -1887,85 +2010,6 @@ export async function runExternalTransferFlow(params: {
         if (outputEnabled.some((flag) => flag === 1)) {
             onRootChange?.(newRootBytes);
         }
-        onDebit(baseUnits);
-        onStatus('External transfer complete.');
-        return {
-            signature: relayerResult.signature,
-            amountBaseUnits: baseUnits,
-            nullifier: built.nullifierValues[0] ?? 0n,
-        };
-    }
-
-    const legacyTx = new Transaction().add(ix);
-    legacyTx.feePayer = RELAYER_PUBKEY;
-    const relayerResult = await submitViaRelayerSigned(
-        provider,
-        legacyTx,
-        provider.wallet.publicKey,
-        signMessage
-    );
-    onStatus(`Relayer submitted tx: ${relayerResult.signature}`);
-    await logNoteOutputsForSignature(program, relayerResult.signature, onStatus);
-    let didRescan = false;
-    const relayerTx = await program.provider.connection.getTransaction(relayerResult.signature, {
-        maxSupportedTransactionVersion: 0,
-        commitment: 'confirmed',
-    });
-    const minContextSlot = relayerTx?.slot;
-    const expectedCommitments = commitmentCount + BigInt(outputEnabled[0] + outputEnabled[1]);
-    const expectedRoot = outputEnabled[1] ? newRootBytes : undefined;
-    const synced = await waitForShieldedStateUpdate({
-        program,
-        mint,
-        expectedCommitments,
-        expectedRoot,
-        onStatus,
-        minContextSlot,
-    });
-    if (!synced) {
-        onStatus('Relayed transfer not yet reflected on current RPC. Rescanning notes...');
-        if (signMessage) {
-            await rescanNotesForOwner({
-                program,
-                mint,
-                owner: provider.wallet.publicKey,
-                onStatus,
-                signMessage,
-            });
-            didRescan = true;
-            const verified = await waitForShieldedStateUpdate({
-                program,
-                mint,
-                expectedCommitments,
-                expectedRoot,
-                onStatus,
-                minContextSlot,
-            });
-            if (!verified) {
-                throw new Error('Relayed transfer not reflected on chain after rescan.');
-            }
-        } else {
-            throw new Error('Relayed transfer not yet reflected on current RPC. Connect a wallet to rescan.');
-        }
-    } else {
-        onStatus(
-            `Shielded state synced: commitments=${synced.commitmentCount.toString()} root=${Buffer.from(synced.rootBytes)
-                .toString('hex')
-                .slice(0, 16)}...`
-        );
-    }
-    if (!didRescan) {
-            inputNotes.forEach((note) => markNoteSpent(mint, owner, note.id));
-            outputNotes.forEach((note, index) => {
-                if (note && outputEnabled[index]) {
-                    addNote(mint, owner, note);
-                }
-            });
-            saveCommitments(mint, owner, updatedCommitments, true);
-        }
-    if (outputEnabled.some((flag) => flag === 1)) {
-        onRootChange?.(newRootBytes);
-    }
     onDebit(baseUnits);
     onStatus('External transfer complete.');
     return {

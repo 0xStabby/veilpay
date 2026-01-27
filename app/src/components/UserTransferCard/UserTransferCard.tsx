@@ -8,6 +8,7 @@ import styles from './UserTransferCard.module.css';
 import { formatTokenAmount } from '../../lib/amount';
 import { runExternalTransferFlow, runInternalTransferFlow } from '../../lib/flows';
 import { parseViewKey } from '../../lib/notes';
+import { WSOL_MINT } from '../../lib/config';
 
 export type UserTransferCardProps = {
     veilpayProgram: Program | null;
@@ -127,8 +128,10 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
 
     const handleExternal = async () => {
         if (!veilpayProgram || !parsedMint || !parsedExternalRecipient || mintDecimals === null) return;
+        onStatus(`External transfer starting. mint=${parsedMint.toBase58()} recipient=${parsedExternalRecipient.toBase58()}`);
         setBusy(true);
         try {
+            const deliverAsset = parsedMint.equals(WSOL_MINT) ? 'sol' : 'wsol';
             const result = await runExternalTransferFlow({
                 program: veilpayProgram,
                 verifierProgram,
@@ -136,6 +139,7 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
                 recipient: parsedExternalRecipient,
                 amount: externalAmount,
                 mintDecimals,
+                deliverAsset,
                 root,
                 nextNullifier,
                 onStatus,

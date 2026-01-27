@@ -5,3 +5,8 @@ export * from "./crypto";
 export * from "./poseidon";
 export * from "./merkle";
 export * from "./notes";
+export * from "./noteStore";
+export * from "./noteScanner";
+export * from "./identity";
+export * from "./identityScanner";
+export * from "./prover";

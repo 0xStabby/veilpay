@@ -66,3 +66,33 @@
     display: grid;
     gap: 1rem;
 }
+
+.headerSimple {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.title {
+    margin: 0;
+    color: var(--text);
+}
+
+.subtitle {
+    margin: 0;
+    color: var(--text-muted);
+}
+
+.registerButton {
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-tight);
+    padding: 0.6rem 1rem;
+    background: var(--accent);
+    color: var(--text);
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.registerButton:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}

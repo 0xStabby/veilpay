@@ -313,6 +313,10 @@ async function syncLookupTableFromClient(
 }
 
 app.post("/execute-relayed", async (req, res) => {
+  console.log("[relayer] /execute-relayed", {
+    hasTransaction: typeof req.body?.transaction === "string",
+    transactionLength: typeof req.body?.transaction === "string" ? req.body.transaction.length : 0,
+  });
   const parsed = executeSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -348,74 +352,62 @@ app.post("/execute-relayed", async (req, res) => {
     }
     const relayerKeypair = await loadRelayerKeypair();
     const txBytes = Buffer.from(parsed.data.transaction, "base64");
+    const txFirstByte = txBytes[0];
+    console.log("[relayer] tx bytes", {
+      base64Length: parsed.data.transaction.length,
+      decodedLength: txBytes.length,
+      firstByte: txFirstByte,
+      versioned: (txFirstByte & 0x80) !== 0,
+    });
+    const isVersioned = (txBytes[0] & 0x80) !== 0;
     let signature: string;
-    try {
-      const tx = Transaction.from(txBytes);
-      const { blockhash } = await connection.getLatestBlockhash();
-      tx.recentBlockhash = blockhash;
-      const message = tx.compileMessage();
-      if (message.header.numRequiredSignatures !== 1) {
-        throw new Error("Unexpected required signer count");
-      }
-      const feePayer = tx.feePayer ?? message.accountKeys[0];
-      if (!feePayer || !feePayer.equals(relayerKeypair.publicKey)) {
-        throw new Error("Fee payer mismatch");
-      }
-      const feePayerBalance = await connection.getBalance(feePayer);
-      if (feePayerBalance === 0) {
-        throw new Error(
-          `Fee payer has no balance on ${connection.rpcEndpoint}: ${feePayer.toBase58()}`
-        );
-      }
-      assertAllowedPrograms(tx.instructions.map((ix) => ix.programId));
-      tx.sign(relayerKeypair);
-      signature = await connection.sendRawTransaction(tx.serialize());
-    } catch (error) {
-      const tx = VersionedTransaction.deserialize(txBytes);
-      const { blockhash } = await connection.getLatestBlockhash();
-      tx.message.recentBlockhash = blockhash;
-      if (tx.message.header.numRequiredSignatures !== 1) {
-        throw new Error("Unexpected required signer count");
-      }
-      const feePayer = tx.message.staticAccountKeys[0];
-      if (!feePayer.equals(relayerKeypair.publicKey)) {
-        throw new Error("Fee payer mismatch");
-      }
-      const feePayerBalance = await connection.getBalance(feePayer);
-      if (feePayerBalance === 0) {
-        throw new Error(
-          `Fee payer has no balance on ${connection.rpcEndpoint}: ${feePayer.toBase58()}`
-        );
-      }
-      const programIds = tx.message.compiledInstructions.map(
-        (ix) => tx.message.staticAccountKeys[ix.programIdIndex]
+    if (!isVersioned) {
+      throw new Error("Legacy transactions are not supported.");
+    }
+    const tx = VersionedTransaction.deserialize(txBytes);
+    const { blockhash } = await connection.getLatestBlockhash();
+    tx.message.recentBlockhash = blockhash;
+    if (tx.message.header.numRequiredSignatures !== 1) {
+      throw new Error("Unexpected required signer count");
+    }
+    const feePayer = tx.message.staticAccountKeys[0];
+    if (!feePayer.equals(relayerKeypair.publicKey)) {
+      throw new Error("Fee payer mismatch");
+    }
+    const feePayerBalance = await connection.getBalance(feePayer);
+    if (feePayerBalance === 0) {
+      throw new Error(
+        `Fee payer has no balance on ${connection.rpcEndpoint}: ${feePayer.toBase58()}`
       );
-      assertAllowedPrograms(programIds);
-      await syncLookupTableFromClient(tx, parsed.data.lookupTableAddresses);
-      tx.sign([relayerKeypair]);
-      try {
-        signature = await connection.sendRawTransaction(tx.serialize());
-      } catch (sendError) {
-        const message = sendError instanceof Error ? sendError.message : "";
-        if (message.includes("too large") && getLutAddress()) {
-          const lutAccount = await tryAutoExtendLut(tx);
-          if (!lutAccount) {
-            throw sendError;
-          }
-          const decompiled = TransactionMessage.decompile(tx.message, {
-            addressLookupTableAccounts: [lutAccount],
-          });
-          const refreshedMessage = new TransactionMessage({
-            payerKey: relayerKeypair.publicKey,
-            recentBlockhash: blockhash,
-            instructions: decompiled.instructions,
-          }).compileToV0Message([lutAccount]);
-          const rebuilt = new VersionedTransaction(refreshedMessage);
-          rebuilt.sign([relayerKeypair]);
-          signature = await connection.sendRawTransaction(rebuilt.serialize());
-        } else {
+    }
+    const programIds = tx.message.compiledInstructions.map(
+      (ix) => tx.message.staticAccountKeys[ix.programIdIndex]
+    );
+    assertAllowedPrograms(programIds);
+    await syncLookupTableFromClient(tx, parsed.data.lookupTableAddresses);
+    tx.sign([relayerKeypair]);
+    try {
+      signature = await connection.sendRawTransaction(tx.serialize());
+    } catch (sendError) {
+      const message = sendError instanceof Error ? sendError.message : "";
+      if (message.includes("too large") && getLutAddress()) {
+        const lutAccount = await tryAutoExtendLut(tx);
+        if (!lutAccount) {
           throw sendError;
         }
+        const decompiled = TransactionMessage.decompile(tx.message, {
+          addressLookupTableAccounts: [lutAccount],
+        });
+        const refreshedMessage = new TransactionMessage({
+          payerKey: relayerKeypair.publicKey,
+          recentBlockhash: blockhash,
+          instructions: decompiled.instructions,
+        }).compileToV0Message([lutAccount]);
+        const rebuilt = new VersionedTransaction(refreshedMessage);
+        rebuilt.sign([relayerKeypair]);
+        signature = await connection.sendRawTransaction(rebuilt.serialize());
+      } else {
+        throw sendError;
       }
     }
     await connection.confirmTransaction(signature, "confirmed");

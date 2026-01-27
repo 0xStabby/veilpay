@@ -12,6 +12,7 @@ import {
   createAssociatedTokenAccountInstruction,
   mintTo,
   TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 
@@ -32,6 +33,29 @@ const bigIntToBytes32 = (value: bigint): Uint8Array => {
 const hexToBytes32 = (value: string): Buffer => {
   const clean = value.startsWith("0x") ? value.slice(2) : value;
   return Buffer.from(clean.padStart(64, "0"), "hex");
+};
+
+const ensureSystemAccount = async (
+  connection: anchor.web3.Connection,
+  pubkey: PublicKey
+) => {
+  const info = await connection.getAccountInfo(pubkey);
+  if (info) return;
+  const sig = await connection.requestAirdrop(pubkey, 1_000_000_000);
+  await connection.confirmTransaction(sig, "confirmed");
+};
+
+const deriveTempAuthority = async (
+  program: Program,
+  vaultPda: PublicKey,
+  recipient: PublicKey
+) => {
+  const vault = await program.account.vaultPool.fetch(vaultPda);
+  const nonceBytes = (vault.nonce as anchor.BN).toArrayLike(Buffer, "le", 8);
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("temp_wsol"), recipient.toBuffer(), nonceBytes],
+    program.programId
+  )[0];
 };
 
 describe("veilpay e2e (real groth16)", () => {
@@ -350,13 +374,16 @@ describe("veilpay e2e (real groth16)", () => {
     const publicInputs = Buffer.concat(solidity.inputs.map(hexToBytes32));
     const dummyProof = Buffer.alloc(32);
 
-    const recipient = anchor.web3.Keypair.generate().publicKey;
+    const recipient = anchor.web3.Keypair.generate();
+    await ensureSystemAccount(provider.connection, recipient.publicKey);
     const recipientAta = await createAssociatedTokenAccount(
       provider.connection,
       provider.wallet.payer,
       mint,
-      recipient
+      recipient.publicKey
     );
+    const tempAuthority = await deriveTempAuthority(program, vaultPda, recipient.publicKey);
+    const tempWsolAta = await getAssociatedTokenAddress(mint, tempAuthority, true);
 
     await verifierProgram.methods
       .verifyGroth16(dummyProof, publicInputs)
@@ -371,20 +398,27 @@ describe("veilpay e2e (real groth16)", () => {
         relayerFeeBps: 0,
         newRoot: depositRoot,
         outputCiphertexts: Buffer.alloc(0),
+        deliverSol: false,
       })
       .accounts({
         config: configPda,
+        payer: provider.wallet.publicKey,
         vault: vaultPda,
         vaultAta,
         shieldedState: shieldedPda,
         identityRegistry: identityRegistryPda,
         nullifierSet: nullifierPda,
         recipientAta,
+        recipient: recipient.publicKey,
+        tempAuthority,
+        tempWsolAta,
         relayerFeeAta: null,
         verifierProgram: verifierProgram.programId,
         verifierKey: verifierKeyPda,
         mint,
         tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
       })
       .rpc();
   });

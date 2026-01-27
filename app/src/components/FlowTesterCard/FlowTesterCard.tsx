@@ -7,6 +7,7 @@ import styles from './FlowTesterCard.module.css';
 import { formatTokenAmount, parseTokenAmount } from '../../lib/amount';
 import { Buffer } from 'buffer';
 import { runDepositFlow, runExternalTransferFlow, runInternalTransferFlow, runWithdrawFlow } from '../../lib/flows';
+import { WSOL_MINT } from '../../lib/config';
 import { rescanNotesForOwner } from '../../lib/noteScanner';
 import { deriveViewKeypair, parseViewKey, serializeViewKey } from '../../lib/notes';
 
@@ -181,11 +182,13 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
                 label: 'Deposit',
                 type: 'credit' as const,
                 run: async () => {
+                    const depositAsset = parsedMint.equals(WSOL_MINT) ? 'sol' : 'wsol';
                     const result = await runDepositFlow({
                         program: veilpayProgram,
                         mint: parsedMint,
                         amount,
                         mintDecimals,
+                        depositAsset,
                         onStatus,
                         onRootChange: handleRootUpdate,
                         onCredit,
@@ -238,6 +241,8 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
                 type: 'debit' as const,
                 run: async () => {
                     const { useAmount, amountString } = computeDebitAmount('Withdraw');
+                    const withdrawAsset =
+                        parsedMint.equals(WSOL_MINT) && publicKey?.equals(parsedRecipient) ? 'sol' : 'wsol';
                     const result = await runWithdrawFlow({
                         program: veilpayProgram,
                         verifierProgram,
@@ -245,6 +250,7 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
                         recipient: parsedRecipient,
                         amount: amountString,
                         mintDecimals,
+                        withdrawAsset,
                         root: rootRef.current,
                         nextNullifier,
                         onStatus,
@@ -344,6 +350,7 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
                         recipient: parsedRecipient,
                         amount: amountString,
                         mintDecimals,
+                        deliverAsset: parsedMint.equals(WSOL_MINT) ? 'sol' : 'wsol',
                         root: rootRef.current,
                         nextNullifier,
                         onStatus,

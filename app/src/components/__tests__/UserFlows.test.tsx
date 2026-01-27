@@ -19,9 +19,12 @@ describe('User flow cards', () => {
                 onRootChange={() => undefined}
                 mintDecimals={decimals}
                 walletBalance={balance}
+                solBalance={null}
                 onCredit={() => undefined}
             />
         );
+
+        await user.click(screen.getByRole('button', { name: 'WSOL' }));
 
         const button = screen.getByRole('button', { name: new RegExp(`Wallet: ${expected}`) });
         await user.click(button);

@@ -1,5 +1,3 @@
-import { createHash, randomBytes } from "crypto";
-
 export const BN254_FIELD_MODULUS = BigInt(
   "21888242871839275222246405745257275088548364400416034343698204186575808495617"
 );
@@ -30,12 +28,50 @@ export function bigIntToBytes32(value: bigint): Uint8Array {
   return out;
 }
 
-export function sha256(data: Uint8Array): Uint8Array {
-  const hash = createHash("sha256");
-  hash.update(data);
-  return new Uint8Array(hash.digest());
+declare const globalThis: any;
+
+const webCrypto = globalThis?.crypto as
+  | {
+      getRandomValues?: (array: Uint8Array) => Uint8Array;
+      subtle?: { digest: (algorithm: string, data: ArrayBuffer) => Promise<ArrayBuffer> };
+    }
+  | undefined;
+
+export function randomBytes(length: number): Uint8Array {
+  if (!webCrypto?.getRandomValues) {
+    throw new Error("Secure random source unavailable.");
+  }
+  const out = new Uint8Array(length);
+  webCrypto.getRandomValues(out);
+  return out;
+}
+
+export async function sha256(data: Uint8Array): Promise<Uint8Array> {
+  if (!webCrypto?.subtle) {
+    throw new Error("WebCrypto unavailable.");
+  }
+  const normalized = new Uint8Array(data);
+  const hash = await webCrypto.subtle.digest("SHA-256", normalized.buffer);
+  return new Uint8Array(hash);
 }
 
 export function randomBytes32(): Uint8Array {
   return randomBytes(32);
+}
+
+export function concatBytes(chunks: Uint8Array[]): Uint8Array {
+  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return out;
+}
+
+export function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
 }
