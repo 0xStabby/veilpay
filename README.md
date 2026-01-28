@@ -29,6 +29,7 @@ VITE_VEILPAY_PROGRAM_ID=...
 VITE_VERIFIER_PROGRAM_ID=...
 VITE_AIRDROP_URL=...   # optional, faucet link
 VITE_NULLIFIER_PADDING_CHUNKS=0  # optional, number of decoy nullifier chunks to include
+```
 
 Notes:
 - `VITE_NULLIFIER_PADDING_CHUNKS` controls how many nullifier chunk accounts are included as decoys in each spend. Higher values improve privacy but increase transaction size.
@@ -42,7 +43,6 @@ pnpm exec ts-node scripts/extend-nullifier-lut.ts --env .env --start 0 --count 3
 Relayer auto-extend (optional):
 - Set `RELAYER_LUT_ADDRESS` to the LUT address.
 - Set `RELAYER_LUT_AUTHORITY_KEYPAIR` (or reuse `RELAYER_KEYPAIR`) so the relayer can extend the LUT when a transaction is too large.
-```
 
 3) Run the app:
 ```
