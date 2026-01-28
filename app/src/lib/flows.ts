@@ -3,8 +3,10 @@ import { BN, Program } from '@coral-xyz/anchor';
 import type { AnchorProvider } from '@coral-xyz/anchor';
 import {
     AddressLookupTableAccount,
+    ComputeBudgetProgram,
     PublicKey,
     SystemProgram,
+    Transaction,
     TransactionInstruction,
     TransactionMessage,
     VersionedTransaction,
@@ -21,6 +23,7 @@ import {
     deriveConfig,
     deriveIdentityMember,
     deriveIdentityRegistry,
+    deriveProofAccount,
     deriveShielded,
     deriveVault,
     deriveVerifierKey,
@@ -37,6 +40,7 @@ import {
     NULLIFIER_PADDING_CHUNKS,
     RELAYER_FEE_BPS,
     RELAYER_PUBKEY,
+    RELAYER_URL,
     VERIFIER_PROGRAM_ID,
     WSOL_MINT,
 } from './config';
@@ -89,6 +93,20 @@ const computeRelayerFee = (amount: bigint, feeBps: number) => {
         throw new Error('Relayer fee exceeds amount.');
     }
     return fee;
+};
+
+const generateProofNonce = () => {
+    const cryptoObj = globalThis.crypto;
+    if (!cryptoObj || typeof cryptoObj.getRandomValues !== 'function') {
+        throw new Error('Random nonce generation unavailable (missing crypto.getRandomValues).');
+    }
+    const bytes = new Uint8Array(8);
+    cryptoObj.getRandomValues(bytes);
+    let nonce = 0n;
+    for (let i = 0; i < bytes.length; i += 1) {
+        nonce |= BigInt(bytes[i]) << (8n * BigInt(i));
+    }
+    return nonce;
 };
 
 
@@ -1088,10 +1106,14 @@ export async function runWithdrawFlow(params: {
         : undefined;
     const { blockhash } = await provider.connection.getLatestBlockhash();
     let lookupStats = 'lutStats=unknown';
+    const computeIxs = [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 250_000 }),
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1_000 }),
+    ];
     const message = new TransactionMessage({
         payerKey: RELAYER_PUBKEY,
         recentBlockhash: blockhash,
-        instructions: [ix],
+        instructions: [...computeIxs, ix],
     }).compileToV0Message([lookupTable]);
     const lookup = message.addressTableLookups?.[0];
     const maxWritable = lookup?.writableIndexes?.reduce((max, value) => Math.max(max, value), -1) ?? -1;
@@ -1382,7 +1404,36 @@ export async function runInternalTransferFlow(params: {
     if (!verified) {
         throw new Error(`Preflight verify failed. ${formatPublicSignals(publicSignals)}`);
     }
-    onStatus('Preflight verified. Preparing transaction...');
+    onStatus('Preflight verified. Uploading proof to chain...');
+    const proofNonce = generateProofNonce();
+    const proofAccount = deriveProofAccount(program.programId, owner, proofNonce);
+    const storeIx = await program.methods
+        .storeProof({
+            nonce: new BN(proofNonce.toString()),
+            recipient: owner,
+            destinationAta: owner,
+            mint,
+            proof: Buffer.from(proofBytes),
+            publicInputs: Buffer.from(publicInputsBytes),
+        })
+        .accounts({
+            proofAccount,
+            proofOwner: owner,
+            systemProgram: SystemProgram.programId,
+        })
+        .instruction();
+    const storeTx = new Transaction().add(storeIx);
+    const { blockhash: storeBlockhash, lastValidBlockHeight: storeLastValid } =
+        await provider.connection.getLatestBlockhash();
+    storeTx.feePayer = owner;
+    storeTx.recentBlockhash = storeBlockhash;
+    const signedStoreTx = await provider.wallet.signTransaction(storeTx);
+    const storeSig = await provider.connection.sendRawTransaction(signedStoreTx.serialize());
+    await provider.connection.confirmTransaction(
+        { signature: storeSig, blockhash: storeBlockhash, lastValidBlockHeight: storeLastValid },
+        'confirmed'
+    );
+    onStatus('Proof uploaded. Preparing transaction...');
 
     if (verifierProgram) {
         onStatus('Checking verifier key consistency...');
@@ -1394,9 +1445,7 @@ export async function runInternalTransferFlow(params: {
     onStatus('Verifier key matches. Submitting transaction...');
 
     const ix = await program.methods
-        .internalTransfer({
-            proof: Buffer.from(proofBytes),
-            publicInputs: Buffer.from(publicInputsBytes),
+        .internalTransferWithProof({
             newRoot: Buffer.from(newRoot),
             outputCiphertexts: Buffer.from(outputCiphertexts),
         })
@@ -1405,6 +1454,8 @@ export async function runInternalTransferFlow(params: {
             shieldedState,
             identityRegistry: deriveIdentityRegistry(program.programId),
             nullifierSet: nullifierSets[0],
+            proofAccount,
+            proofOwner: owner,
             verifierProgram: VERIFIER_PROGRAM_ID,
             verifierKey,
             mint,
@@ -1450,10 +1501,14 @@ export async function runInternalTransferFlow(params: {
     if (RELAYER_PUBKEY) {
         onStatus('Preparing relayer transaction...');
         const { blockhash } = await provider.connection.getLatestBlockhash();
+        const computeIxs = [
+            ComputeBudgetProgram.setComputeUnitLimit({ units: 250_000 }),
+            ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1_000 }),
+        ];
         const message = new TransactionMessage({
             payerKey: RELAYER_PUBKEY,
             recentBlockhash: blockhash,
-            instructions: [ix],
+            instructions: [...computeIxs, ix],
         }).compileToV0Message([lookupTable]);
         const tx = new VersionedTransaction(message);
         const relayerResult = await submitViaRelayerSigned(
@@ -1468,10 +1523,14 @@ export async function runInternalTransferFlow(params: {
         await provider.connection.confirmTransaction(signature, 'confirmed');
     } else {
         const { blockhash } = await provider.connection.getLatestBlockhash();
+        const computeIxs = [
+            ComputeBudgetProgram.setComputeUnitLimit({ units: 250_000 }),
+            ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1_000 }),
+        ];
         const message = new TransactionMessage({
             payerKey: provider.wallet.publicKey,
             recentBlockhash: blockhash,
-            instructions: [ix],
+            instructions: [...computeIxs, ix],
         }).compileToV0Message([lookupTable]);
         const tx = new VersionedTransaction(message);
         const signed = await provider.wallet.signTransaction(tx);
@@ -1735,7 +1794,36 @@ export async function runExternalTransferFlow(params: {
     if (!verified) {
         throw new Error(`Preflight verify failed. ${formatPublicSignals(publicSignals)}`);
     }
-    onStatus('Preflight verified. Preparing relayer transaction...');
+    onStatus('Preflight verified. Uploading proof to chain...');
+    const proofNonce = generateProofNonce();
+    const proofAccount = deriveProofAccount(program.programId, owner, proofNonce);
+    const storeIx = await program.methods
+        .storeProof({
+            nonce: new BN(proofNonce.toString()),
+            recipient,
+            destinationAta,
+            mint,
+            proof: Buffer.from(proofBytes),
+            publicInputs: Buffer.from(publicInputsBytes),
+        })
+        .accounts({
+            proofAccount,
+            proofOwner: owner,
+            systemProgram: SystemProgram.programId,
+        })
+        .instruction();
+    const storeTx = new Transaction().add(storeIx);
+    const { blockhash: storeBlockhash, lastValidBlockHeight: storeLastValid } =
+        await provider.connection.getLatestBlockhash();
+    storeTx.feePayer = owner;
+    storeTx.recentBlockhash = storeBlockhash;
+    const signedStoreTx = await provider.wallet.signTransaction(storeTx);
+    const storeSig = await provider.connection.sendRawTransaction(signedStoreTx.serialize());
+    await provider.connection.confirmTransaction(
+        { signature: storeSig, blockhash: storeBlockhash, lastValidBlockHeight: storeLastValid },
+        'confirmed'
+    );
+    onStatus('Proof uploaded. Preparing relayer transaction...');
 
     if (verifierProgram) {
         onStatus('Checking verifier key consistency...');
@@ -1755,10 +1843,8 @@ export async function runExternalTransferFlow(params: {
     }
 
     const ix = await program.methods
-        .externalTransfer({
+        .externalTransferWithProof({
             amount: new BN(baseUnits.toString()),
-            proof: Buffer.from(proofBytes),
-            publicInputs: Buffer.from(publicInputsBytes),
             relayerFeeBps,
             newRoot: Buffer.from(newRootBytes),
             outputCiphertexts,
@@ -1772,6 +1858,8 @@ export async function runExternalTransferFlow(params: {
             shieldedState,
             identityRegistry: deriveIdentityRegistry(program.programId),
             nullifierSet: nullifierSets[0],
+            proofAccount,
+            proofOwner: owner,
             destinationAta,
             recipient,
             tempAuthority,
@@ -1840,10 +1928,14 @@ export async function runExternalTransferFlow(params: {
     const lookupTableAddressList = lookupTable.state.addresses.map((addr) => addr.toBase58());
     const { blockhash } = await provider.connection.getLatestBlockhash();
     let lookupStats = 'lutStats=unknown';
+    const computeIxs = [
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 250_000 }),
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1_000 }),
+    ];
     const message = new TransactionMessage({
         payerKey: RELAYER_PUBKEY,
         recentBlockhash: blockhash,
-        instructions: [ix],
+        instructions: [...computeIxs, ix],
     }).compileToV0Message([lookupTable]);
     const lookup = message.addressTableLookups?.[0];
     const maxWritable = lookup?.writableIndexes?.reduce((max, value) => Math.max(max, value), -1) ?? -1;
@@ -1877,7 +1969,7 @@ export async function runExternalTransferFlow(params: {
         const dataSizes = compiled.map((ix) => ix.data.length);
         onStatus(`Relayer ix data sizes: ${dataSizes.join(',')}`);
     }
-    const tx = new VersionedTransaction(message);
+    let tx = new VersionedTransaction(message);
     ensureDummySignatures(tx);
     onStatus(
         `Relayer tx meta: requiredSignatures=${tx.message.header.numRequiredSignatures} signatures=${tx.signatures.length} staticKeys=${tx.message.staticAccountKeys.length}`
@@ -1925,7 +2017,7 @@ export async function runExternalTransferFlow(params: {
         throw error;
     }
     onStatus(
-        `Relayer tx bytes: len=${relayerBytes.length} firstByte=${relayerBytes[0]} versioned=${(relayerBytes[0] & 0x80) !== 0}`
+        `Relayer tx bytes: len=${relayerBytes.length} firstByte=${relayerBytes[0]} (signature count byte)`
     );
     onStatus(`Relayer url: ${RELAYER_URL}`);
     const relayerResult = await submitViaRelayerSigned(

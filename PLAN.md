@@ -7,7 +7,7 @@ Goal: Implement the unlinkable escrow-based privacy payments protocol end-to-end
 - Ensure recipient tags derive from recipient secrets, not public keys.
 - Ensure all proof inputs are tied to existing notes and valid Merkle paths.
 - Clarify the privacy model for external transfers (recipient public).
-- Add documentation: `docs/privacy.md` and `docs/required-changes.md`.
+- Add documentation: `docs/privacy.md`.
 
 ## Phase 1: Program Core (Anchor)
 - Expand `programs/veilpay/src/lib.rs` into modules:
@@ -15,6 +15,7 @@ Goal: Implement the unlinkable escrow-based privacy payments protocol end-to-end
   - `instructions` (initialize/configure/deposit/withdraw/etc.)
   - `errors` (protocol-level errors)
 - Implement CPI token transfers for deposit/withdraw/settle flows.
+- Add a two‑transaction proof account flow for external transfers (store_proof + external_transfer_with_proof) to avoid tx size limits and allow rent reclaim.
 - Add PDA initialization helpers for vaults, shielded state, nullifier chunks, and VK registry.
 - Enforce mint allowlist and fee constraints in all public instructions.
 - Emit events for: deposit, withdraw, internal transfer.

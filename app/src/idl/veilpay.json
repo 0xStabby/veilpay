@@ -508,6 +508,275 @@
       ]
     },
     {
+      "name": "external_transfer_with_proof",
+      "discriminator": [
+        54,
+        0,
+        64,
+        158,
+        32,
+        0,
+        127,
+        240
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  47,
+                  106,
+                  106,
+                  81,
+                  214,
+                  244,
+                  0,
+                  0,
+                  41,
+                  55,
+                  253,
+                  245,
+                  77,
+                  228,
+                  75,
+                  93,
+                  242,
+                  189,
+                  134,
+                  24,
+                  71,
+                  209,
+                  208,
+                  207,
+                  90,
+                  9,
+                  60,
+                  108,
+                  23,
+                  64,
+                  28,
+                  47
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_ata",
+          "writable": true
+        },
+        {
+          "name": "shielded_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  104,
+                  105,
+                  101,
+                  108,
+                  100,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "identity_registry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  100,
+                  101,
+                  110,
+                  116,
+                  105,
+                  116,
+                  121,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "nullifier_set",
+          "writable": true
+        },
+        {
+          "name": "proof_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  111,
+                  102
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "proof_owner"
+              },
+              {
+                "kind": "account",
+                "path": "proof_account.nonce",
+                "account": "ProofAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "proof_owner",
+          "writable": true
+        },
+        {
+          "name": "destination_ata",
+          "writable": true
+        },
+        {
+          "name": "recipient",
+          "writable": true
+        },
+        {
+          "name": "temp_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  101,
+                  109,
+                  112,
+                  95,
+                  119,
+                  115,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "recipient"
+              },
+              {
+                "kind": "account",
+                "path": "vault.nonce",
+                "account": "VaultPool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "temp_wsol_ata",
+          "writable": true
+        },
+        {
+          "name": "relayer_fee_ata",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "verifier_program",
+          "address": "CKzPKEVD9Bq5Q4iJzALC1Zuk66wwGwK52XsKmFDELYZe"
+        },
+        {
+          "name": "verifier_key"
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ExternalTransferWithProofArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "initialize_config",
       "discriminator": [
         208,
@@ -1145,6 +1414,185 @@
       ]
     },
     {
+      "name": "internal_transfer_with_proof",
+      "discriminator": [
+        166,
+        56,
+        218,
+        120,
+        253,
+        169,
+        104,
+        229
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  47,
+                  106,
+                  106,
+                  81,
+                  214,
+                  244,
+                  0,
+                  0,
+                  41,
+                  55,
+                  253,
+                  245,
+                  77,
+                  228,
+                  75,
+                  93,
+                  242,
+                  189,
+                  134,
+                  24,
+                  71,
+                  209,
+                  208,
+                  207,
+                  90,
+                  9,
+                  60,
+                  108,
+                  23,
+                  64,
+                  28,
+                  47
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "shielded_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  104,
+                  105,
+                  101,
+                  108,
+                  100,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "identity_registry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  100,
+                  101,
+                  110,
+                  116,
+                  105,
+                  116,
+                  121,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "nullifier_set",
+          "writable": true
+        },
+        {
+          "name": "proof_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  111,
+                  102
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "proof_owner"
+              },
+              {
+                "kind": "account",
+                "path": "proof_account.nonce",
+                "account": "ProofAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "proof_owner",
+          "writable": true
+        },
+        {
+          "name": "verifier_program",
+          "address": "CKzPKEVD9Bq5Q4iJzALC1Zuk66wwGwK52XsKmFDELYZe"
+        },
+        {
+          "name": "verifier_key"
+        },
+        {
+          "name": "mint"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "InternalTransferWithProofArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "register_identity",
       "discriminator": [
         164,
@@ -1322,6 +1770,66 @@
         {
           "name": "mint",
           "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "store_proof",
+      "discriminator": [
+        135,
+        188,
+        214,
+        120,
+        42,
+        122,
+        73,
+        134
+      ],
+      "accounts": [
+        {
+          "name": "proof_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  111,
+                  102
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "proof_owner"
+              },
+              {
+                "kind": "arg",
+                "path": "args.nonce"
+              }
+            ]
+          }
+        },
+        {
+          "name": "proof_owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "StoreProofArgs"
+            }
+          }
         }
       ]
     },
@@ -1618,6 +2126,19 @@
       ]
     },
     {
+      "name": "ProofAccount",
+      "discriminator": [
+        54,
+        244,
+        192,
+        233,
+        218,
+        58,
+        44,
+        242
+      ]
+    },
+    {
       "name": "ShieldedState",
       "discriminator": [
         109,
@@ -1778,41 +2299,76 @@
     },
     {
       "code": 6018,
+      "name": "InvalidPublicInputsLength",
+      "msg": "Invalid public inputs length"
+    },
+    {
+      "code": 6019,
+      "name": "InvalidProofDataLength",
+      "msg": "Invalid proof data length"
+    },
+    {
+      "code": 6020,
+      "name": "InvalidProofAccount",
+      "msg": "Invalid proof account"
+    },
+    {
+      "code": 6021,
+      "name": "InvalidProofAccountOwner",
+      "msg": "Invalid proof account owner"
+    },
+    {
+      "code": 6022,
+      "name": "InvalidProofAccountMint",
+      "msg": "Invalid proof account mint"
+    },
+    {
+      "code": 6023,
+      "name": "InvalidProofAccountRecipient",
+      "msg": "Invalid proof account recipient"
+    },
+    {
+      "code": 6024,
+      "name": "InvalidProofAccountDestination",
+      "msg": "Invalid proof account destination"
+    },
+    {
+      "code": 6025,
       "name": "CircuitNotAllowed",
       "msg": "Circuit not allowed"
     },
     {
-      "code": 6019,
+      "code": 6026,
       "name": "AmountMismatch",
       "msg": "Amount mismatch"
     },
     {
-      "code": 6020,
+      "code": 6027,
       "name": "FeeMismatch",
       "msg": "Fee mismatch"
     },
     {
-      "code": 6021,
+      "code": 6028,
       "name": "InvalidOutputFlags",
       "msg": "Invalid output flags"
     },
     {
-      "code": 6022,
+      "code": 6029,
       "name": "MissingNullifierAccount",
       "msg": "Missing nullifier account"
     },
     {
-      "code": 6023,
+      "code": 6030,
       "name": "UnsupportedSolDelivery",
       "msg": "Unsupported SOL delivery"
     },
     {
-      "code": 6024,
+      "code": 6031,
       "name": "InvalidRecipientTokenAccount",
       "msg": "Invalid recipient token account"
     },
     {
-      "code": 6025,
+      "code": 6032,
       "name": "InvalidTempAccount",
       "msg": "Invalid temporary WSOL account"
     }
@@ -1906,6 +2462,34 @@
           {
             "name": "public_inputs",
             "type": "bytes"
+          },
+          {
+            "name": "relayer_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "new_root",
+            "type": "bytes"
+          },
+          {
+            "name": "output_ciphertexts",
+            "type": "bytes"
+          },
+          {
+            "name": "deliver_sol",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ExternalTransferWithProofArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
           },
           {
             "name": "relayer_fee_bps",
@@ -2024,6 +2608,22 @@
       }
     },
     {
+      "name": "InternalTransferWithProofArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "new_root",
+            "type": "bytes"
+          },
+          {
+            "name": "output_ciphertexts",
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
       "name": "NoteOutputEvent",
       "type": {
         "kind": "struct",
@@ -2086,6 +2686,46 @@
           {
             "name": "count",
             "type": "u32"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProofAccount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "destination_ata",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "proof",
+            "type": "bytes"
+          },
+          {
+            "name": "public_inputs",
+            "type": "bytes"
           },
           {
             "name": "bump",
@@ -2158,6 +2798,38 @@
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StoreProofArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "destination_ata",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "proof",
+            "type": "bytes"
+          },
+          {
+            "name": "public_inputs",
+            "type": "bytes"
           }
         ]
       }

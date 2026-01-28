@@ -156,12 +156,20 @@ async function loadRelayerKeypair(): Promise<Keypair> {
   return cachedRelayerKeypair;
 }
 
+const parsePublicKey = (label: string, value: string) => {
+  try {
+    return new PublicKey(value);
+  } catch {
+    throw new Error(`Invalid public key input for ${label}: ${value}`);
+  }
+};
+
 function assertAllowedPrograms(programIds: PublicKey[]) {
   const allowedProgramIds = (process.env.RELAYER_ALLOWED_PROGRAMS || "")
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean)
-    .map((value) => new PublicKey(value));
+    .map((value) => parsePublicKey("RELAYER_ALLOWED_PROGRAMS", value));
   if (allowedProgramIds.length === 0) {
     throw new Error("RELAYER_ALLOWED_PROGRAMS not configured");
   }
@@ -174,7 +182,7 @@ function assertAllowedPrograms(programIds: PublicKey[]) {
 
 const getLutAddress = () => {
   const lut = (process.env.RELAYER_LUT_ADDRESS || "").trim();
-  return lut ? new PublicKey(lut) : null;
+  return lut ? parsePublicKey("RELAYER_LUT_ADDRESS", lut) : null;
 };
 
 const getMissingLutAddresses = (
@@ -192,6 +200,29 @@ const getMissingLutAddresses = (
     }
   }
   return missing;
+};
+
+const decodeShortvecLen = (bytes: Uint8Array, offset = 0) => {
+  let length = 0;
+  let size = 0;
+  let shift = 0;
+  while (true) {
+    const byte = bytes[offset + size];
+    length |= (byte & 0x7f) << shift;
+    size += 1;
+    if ((byte & 0x80) === 0) break;
+    shift += 7;
+  }
+  return { length, size };
+};
+
+const isVersionedTransaction = (bytes: Uint8Array) => {
+  const { length: sigCount, size } = decodeShortvecLen(bytes);
+  const messageOffset = size + sigCount * 64;
+  if (messageOffset >= bytes.length) {
+    return false;
+  }
+  return (bytes[messageOffset] & 0x80) !== 0;
 };
 
 async function extendLookupTable(
@@ -304,7 +335,7 @@ async function syncLookupTableFromClient(
   }
   const missing = clientAddresses
     .slice(onChain.length)
-    .map((addr) => new PublicKey(addr));
+    .map((addr) => parsePublicKey("lookupTableAddresses", addr));
   if (missing.length === 0) {
     return;
   }
@@ -326,7 +357,7 @@ app.post("/execute-relayed", async (req, res) => {
     if (parsed.data.expiresAt && Date.now() > parsed.data.expiresAt) {
       throw new Error("Relayer intent expired");
     }
-    const signer = new PublicKey(parsed.data.signer);
+    const signer = parsePublicKey("signer", parsed.data.signer);
     if (!parsed.data.expiresAt) {
       throw new Error("Relayer intent missing expiresAt");
     }
@@ -352,16 +383,14 @@ app.post("/execute-relayed", async (req, res) => {
     }
     const relayerKeypair = await loadRelayerKeypair();
     const txBytes = Buffer.from(parsed.data.transaction, "base64");
-    const txFirstByte = txBytes[0];
     console.log("[relayer] tx bytes", {
       base64Length: parsed.data.transaction.length,
       decodedLength: txBytes.length,
-      firstByte: txFirstByte,
-      versioned: (txFirstByte & 0x80) !== 0,
+      firstByte: txBytes[0],
+      versioned: isVersionedTransaction(txBytes),
     });
-    const isVersioned = (txBytes[0] & 0x80) !== 0;
     let signature: string;
-    if (!isVersioned) {
+    if (!isVersionedTransaction(txBytes)) {
       throw new Error("Legacy transactions are not supported.");
     }
     const tx = VersionedTransaction.deserialize(txBytes);

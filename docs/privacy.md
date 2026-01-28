@@ -10,6 +10,7 @@ This document explains what is (and is not) anonymous in the current app flows. 
 - **Encrypted note outputs are emitted on-chain** to enable view‑key scanning and wallet recovery.
 - **Ciphertexts use ECIES-style encryption on BabyJub** (DH shared secret + masking). Recipients need the private view key to decrypt.
 - **Nullifier sets are stored in paged on-chain accounts**; the account list can reveal which nullifier chunk was touched unless padding is used.
+- **Proofs are uploaded in a separate transaction** (`store_proof`) and consumed in the transfer instructions (`*_with_proof`), with the proof account closed after use to reclaim rent.
 
 ## What the current flows do
 
@@ -43,6 +44,7 @@ Privacy impact:
 Key behaviors:
 - Spends an existing note and creates a new note for the recipient.
 - Computes path and new root locally, verifies on‑chain root.
+- Uploads the proof to a temporary on‑chain proof account, then consumes it in `internal_transfer_with_proof`.
 - Adds the new note to local storage.
 
 Privacy impact:
@@ -53,6 +55,7 @@ Privacy impact:
 
 Key behaviors:
 - Proves spend from a real note.
+- Uploads the proof to a temporary on‑chain proof account, then consumes it in `external_transfer_with_proof`.
 - Sends tokens to the recipient ATA on‑chain.
 
 Privacy impact:

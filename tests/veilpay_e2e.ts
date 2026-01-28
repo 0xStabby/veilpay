@@ -6,6 +6,7 @@ import path from "path";
 import { execFileSync } from "child_process";
 import * as snarkjs from "snarkjs";
 import nacl from "tweetnacl";
+import { randomBytes } from "crypto";
 import {
   createMint,
   getAssociatedTokenAddress,
@@ -20,6 +21,7 @@ import {
 import {
   AddressLookupTableAccount,
   AddressLookupTableProgram,
+  ComputeBudgetProgram,
   Keypair,
   PublicKey,
   SystemProgram,
@@ -35,7 +37,7 @@ import {
 } from "../sdk/src/noteStore";
 import { buildMerkleTree, getMerklePath, MERKLE_DEPTH } from "../sdk/src/merkle";
 import { computeNullifier } from "../sdk/src/prover";
-import { deriveNullifierSet } from "../sdk/src/pda";
+import { deriveNullifierSet, deriveProofAccount } from "../sdk/src/pda";
 import {
   getIdentityMerklePath,
   getIdentityCommitment,
@@ -61,6 +63,11 @@ const bigIntToBytes32 = (value: bigint): Uint8Array => {
 const hexToBytes32 = (value: string): Buffer => {
   const clean = value.startsWith("0x") ? value.slice(2) : value;
   return Buffer.from(clean.padStart(64, "0"), "hex");
+};
+
+const randomNonce = (): bigint => {
+  const bytes = randomBytes(8);
+  return bytes.readBigUInt64LE(0);
 };
 
 class MemoryStorage {
@@ -431,10 +438,14 @@ const sendVersionedWithLookupTable = async (params: {
   const {
     value: { blockhash, lastValidBlockHeight },
   } = await connection.getLatestBlockhashAndContext();
+  const computeIxs = [
+    ComputeBudgetProgram.setComputeUnitLimit({ units: 250_000 }),
+    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1_000 }),
+  ];
   const message = new TransactionMessage({
     payerKey: payer.publicKey,
     recentBlockhash: blockhash,
-    instructions,
+    instructions: [...computeIxs, ...instructions],
   }).compileToV0Message([lookupTable]);
   const tx = new VersionedTransaction(message);
   tx.sign([payer]);
@@ -1252,10 +1263,30 @@ describe("veilpay e2e (real groth16)", () => {
       nullifiers: internalInputs.nullifierValues,
     });
     const internalPrimaryNullifier = internalNullifierSets[0];
-    const internalIx = await program.methods
-      .internalTransfer({
+    const internalProofNonce = randomNonce();
+    const internalProofAccount = deriveProofAccount(
+      program.programId,
+      provider.wallet.publicKey,
+      internalProofNonce
+    );
+    const storeInternalIx = await program.methods
+      .storeProof({
+        nonce: new anchor.BN(internalProofNonce.toString()),
+        recipient: provider.wallet.publicKey,
+        destinationAta: provider.wallet.publicKey,
+        mint: splMint,
         proof: internalProof.proofBytes,
         publicInputs: internalProof.publicInputsBytes,
+      })
+      .accounts({
+        proofAccount: internalProofAccount,
+        proofOwner: provider.wallet.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction();
+    await provider.sendAndConfirm(new anchor.web3.Transaction().add(storeInternalIx));
+    const internalIx = await program.methods
+      .internalTransferWithProof({
         newRoot: buf(bigIntToBytes32(internalRoot)),
         outputCiphertexts: buildOutputCiphertexts(internalOutputNotes, internalOutputsEnabled),
       })
@@ -1264,6 +1295,8 @@ describe("veilpay e2e (real groth16)", () => {
         shieldedState: splShieldedPda,
         identityRegistry: identityRegistryPda,
         nullifierSet: internalPrimaryNullifier,
+        proofAccount: internalProofAccount,
+        proofOwner: provider.wallet.publicKey,
         verifierProgram: verifierProgram.programId,
         verifierKey: realVerifierKeyPda,
         mint: splMint,
@@ -1329,11 +1362,31 @@ describe("veilpay e2e (real groth16)", () => {
     const externalPrimaryNullifier = externalNullifierSets[0];
     const tempAuthority = await deriveTempAuthority(program, splVaultPda, recipient.publicKey);
     const tempWsolAta = await getAssociatedTokenAddress(splMint, tempAuthority, true);
-    const externalIx = await program.methods
-      .externalTransfer({
-        amount: new anchor.BN(150_000),
+    const externalProofNonce = randomNonce();
+    const externalProofAccount = deriveProofAccount(
+      program.programId,
+      provider.wallet.publicKey,
+      externalProofNonce
+    );
+    const storeExternalIx = await program.methods
+      .storeProof({
+        nonce: new anchor.BN(externalProofNonce.toString()),
+        recipient: recipient.publicKey,
+        destinationAta: recipientAta,
+        mint: splMint,
         proof: externalProof.proofBytes,
         publicInputs: externalProof.publicInputsBytes,
+      })
+      .accounts({
+        proofAccount: externalProofAccount,
+        proofOwner: provider.wallet.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction();
+    await provider.sendAndConfirm(new anchor.web3.Transaction().add(storeExternalIx));
+    const externalIx = await program.methods
+      .externalTransferWithProof({
+        amount: new anchor.BN(150_000),
         relayerFeeBps: 0,
         newRoot: buf(bigIntToBytes32(externalRoot)),
         outputCiphertexts: buildOutputCiphertexts([null, changeNote.note], [0, 1]),
@@ -1347,6 +1400,8 @@ describe("veilpay e2e (real groth16)", () => {
         shieldedState: splShieldedPda,
         identityRegistry: identityRegistryPda,
         nullifierSet: externalPrimaryNullifier,
+        proofAccount: externalProofAccount,
+        proofOwner: provider.wallet.publicKey,
         destinationAta: recipientAta,
         recipient: recipient.publicKey,
         tempAuthority,
@@ -1517,11 +1572,31 @@ describe("veilpay e2e (real groth16)", () => {
     const wsolPrimaryNullifier = wsolNullifierSets[0];
     const wsolTempAuthority = await deriveTempAuthority(program, wsolVaultPda, wsolRecipient.publicKey);
     const wsolTempWsolAta = await getAssociatedTokenAddress(wsolMint, wsolTempAuthority, true);
-    const wsolIx = await program.methods
-      .externalTransfer({
-        amount: new anchor.BN(50_000),
+    const wsolProofNonce = randomNonce();
+    const wsolProofAccount = deriveProofAccount(
+      program.programId,
+      provider.wallet.publicKey,
+      wsolProofNonce
+    );
+    const storeWsolIx = await program.methods
+      .storeProof({
+        nonce: new anchor.BN(wsolProofNonce.toString()),
+        recipient: wsolRecipient.publicKey,
+        destinationAta: wsolRecipientAta,
+        mint: wsolMint,
         proof: wsolProof.proofBytes,
         publicInputs: wsolProof.publicInputsBytes,
+      })
+      .accounts({
+        proofAccount: wsolProofAccount,
+        proofOwner: provider.wallet.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction();
+    await provider.sendAndConfirm(new anchor.web3.Transaction().add(storeWsolIx));
+    const wsolIx = await program.methods
+      .externalTransferWithProof({
+        amount: new anchor.BN(50_000),
         relayerFeeBps: 0,
         newRoot: buf(bigIntToBytes32(wsolDepositRoot)),
         outputCiphertexts: Buffer.alloc(0),
@@ -1535,6 +1610,8 @@ describe("veilpay e2e (real groth16)", () => {
         shieldedState: wsolShieldedPda,
         identityRegistry: identityRegistryPda,
         nullifierSet: wsolPrimaryNullifier,
+        proofAccount: wsolProofAccount,
+        proofOwner: provider.wallet.publicKey,
         destinationAta: wsolRecipientAta,
         recipient: wsolRecipient.publicKey,
         tempAuthority: wsolTempAuthority,

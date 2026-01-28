@@ -190,41 +190,56 @@ All account metas specify signer/writable. PDA derivations are checked in-progra
   - token_program
 - Behavior: verify proof, check nullifier unused, mark nullifier, transfer amount minus fee to recipient, fee to relayer.
 
-8) internal_transfer(proof, public_inputs, nullifier, root, new_root, ciphertext_new, recipient_tag_hash)
+8) store_proof(nonce, recipient, destination_ata, mint, proof, public_inputs)
+- Accounts:
+  - proof_account_pda (init, writable; seeds: ["proof", proof_owner, nonce])
+  - proof_owner (signer, writable)
+  - system_program
+- Behavior: stores proof + public inputs for two‑tx flows (internal or external).
+
+9) internal_transfer_with_proof(new_root, output_ciphertexts)
 - Accounts:
   - config_pda (read)
   - shielded_state_pda (writable)
   - nullifier_set_pda (writable)
+  - proof_account_pda (writable, closed to proof_owner)
+  - proof_owner (read, writable)
   - verifier_program (read)
   - verifier_key_pda (read)
   - mint (read)
 - Behavior: consumes a note and creates a new commitment; no token movement.
 
-9) external_transfer(proof, public_inputs, nullifier, root, amount, relayer_fee_bps, destination_ata)
+10) external_transfer_with_proof(amount, relayer_fee_bps, new_root, output_ciphertexts, deliver_sol)
 - Accounts:
   - config_pda (read)
   - vault_pda (writable)
   - vault_ata (writable)
   - shielded_state_pda (read)
   - nullifier_set_pda (writable)
+  - proof_account_pda (writable, closed to proof_owner)
+  - proof_owner (read, writable)
   - destination_ata (writable)
+  - recipient (writable)
   - relayer_fee_ata (writable, optional)
   - verifier_program (read)
   - verifier_key_pda (read)
   - mint (read)
   - token_program
-- Behavior: amount visible; sender unlinkability preserved via proof.
+- Behavior: amount visible; sender unlinkability preserved via proof. Proof account must match recipient/destination/mint; account is closed after use (rent reclaimed).
 
-12) verifier.initialize_verifier_key(key_id, vk_components)
+11) external_transfer(proof, public_inputs, nullifier, root, amount, relayer_fee_bps, destination_ata)
+- Legacy single‑tx variant retained for compatibility; may exceed transaction size limits with real proofs.
+
+13) verifier.initialize_verifier_key(key_id, vk_components)
 - Accounts:
   - verifier_key_pda (writable)
   - admin (signer)
   - system_program
 - Behavior: stores Groth16 verifying key in EIP-197 byte layout.
 
-Optional two-step flow
-- upload_proof(intent) -> returns id/nonce (proof_pda)
-- execute_transfer(proof_pda, relayer_fee_bps, recipient_ata)
+Two-step external flow (preferred)
+- store_proof(...) -> creates proof_pda
+- external_transfer_with_proof(...) -> consumes proof_pda and closes it
 
 ## Cryptography
 

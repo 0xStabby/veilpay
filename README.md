@@ -8,9 +8,11 @@ VeilPay is a Solana privacy-preserving payments protocol that uses escrow vaults
 - `programs/` - Anchor programs (`veilpay`, `verifier`).
 - `relayer/` - Node relayer that validates intents and submits transactions.
 - `sdk/` - TypeScript client helpers and PDA derivations.
+- `sdk/README.md` - SDK quickstart and module overview.
 - `circuits/` - Groth16 circuits and artifacts.
 - `scripts/` - Devnet setup, deployment, and maintenance scripts.
 - `SPEC.md` - Protocol spec and on-chain state details.
+- `docs/sdk.md` - Detailed SDK guide and flow examples.
 
 ## Quickstart (web app)
 
