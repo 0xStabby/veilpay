@@ -186,7 +186,7 @@ export const RunbookCard: FC<RunbookCardProps> = ({
                     <div className={styles.section}>
                         <ul className={styles.list}>
                             <li>Deposit: enter amount, confirm.</li>
-                            <li>Withdraw: enter amount + recipient wallet.</li>
+                            <li>Withdraw: enter amount (sends to your wallet).</li>
                             <li>Internal transfer: send privately to another VeilPay user.</li>
                             <li>External transfer: send to any wallet.</li>
                         </ul>

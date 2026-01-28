@@ -5,7 +5,7 @@ import { PublicKey } from '@solana/web3.js';
 import { useWallet } from '@solana/wallet-adapter-react';
 import styles from './UserWithdrawCard.module.css';
 import { formatTokenAmount } from '../../lib/amount';
-import { runWithdrawFlow } from '../../lib/flows';
+import { runExternalTransferFlow } from '../../lib/flows';
 import { WSOL_MINT } from '../../lib/config';
 
 const DEFAULT_AMOUNT = '100000';
@@ -42,10 +42,9 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
     embedded = false,
 }) => {
     const [amount, setAmount] = useState(DEFAULT_AMOUNT);
-    const [recipient, setRecipient] = useState('');
     const [withdrawAsset, setWithdrawAsset] = useState<'sol' | 'wsol'>('sol');
     const [busy, setBusy] = useState(false);
-    const { signMessage } = useWallet();
+    const { signMessage, publicKey } = useWallet();
 
     const parsedMint = useMemo(() => {
         if (!mintAddress) return null;
@@ -56,14 +55,6 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
         }
     }, [mintAddress]);
 
-    const parsedRecipient = useMemo(() => {
-        if (!recipient) return null;
-        try {
-            return new PublicKey(recipient);
-        } catch {
-            return null;
-        }
-    }, [recipient]);
     const supportsSol = useMemo(() => parsedMint?.equals(WSOL_MINT) ?? false, [parsedMint]);
 
     useEffect(() => {
@@ -73,18 +64,18 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
     }, [withdrawAsset, supportsSol]);
 
     const handleWithdraw = async () => {
-        if (!veilpayProgram || !parsedMint || !parsedRecipient || mintDecimals === null) return;
+        if (!veilpayProgram || !parsedMint || !publicKey || mintDecimals === null) return;
         const asset = supportsSol ? withdrawAsset : 'wsol';
         setBusy(true);
         try {
-            const result = await runWithdrawFlow({
+            const result = await runExternalTransferFlow({
                 program: veilpayProgram,
                 verifierProgram,
                 mint: parsedMint,
-                recipient: parsedRecipient,
+                recipient: publicKey,
                 amount,
                 mintDecimals,
-                withdrawAsset: asset,
+                deliverAsset: asset,
                 root,
                 nextNullifier,
                 onStatus,
@@ -101,7 +92,7 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
                         status: 'confirmed',
                         details: {
                             mint: parsedMint.toBase58(),
-                            recipient: parsedRecipient.toBase58(),
+                            recipient: publicKey.toBase58(),
                             amount,
                             amountBaseUnits: result.amountBaseUnits.toString(),
                             nullifier: result.nullifier.toString(),
@@ -167,13 +158,9 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
                     </button>
                 )}
             </div>
-            <label className={styles.label}>
-                Recipient wallet
-                <input value={recipient} onChange={(event) => setRecipient(event.target.value)} />
-            </label>
             <button
                 className={styles.button}
-                disabled={!parsedRecipient || !parsedMint || mintDecimals === null || busy}
+                disabled={!publicKey || !parsedMint || mintDecimals === null || busy}
                 onClick={handleWithdraw}
             >
                 Withdraw

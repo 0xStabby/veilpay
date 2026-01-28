@@ -20,7 +20,7 @@ The SDK focuses on:
 - Note creation and encryption (BabyJub ECIES)
 - Merkle trees and paths for commitments
 - PDA derivation
-- Instruction builders for deposits/withdrawals
+- Instruction builders for deposits
 - Local note and commitment storage (browser)
 - Log scanners for note outputs and identity registry
 
@@ -170,6 +170,10 @@ Same as internal transfer, but:
 - Transfers tokens to a public destination ATA.
 - Uses `external_transfer_with_proof`.
 
+### Withdraw (UI behavior)
+
+“Withdraw” is implemented as an external transfer to the current wallet’s ATA, so you only need the external transfer flow.
+
 ## Proof account flow details
 
 The proof PDA is derived as:
@@ -192,4 +196,3 @@ The proof account is closed after use to reclaim rent.
 - Note store out of sync with on‑chain `commitment_count`.
 - External transfers are public by design (destination ATA is on‑chain).
 - Nullifier chunk accounts may leak coarse metadata unless padding is used.
-

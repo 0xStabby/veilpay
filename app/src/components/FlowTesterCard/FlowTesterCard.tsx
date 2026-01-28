@@ -6,7 +6,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import styles from './FlowTesterCard.module.css';
 import { formatTokenAmount, parseTokenAmount } from '../../lib/amount';
 import { Buffer } from 'buffer';
-import { runDepositFlow, runExternalTransferFlow, runInternalTransferFlow, runWithdrawFlow } from '../../lib/flows';
+import { runDepositFlow, runExternalTransferFlow, runInternalTransferFlow } from '../../lib/flows';
 import { WSOL_MINT } from '../../lib/config';
 import { rescanNotesForOwner } from '../../lib/noteScanner';
 import { deriveViewKeypair, parseViewKey, serializeViewKey } from '../../lib/notes';
@@ -241,16 +241,15 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
                 type: 'debit' as const,
                 run: async () => {
                     const { useAmount, amountString } = computeDebitAmount('Withdraw');
-                    const withdrawAsset =
-                        parsedMint.equals(WSOL_MINT) && publicKey?.equals(parsedRecipient) ? 'sol' : 'wsol';
-                    const result = await runWithdrawFlow({
+                    const deliverAsset = parsedMint.equals(WSOL_MINT) ? 'sol' : 'wsol';
+                    const result = await runExternalTransferFlow({
                         program: veilpayProgram,
                         verifierProgram,
                         mint: parsedMint,
-                        recipient: parsedRecipient,
+                        recipient: publicKey,
                         amount: amountString,
                         mintDecimals,
-                        withdrawAsset,
+                        deliverAsset,
                         root: rootRef.current,
                         nextNullifier,
                         onStatus,
@@ -269,7 +268,7 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
                                 status: 'confirmed',
                                 details: {
                                     mint: parsedMint.toBase58(),
-                                    recipient: parsedRecipient.toBase58(),
+                                    recipient: publicKey.toBase58(),
                                     amount: amountString,
                                     amountBaseUnits: result.amountBaseUnits.toString(),
                                     nullifier: result.nullifier.toString(),

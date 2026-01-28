@@ -51,6 +51,7 @@ import {
 import { buildMerkleTree } from "../sdk/src/merkle";
 import { computeIdentityCommitment } from "../sdk/src/prover";
 import { selectNotesForAmount } from "../sdk/src/noteStore";
+import { deriveProofAccount } from "../sdk/src/pda";
 
 const NULLIFIER = new Uint8Array(32);
 NULLIFIER[0] = 0;
@@ -233,7 +234,7 @@ const makePublicInputs = (params: {
 const dummyG1 = Buffer.alloc(64);
 const dummyG2 = Buffer.alloc(128);
 const dummyGammaAbc = [Buffer.alloc(64)];
-const dummyProof = Buffer.alloc(32);
+    const dummyProof = Buffer.alloc(256);
 
 class MemoryStorage {
   private store = new Map<string, string>();
@@ -298,6 +299,9 @@ describe("veilpay", () => {
       );
     return { rootBytes, identityRootBytes };
   };
+
+  let proofNonce = 1n;
+  const nextProofNonce = () => proofNonce++;
 
   it("initializes config and registry", async () => {
     const [configPda] = PublicKey.findProgramAddressSync(
@@ -498,7 +502,7 @@ describe("veilpay", () => {
     assert.equal(vault.mint.toBase58(), mint.toBase58());
   });
 
-  it("deposits and withdraws with mock proof", async () => {
+  it("deposits and external transfers with mock proof", async () => {
     const [configPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("config"), program.programId.toBuffer()],
       program.programId
@@ -556,11 +560,32 @@ describe("veilpay", () => {
       circuitId: 0,
     });
 
+    const proofOwner = provider.wallet.publicKey;
+    const proofNonce = nextProofNonce();
+    const proofAccount = deriveProofAccount(
+      program.programId,
+      proofOwner,
+      proofNonce
+    );
     await program.methods
-      .withdraw({
-        amount: new anchor.BN(100_000),
+      .storeProof({
+        nonce: new anchor.BN(proofNonce.toString()),
+        recipient: recipient.publicKey,
+        destinationAta: recipientAta,
+        mint,
         proof: dummyProof,
         publicInputs,
+      })
+      .accounts({
+        proofAccount,
+        proofOwner,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    await program.methods
+      .externalTransferWithProof({
+        amount: new anchor.BN(100_000),
         relayerFeeBps: 0,
         newRoot: buf(NEW_ROOT),
         outputCiphertexts: Buffer.alloc(0),
@@ -574,7 +599,9 @@ describe("veilpay", () => {
         shieldedState: shieldedPda,
         identityRegistry: identityRegistryPda,
         nullifierSet: nullifierPda,
-        recipientAta,
+        proofAccount,
+        proofOwner,
+        destinationAta: recipientAta,
         recipient: recipient.publicKey,
         tempAuthority,
         tempWsolAta,
@@ -592,7 +619,7 @@ describe("veilpay", () => {
     assert.equal(Number(recipientAccount.amount), 100_000);
   });
 
-  it("pays relayer fee on withdraw", async () => {
+  it("pays relayer fee on external transfer", async () => {
     const [configPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("config"), program.programId.toBuffer()],
       program.programId
@@ -632,11 +659,32 @@ describe("veilpay", () => {
       circuitId: 0,
     });
 
-    const withdrawIx = await program.methods
-      .withdraw({
-        amount: new anchor.BN(100_000),
+    const feeProofOwner = provider.wallet.publicKey;
+    const feeProofNonce = nextProofNonce();
+    const feeProofAccount = deriveProofAccount(
+      program.programId,
+      feeProofOwner,
+      feeProofNonce
+    );
+    await program.methods
+      .storeProof({
+        nonce: new anchor.BN(feeProofNonce.toString()),
+        recipient: recipient.publicKey,
+        destinationAta: recipientAta,
+        mint,
         proof: dummyProof,
         publicInputs,
+      })
+      .accounts({
+        proofAccount: feeProofAccount,
+        proofOwner: feeProofOwner,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    const withdrawIx = await program.methods
+      .externalTransferWithProof({
+        amount: new anchor.BN(100_000),
         relayerFeeBps: 25,
         newRoot: buf(NEW_ROOT),
         outputCiphertexts: Buffer.alloc(0),
@@ -650,7 +698,9 @@ describe("veilpay", () => {
         shieldedState: shieldedPda,
         identityRegistry: identityRegistryPda,
         nullifierSet: nullifierPda,
-        recipientAta,
+        proofAccount: feeProofAccount,
+        proofOwner: feeProofOwner,
+        destinationAta: recipientAta,
         recipient: recipient.publicKey,
         tempAuthority,
         tempWsolAta,
@@ -713,11 +763,31 @@ describe("veilpay", () => {
         feeAmount: 0n,
         circuitId: 0,
       });
+      const dsProofOwner = provider.wallet.publicKey;
+      const dsProofNonce = nextProofNonce();
+      const dsProofAccount = deriveProofAccount(
+        program.programId,
+        dsProofOwner,
+        dsProofNonce
+      );
       await program.methods
-        .withdraw({
-          amount: new anchor.BN(10_000),
+        .storeProof({
+          nonce: new anchor.BN(dsProofNonce.toString()),
+          recipient: recipient.publicKey,
+          destinationAta: recipientAta,
+          mint,
           proof: dummyProof,
           publicInputs,
+        })
+        .accounts({
+          proofAccount: dsProofAccount,
+          proofOwner: dsProofOwner,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+      await program.methods
+        .externalTransferWithProof({
+          amount: new anchor.BN(10_000),
           relayerFeeBps: 0,
           newRoot: buf(NEW_ROOT),
           outputCiphertexts: Buffer.alloc(0),
@@ -731,7 +801,9 @@ describe("veilpay", () => {
           shieldedState: shieldedPda,
           identityRegistry: identityRegistryPda,
           nullifierSet: nullifierPda,
-          recipientAta,
+          proofAccount: dsProofAccount,
+          proofOwner: dsProofOwner,
+          destinationAta: recipientAta,
           recipient: recipient.publicKey,
           tempAuthority,
           tempWsolAta,
@@ -783,16 +855,36 @@ describe("veilpay", () => {
         feeAmount: 0n,
         circuitId: 0,
       });
+      const urProofOwner = provider.wallet.publicKey;
+      const urProofNonce = nextProofNonce();
+      const urProofAccount = deriveProofAccount(
+        program.programId,
+        urProofOwner,
+        urProofNonce
+      );
       await program.methods
-      .withdraw({
-        amount: new anchor.BN(10_000),
-        proof: dummyProof,
-        publicInputs,
-        relayerFeeBps: 0,
-        newRoot: buf(NEW_ROOT),
-        outputCiphertexts: Buffer.alloc(0),
-        deliverSol: false,
-      })
+        .storeProof({
+          nonce: new anchor.BN(urProofNonce.toString()),
+          recipient: recipient.publicKey,
+          destinationAta: recipientAta,
+          mint,
+          proof: dummyProof,
+          publicInputs,
+        })
+        .accounts({
+          proofAccount: urProofAccount,
+          proofOwner: urProofOwner,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+      await program.methods
+        .externalTransferWithProof({
+          amount: new anchor.BN(10_000),
+          relayerFeeBps: 0,
+          newRoot: buf(NEW_ROOT),
+          outputCiphertexts: Buffer.alloc(0),
+          deliverSol: false,
+        })
         .accounts({
           config: configPda,
           payer: provider.wallet.publicKey,
@@ -801,7 +893,9 @@ describe("veilpay", () => {
           shieldedState: shieldedPda,
           identityRegistry: identityRegistryPda,
           nullifierSet: nullifierPda,
-          recipientAta,
+          proofAccount: urProofAccount,
+          proofOwner: urProofOwner,
+          destinationAta: recipientAta,
           recipient: recipient.publicKey,
           tempAuthority,
           tempWsolAta,
@@ -844,10 +938,30 @@ describe("veilpay", () => {
       circuitId: 0,
     });
 
+    const internalProofOwner = provider.wallet.publicKey;
+    const internalProofNonce = nextProofNonce();
+    const internalProofAccount = deriveProofAccount(
+      program.programId,
+      internalProofOwner,
+      internalProofNonce
+    );
     await program.methods
-      .internalTransfer({
+      .storeProof({
+        nonce: new anchor.BN(internalProofNonce.toString()),
+        recipient: internalProofOwner,
+        destinationAta: internalProofOwner,
+        mint,
         proof: dummyProof,
         publicInputs: internalInputs,
+      })
+      .accounts({
+        proofAccount: internalProofAccount,
+        proofOwner: internalProofOwner,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+    await program.methods
+      .internalTransferWithProof({
         newRoot: buf(internalRoot),
         outputCiphertexts: Buffer.alloc(128),
       })
@@ -856,6 +970,8 @@ describe("veilpay", () => {
         shieldedState: shieldedPda,
         identityRegistry: identityRegistryPda,
         nullifierSet: nullifierPda,
+        proofAccount: internalProofAccount,
+        proofOwner: internalProofOwner,
         verifierProgram: verifierProgram.programId,
         verifierKey: verifierKeyPda,
         mint,
@@ -891,11 +1007,31 @@ describe("veilpay", () => {
       circuitId: 0,
     });
 
-    const externalIx = await program.methods
-      .externalTransfer({
-        amount: new anchor.BN(25_000),
+    const extProofOwner = provider.wallet.publicKey;
+    const extProofNonce = nextProofNonce();
+    const extProofAccount = deriveProofAccount(
+      program.programId,
+      extProofOwner,
+      extProofNonce
+    );
+    await program.methods
+      .storeProof({
+        nonce: new anchor.BN(extProofNonce.toString()),
+        recipient: recipient.publicKey,
+        destinationAta: recipientAta,
+        mint,
         proof: dummyProof,
         publicInputs: externalInputs,
+      })
+      .accounts({
+        proofAccount: extProofAccount,
+        proofOwner: extProofOwner,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+    const externalIx = await program.methods
+      .externalTransferWithProof({
+        amount: new anchor.BN(25_000),
         relayerFeeBps: 0,
         newRoot: buf(NEW_ROOT),
         outputCiphertexts: Buffer.alloc(0),
@@ -909,6 +1045,8 @@ describe("veilpay", () => {
         shieldedState: shieldedPda,
         identityRegistry: identityRegistryPda,
         nullifierSet: nullifierPda,
+        proofAccount: extProofAccount,
+        proofOwner: extProofOwner,
         destinationAta: recipientAta,
         recipient: recipient.publicKey,
         tempAuthority,
@@ -1029,10 +1167,30 @@ describe("veilpay", () => {
       circuitId: 0,
     });
 
+    const wsolInternalProofOwner = provider.wallet.publicKey;
+    const wsolInternalProofNonce = nextProofNonce();
+    const wsolInternalProofAccount = deriveProofAccount(
+      program.programId,
+      wsolInternalProofOwner,
+      wsolInternalProofNonce
+    );
     await program.methods
-      .internalTransfer({
+      .storeProof({
+        nonce: new anchor.BN(wsolInternalProofNonce.toString()),
+        recipient: wsolInternalProofOwner,
+        destinationAta: wsolInternalProofOwner,
+        mint: wsolMint,
         proof: dummyProof,
         publicInputs: internalInputs,
+      })
+      .accounts({
+        proofAccount: wsolInternalProofAccount,
+        proofOwner: wsolInternalProofOwner,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+    await program.methods
+      .internalTransferWithProof({
         newRoot: buf(internalRoot),
         outputCiphertexts: Buffer.alloc(128),
       })
@@ -1041,6 +1199,8 @@ describe("veilpay", () => {
         shieldedState: wsolShieldedPda,
         identityRegistry: identityRegistryPda,
         nullifierSet: wsolNullifierPda,
+        proofAccount: wsolInternalProofAccount,
+        proofOwner: wsolInternalProofOwner,
         verifierProgram: verifierProgram.programId,
         verifierKey: verifierKeyPda,
         mint: wsolMint,
@@ -1074,11 +1234,31 @@ describe("veilpay", () => {
     });
 
     const beforeBalance = await provider.connection.getBalance(recipient.publicKey);
+    const wsolExtProofOwner = provider.wallet.publicKey;
+    const wsolExtProofNonce = nextProofNonce();
+    const wsolExtProofAccount = deriveProofAccount(
+      program.programId,
+      wsolExtProofOwner,
+      wsolExtProofNonce
+    );
     await program.methods
-      .externalTransfer({
-        amount: new anchor.BN(amountOut.toString()),
+      .storeProof({
+        nonce: new anchor.BN(wsolExtProofNonce.toString()),
+        recipient: recipient.publicKey,
+        destinationAta: recipientAta,
+        mint: wsolMint,
         proof: dummyProof,
         publicInputs: externalInputs,
+      })
+      .accounts({
+        proofAccount: wsolExtProofAccount,
+        proofOwner: wsolExtProofOwner,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+    await program.methods
+      .externalTransferWithProof({
+        amount: new anchor.BN(amountOut.toString()),
         relayerFeeBps: 0,
         newRoot: buf(NEW_ROOT),
         outputCiphertexts: Buffer.alloc(0),
@@ -1092,6 +1272,8 @@ describe("veilpay", () => {
         shieldedState: wsolShieldedPda,
         identityRegistry: identityRegistryPda,
         nullifierSet: wsolNullifierPda,
+        proofAccount: wsolExtProofAccount,
+        proofOwner: wsolExtProofOwner,
         destinationAta: recipientAta,
         recipient: recipient.publicKey,
         tempAuthority,

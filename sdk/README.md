@@ -64,9 +64,13 @@ Real Groth16 proofs are large; the app uses a two‑tx flow:
 
 Use `deriveProofAccount(programId, owner, nonce)` to compute the PDA. The SDK does not currently expose a high‑level helper for this, but the PDA helper is available.
 
+## Withdraw vs external transfer
+
+The app treats “Withdraw” as an external transfer **to the current wallet**. If you want a single public “cash out” path, use `external_transfer_with_proof` with `recipient = owner`.
+
 ## Module overview
 
-- `client.ts` — `VeilpayClient` for building deposit/withdraw instructions.
+- `client.ts` — `VeilpayClient` for building deposit instructions.
 - `pda.ts` — PDA helpers (config, vault, shielded, nullifier set, verifier key, proof account).
 - `notes.ts` — note creation + ECIES encryption primitives.
 - `noteStore.ts` — localStorage‑backed note/commitment cache (browser).
@@ -79,4 +83,3 @@ Use `deriveProofAccount(programId, owner, nonce)` to compute the PDA. The SDK do
 
 - Browser environment with `localStorage` and `crypto.getRandomValues`.
 - For Node.js, provide WebCrypto and storage polyfills or wrap the SDK.
-

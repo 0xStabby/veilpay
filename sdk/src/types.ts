@@ -9,12 +9,3 @@ export interface ProofBundle {
   proof: Uint8Array;
   publicInputs: Uint8Array;
 }
-
-export interface TransferArgs {
-  amount: bigint;
-  proof: Uint8Array;
-  publicInputs: Uint8Array;
-  nullifier: Nullifier;
-  root: MerkleRoot;
-  relayerFeeBps: number;
-}

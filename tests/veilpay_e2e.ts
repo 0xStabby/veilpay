@@ -574,7 +574,7 @@ describe("veilpay e2e (real groth16)", () => {
     }
   });
 
-  it("runs deposit -> withdraw with real proof", async () => {
+  it("runs deposit -> external transfer to self with real proof", async () => {
     const proofNeedsRegen = () => {
       if (!fs.existsSync(proofPath) || !fs.existsSync(vkFixturePath)) {
         return true;
@@ -863,29 +863,38 @@ describe("veilpay e2e (real groth16)", () => {
       hexToBytes32(solidity.c[1]),
     ]);
     const publicInputs = Buffer.concat(solidity.inputs.map(hexToBytes32));
-    const dummyProof = Buffer.alloc(32);
 
-    const recipient = anchor.web3.Keypair.generate();
-    await ensureSystemAccount(provider.connection, recipient.publicKey);
-    const recipientAta = await createAssociatedTokenAccount(
-      provider.connection,
-      provider.wallet.payer,
-      mint,
-      recipient.publicKey
-    );
-    const tempAuthority = await deriveTempAuthority(program, vaultPda, recipient.publicKey);
+    const recipient = provider.wallet.publicKey;
+    const recipientAta = userAta;
+    const tempAuthority = await deriveTempAuthority(program, vaultPda, recipient);
     const tempWsolAta = await getAssociatedTokenAddress(mint, tempAuthority, true);
 
     await verifierProgram.methods
-      .verifyGroth16(dummyProof, publicInputs)
+      .verifyGroth16(proofBytes, publicInputs)
       .accounts({ verifierKey: verifierKeyPda })
       .rpc();
 
+    const proofNonce = randomNonce();
+    const proofAccount = deriveProofAccount(program.programId, recipient, proofNonce);
     await program.methods
-      .withdraw({
-        amount: new anchor.BN(amount.toString()),
-        proof: dummyProof,
+      .storeProof({
+        nonce: new anchor.BN(proofNonce.toString()),
+        recipient,
+        destinationAta: recipientAta,
+        mint,
+        proof: proofBytes,
         publicInputs,
+      })
+      .accounts({
+        proofAccount,
+        proofOwner: recipient,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    await program.methods
+      .externalTransferWithProof({
+        amount: new anchor.BN(amount.toString()),
         relayerFeeBps: 0,
         newRoot: depositRoot,
         outputCiphertexts: Buffer.alloc(0),
@@ -899,8 +908,10 @@ describe("veilpay e2e (real groth16)", () => {
         shieldedState: shieldedPda,
         identityRegistry: identityRegistryPda,
         nullifierSet: nullifierPda,
-        recipientAta,
-        recipient: recipient.publicKey,
+        proofAccount,
+        proofOwner: recipient,
+        destinationAta: recipientAta,
+        recipient,
         tempAuthority,
         tempWsolAta,
         relayerFeeAta: null,

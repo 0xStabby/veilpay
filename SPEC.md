@@ -92,7 +92,7 @@ PDA Seeds are ASCII byte strings. No per-user PDAs are used.
   - version: u32
 
 4) Note Output Events (on-chain logs)
-- Emitted on deposit/internal/external/withdraw when an output note is created.
+- Emitted on deposit/internal/external when an output note is created.
 - Fields: mint, leaf_index, commitment, ciphertext, kind.
 - Enables view-key scanning for wallet recovery without a trusted indexer.
 
@@ -175,29 +175,14 @@ All account metas specify signer/writable. PDA derivations are checked in-progra
   - token_program
 - Behavior: transfer amount to vault ATA; append commitment/ciphertext; update root history.
 
-7) withdraw(proof, public_inputs, nullifier, root, relayer_fee_bps, recipient_ata)
-- Accounts:
-  - config_pda (read)
-  - vault_pda (writable)
-  - vault_ata (writable)
-  - shielded_state_pda (read)
-  - nullifier_set_pda (writable)
-  - recipient_ata (writable)
-  - relayer_fee_ata (writable, optional)
-  - verifier_program (read)
-  - verifier_key_pda (read)
-  - mint (read)
-  - token_program
-- Behavior: verify proof, check nullifier unused, mark nullifier, transfer amount minus fee to recipient, fee to relayer.
-
-8) store_proof(nonce, recipient, destination_ata, mint, proof, public_inputs)
+7) store_proof(nonce, recipient, destination_ata, mint, proof, public_inputs)
 - Accounts:
   - proof_account_pda (init, writable; seeds: ["proof", proof_owner, nonce])
   - proof_owner (signer, writable)
   - system_program
 - Behavior: stores proof + public inputs for two‑tx flows (internal or external).
 
-9) internal_transfer_with_proof(new_root, output_ciphertexts)
+8) internal_transfer_with_proof(new_root, output_ciphertexts)
 - Accounts:
   - config_pda (read)
   - shielded_state_pda (writable)
@@ -209,7 +194,7 @@ All account metas specify signer/writable. PDA derivations are checked in-progra
   - mint (read)
 - Behavior: consumes a note and creates a new commitment; no token movement.
 
-10) external_transfer_with_proof(amount, relayer_fee_bps, new_root, output_ciphertexts, deliver_sol)
+9) external_transfer_with_proof(amount, relayer_fee_bps, new_root, output_ciphertexts, deliver_sol)
 - Accounts:
   - config_pda (read)
   - vault_pda (writable)
@@ -227,10 +212,10 @@ All account metas specify signer/writable. PDA derivations are checked in-progra
   - token_program
 - Behavior: amount visible; sender unlinkability preserved via proof. Proof account must match recipient/destination/mint; account is closed after use (rent reclaimed).
 
-11) external_transfer(proof, public_inputs, nullifier, root, amount, relayer_fee_bps, destination_ata)
+10) external_transfer(proof, public_inputs, nullifier, root, amount, relayer_fee_bps, destination_ata)
 - Legacy single‑tx variant retained for compatibility; may exceed transaction size limits with real proofs.
 
-13) verifier.initialize_verifier_key(key_id, vk_components)
+12) verifier.initialize_verifier_key(key_id, vk_components)
 - Accounts:
   - verifier_key_pda (writable)
   - admin (signer)
@@ -315,7 +300,7 @@ Key Management
 ## MVP Plan
 
 Stage 0: Escrow (plaintext)
-- Implement vaults and withdrawals with plaintext amounts.
+- Implement vaults and external transfers with plaintext amounts.
 - Tests: Anchor program tests for accounting invariants.
 
 Stage 1: Add ElGamal + mock verifier

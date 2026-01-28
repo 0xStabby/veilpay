@@ -27,7 +27,7 @@ import { AIRDROP_URL, IS_DEVNET, WSOL_MINT } from '../../lib/config';
 import { buildLutVersionedTransaction } from '../../lib/lut';
 import { PubkeyBadge } from '../PubkeyBadge';
 import { wrapSolToWsol } from '../../lib/adminSetup';
-import { runDepositFlow, runExternalTransferFlow, runInternalTransferFlow, runWithdrawFlow } from '../../lib/flows';
+import { runDepositFlow, runExternalTransferFlow, runInternalTransferFlow } from '../../lib/flows';
 import { rescanNotesForOwner } from '../../lib/noteScanner';
 import { deriveViewKeypair, serializeViewKey } from '../../lib/notes';
 import type { TransactionRecord, TransactionRecordPatch } from '../../lib/transactions';
@@ -788,15 +788,15 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
 
             if (selected.withdraw) {
                 setStatus('withdraw', 'running');
-                const withdrawAsset = parsedMint.equals(WSOL_MINT) ? 'sol' : 'wsol';
-                const result = await runWithdrawFlow({
+                const deliverAsset = parsedMint.equals(WSOL_MINT) ? 'sol' : 'wsol';
+                const result = await runExternalTransferFlow({
                     program: programsC.veilpay,
                     verifierProgram: programsC.verifier,
                     mint: parsedMint,
                     recipient: walletC.publicKey,
                     amount: spendAmountString,
                     mintDecimals,
-                    withdrawAsset,
+                    deliverAsset,
                     root: rootRef.current,
                     nextNullifier,
                     onStatus: stepStatus('Withdraw C'),

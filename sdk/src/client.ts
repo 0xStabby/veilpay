@@ -2,7 +2,6 @@ import { AnchorProvider, Program } from "@coral-xyz/anchor";
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import BN from "bn.js";
-import { TransferArgs } from "./types";
 
 export class VeilpayClient {
   readonly program: Program;
@@ -49,42 +48,4 @@ export class VeilpayClient {
       .instruction();
   }
 
-  async buildWithdrawIx(args: TransferArgs & {
-    config: PublicKey;
-    vault: PublicKey;
-    vaultAta: PublicKey;
-    shieldedState: PublicKey;
-    nullifierSet: PublicKey;
-    recipientAta: PublicKey;
-    relayerFeeAta?: PublicKey | null;
-    verifierProgram: PublicKey;
-    verifierKey: PublicKey;
-    mint: PublicKey;
-  }): Promise<TransactionInstruction> {
-    return await this.program.methods
-      .withdraw({
-        amount: new BN(args.amount.toString()),
-        proof: Buffer.from(args.proof),
-        nullifier: Buffer.from(args.nullifier),
-        root: Buffer.from(args.root),
-        publicInputs: Buffer.from(args.publicInputs),
-        relayerFeeBps: args.relayerFeeBps,
-      })
-      .accounts({
-        config: args.config,
-        vault: args.vault,
-        vaultAta: args.vaultAta,
-        shieldedState: args.shieldedState,
-        nullifierSet: args.nullifierSet,
-        recipientAta: args.recipientAta,
-        relayerFeeAta: args.relayerFeeAta ?? null,
-        verifierProgram: args.verifierProgram,
-        verifierKey: args.verifierKey,
-        mint: args.mint,
-        tokenProgram: TOKEN_PROGRAM_ID,
-      })
-      .instruction();
-  }
-
-  
 }

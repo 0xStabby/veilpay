@@ -18,5 +18,5 @@ wallet = "~/.config/solana/id.json"
 
 [scripts]
 admin-bootstrap = "pnpm exec ts-node --transpile-only --project ./tsconfig.json scripts/admin-bootstrap.ts"
-#test = "pnpm exec ts-mocha --exit -p ./tsconfig.json -t 1000000 \"tests/**/*.ts\""
-test = "pnpm exec ts-mocha --exit -p ./tsconfig.json -t 1000000 \"tests/veilpay_e2e.ts\""
+test = "pnpm exec ts-mocha --exit -p ./tsconfig.json -t 1000000 \"tests/**/*.ts\""
+#test = "pnpm exec ts-mocha --exit -p ./tsconfig.json -t 1000000 \"tests/veilpay_e2e.ts\""

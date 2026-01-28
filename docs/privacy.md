@@ -4,7 +4,7 @@ This document explains what is (and is not) anonymous in the current app flows. 
 
 ## TL;DR
 
-- **Deposits/withdrawals/transfers now use real note data and Merkle paths**, so proofs are tied to actual notes.
+- **Deposits/transfers now use real note data and Merkle paths**, so proofs are tied to actual notes.
 - **Recipient tags are derived from public view keys** (Poseidon of the view pubkey coordinates).
 - **External transfers are still public by design**, because the destination ATA is on‑chain.
 - **Encrypted note outputs are emitted on-chain** to enable view‑key scanning and wallet recovery.
@@ -26,13 +26,12 @@ Privacy impact:
 - **Commitments are real** and tied to the recipient view public key hash.
 - **Recipient tags are linkable per view key**; recipients can rotate view keys (index-based) to reduce linkability.
 
-### Withdraw (`runWithdrawFlow`)
+### Withdraw (UI uses external transfer to self)
 
 Key behaviors:
-- Spends an existing local note.
-- Builds a Merkle path for that note and proves membership.
-- Verifies the on‑chain root matches the local tree.
-- Uses real nullifier derived from sender secret + leaf index.
+- The UI calls the external transfer flow with `recipient = current wallet`.
+- Proofs are uploaded to a temporary proof account and consumed in `external_transfer_with_proof`.
+- The destination ATA is public on-chain (same as any external transfer).
 
 Privacy impact:
 - **Source note is hidden** (membership proof with nullifier).

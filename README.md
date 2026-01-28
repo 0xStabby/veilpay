@@ -52,12 +52,12 @@ pnpm --filter app dev --mode devnet
 ## User guide (app)
 
 The app has two primary areas:
-- **User**: single-wallet deposit/withdraw/transfer flows (tabbed).
+- **User**: single-wallet deposit/transfer flows (tabbed).
 - **Multi-Wallet Test**: generates local wallets to test unlinkability end-to-end.
 
 Recommended flow for users:
 1) **Deposit**: moves WSOL from your wallet into the shielded pool.
-2) **Withdraw**: pulls funds back to a public wallet address.
+2) **Withdraw**: external transfer to your own wallet.
 3) **Transfers**: internal (VeilPay to VeilPay) or external (to any wallet).
 
 Notes:
