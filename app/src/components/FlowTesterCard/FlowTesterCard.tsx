@@ -30,8 +30,6 @@ type FlowTesterCardProps = {
     onRecordUpdate?: (id: string, patch: import('../../lib/transactions').TransactionRecordPatch) => void;
 };
 
-const DEFAULT_AMOUNT = '1';
-
 export const FlowTesterCard: FC<FlowTesterCardProps> = ({
     veilpayProgram,
     verifierProgram,
@@ -49,7 +47,7 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
     onRecordUpdate,
 }) => {
     const { publicKey, signMessage } = useWallet();
-    const [amount, setAmount] = useState(DEFAULT_AMOUNT);
+    const [amount, setAmount] = useState('');
     const [recipient, setRecipient] = useState('');
     const [internalRecipientViewKey, setInternalRecipientViewKey] = useState('');
     const [selected, setSelected] = useState(() => ({
@@ -421,7 +419,11 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
             <div className={styles.inputs}>
                 <label className={styles.label}>
                     Amount (tokens)
-                    <input value={amount} onChange={(event) => setAmount(event.target.value)} />
+                    <input
+                        value={amount}
+                        onChange={(event) => setAmount(event.target.value)}
+                        placeholder="0.00"
+                    />
                 </label>
                 {walletBalance !== null && mintDecimals !== null && (
                     <button

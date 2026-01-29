@@ -16,7 +16,7 @@ import { useShieldedBalance } from './hooks/useShieldedBalance';
 import { randomBytes } from './lib/crypto';
 import type { TransactionRecord } from './lib/transactions';
 import { buildAddressLabels } from './lib/addressLabels';
-import { WSOL_MINT } from './lib/config';
+import { DEBUG, WSOL_MINT } from './lib/config';
 import { rescanNotesForOwner } from './lib/noteScanner';
 import { deriveViewKeypair } from './lib/notes';
 import { rescanIdentityRegistry } from './lib/identityScanner';
@@ -41,6 +41,7 @@ const App = () => {
     const [selectedTxId, setSelectedTxId] = useState<string | null>(null);
     const [multiWalletLabels, setMultiWalletLabels] = useState<Record<string, string>>({});
     const showAdmin = false;
+    const showDebug = DEBUG;
     const { next } = useNullifierCounter(1);
     const { decimals, loading: mintLoading } = useMintInfo(connection ?? null, mintAddress);
     const walletPubkey = wallet?.publicKey ?? null;
@@ -69,7 +70,7 @@ const App = () => {
             .then(() => {
                 handleStatus('Derived view key for note recovery.');
             })
-            .catch((error) => {
+            .catch((error: unknown) => {
                 handleStatus(`Failed to derive view key: ${error instanceof Error ? error.message : 'unknown error'}`);
             });
     }, [walletPubkey, signMessage]);
@@ -79,6 +80,12 @@ const App = () => {
             setView('user');
         }
     }, [showAdmin, view]);
+
+    useEffect(() => {
+        if (!showDebug && view !== 'user') {
+            setView('user');
+        }
+    }, [showDebug, view]);
 
     useEffect(() => {
         if (mintAddress) {
@@ -179,35 +186,37 @@ const App = () => {
             <div className={styles.background} />
             <main className={styles.content}>
                 <WalletHeader />
-                <div className={styles.viewToggle}>
-                    <button
-                        className={view === 'user' ? styles.toggleActive : styles.toggleButton}
-                        onClick={() => setView('user')}
-                    >
-                        User
-                    </button>
-                    {showAdmin && (
+                {showDebug && (
+                    <div className={styles.viewToggle}>
                         <button
-                            className={view === 'admin' ? styles.toggleActive : styles.toggleButton}
-                            onClick={() => setView('admin')}
+                            className={view === 'user' ? styles.toggleActive : styles.toggleButton}
+                            onClick={() => setView('user')}
                         >
-                            Admin
+                            User
                         </button>
-                    )}
-                    <button
-                        className={view === 'tx' ? styles.toggleActive : styles.toggleButton}
-                        onClick={() => setView('tx')}
-                    >
-                        Tx Logs
-                    </button>
-                    <button
-                        className={view === 'multi' ? styles.toggleActive : styles.toggleButton}
-                        onClick={() => setView('multi')}
-                    >
-                        Multi-Wallet Test
-                    </button>
-                </div>
-                <StatusBanner lines={statusLines} />
+                        {showAdmin && (
+                            <button
+                                className={view === 'admin' ? styles.toggleActive : styles.toggleButton}
+                                onClick={() => setView('admin')}
+                            >
+                                Admin
+                            </button>
+                        )}
+                        <button
+                            className={view === 'tx' ? styles.toggleActive : styles.toggleButton}
+                            onClick={() => setView('tx')}
+                        >
+                            Tx Logs
+                        </button>
+                        <button
+                            className={view === 'multi' ? styles.toggleActive : styles.toggleButton}
+                            onClick={() => setView('multi')}
+                        >
+                            Multi-Wallet Test
+                        </button>
+                    </div>
+                )}
+                {showDebug && <StatusBanner lines={statusLines} />}
                 {view === 'admin' ? (
                     <section className={styles.grid}>
                         {connection && (

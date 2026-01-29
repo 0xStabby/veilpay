@@ -6,6 +6,7 @@ import {
     Keypair,
     PublicKey,
     SystemProgram,
+    Transaction,
     TransactionInstruction,
     VersionedTransaction,
 } from '@solana/web3.js';
@@ -92,9 +93,9 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
     const [walletA, setWalletA] = useState<Keypair | null>(null);
     const [walletB, setWalletB] = useState<Keypair | null>(null);
     const [walletC, setWalletC] = useState<Keypair | null>(null);
-    const [amount, setAmount] = useState('1');
-    const [fundAmount, setFundAmount] = useState('0.3');
-    const [wrapAmount, setWrapAmount] = useState('1');
+    const [amount, setAmount] = useState('');
+    const [fundAmount, setFundAmount] = useState('');
+    const [wrapAmount, setWrapAmount] = useState('');
     const [solBalance, setSolBalance] = useState<number | null>(null);
     const [busy, setBusy] = useState(false);
     const [stepStatus, setStepStatus] = useState<Record<string, 'idle' | 'running' | 'success' | 'error'>>({});
@@ -181,7 +182,7 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
     const ensureRecipientSecretFor = async (keypair: Keypair) => {
         await deriveViewKeypair({
             owner: keypair.publicKey,
-            signMessage: async (message) => nacl.sign.detached(message, keypair.secretKey),
+            signMessage: async (message: Uint8Array) => nacl.sign.detached(message, keypair.secretKey),
             index: 0,
         });
     };
@@ -906,16 +907,28 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
             <div className={styles.controls}>
                 <label className={styles.label}>
                     Flow amount (tokens)
-                    <input value={amount} onChange={(event) => setAmount(event.target.value)} />
+                    <input
+                        value={amount}
+                        onChange={(event) => setAmount(event.target.value)}
+                        placeholder="0.00"
+                    />
                 </label>
                 <label className={styles.label}>
                     Fund amount (tokens)
-                    <input value={fundAmount} onChange={(event) => setFundAmount(event.target.value)} />
+                    <input
+                        value={fundAmount}
+                        onChange={(event) => setFundAmount(event.target.value)}
+                        placeholder="0.00"
+                    />
                 </label>
                 {isTestMode && (
                     <label className={styles.label}>
                         Wrap amount (SOL)
-                        <input value={wrapAmount} onChange={(event) => setWrapAmount(event.target.value)} />
+                        <input
+                            value={wrapAmount}
+                            onChange={(event) => setWrapAmount(event.target.value)}
+                            placeholder="0.00"
+                        />
                     </label>
                 )}
             </div>
