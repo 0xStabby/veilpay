@@ -1,11 +1,12 @@
 import { Program } from "@coral-xyz/anchor";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { Buffer } from "buffer";
 import { decode as bs58Decode } from "@coral-xyz/anchor/dist/esm/utils/bytes/bs58.js";
 import { sha256, bytesToBigIntBE } from "./crypto";
 import { getIdentityCommitment, saveIdentityCommitments } from "./identity";
 import { buildMerkleTree } from "./merkle";
 import { bigIntToBytes32 } from "./prover";
+
+const Buffer = globalThis.Buffer as unknown as typeof import("buffer").Buffer;
 
 const toUint8Array = (value: unknown): Uint8Array | null => {
   if (value instanceof Uint8Array) {
@@ -79,7 +80,7 @@ const extractByteCandidates = (data: unknown): Uint8Array[] => {
 
 const decodeInstruction = (program: Program, bytes: Uint8Array) => {
   try {
-    return program.coder.instruction.decode(Buffer.from(bytes)) ?? null;
+    return (program.coder.instruction as any).decode(Buffer.from(bytes)) ?? null;
   } catch {
     return null;
   }
@@ -167,7 +168,7 @@ export async function rescanIdentityRegistry(params: {
     [Buffer.from("identity_registry")],
     program.programId
   )[0];
-  const identityRegistry = await program.account.identityRegistry.fetch(identityRegistryPda);
+  const identityRegistry = await (program.account as any).identityRegistry.fetch(identityRegistryPda);
   const count = Number(
     identityRegistry.commitmentCount?.toString?.() ??
       identityRegistry.commitment_count?.toString?.() ??
@@ -191,11 +192,14 @@ export async function rescanIdentityRegistry(params: {
   let before: string | undefined;
   let remaining = maxSignatures ?? Number.POSITIVE_INFINITY;
   while (remaining > 0) {
-    const batch = await connection.getSignaturesForAddress(identityRegistryPda, {
-      before,
-      limit: Math.min(1000, remaining),
-      commitment: signatureCommitment,
-    });
+    const batch = await connection.getSignaturesForAddress(
+      identityRegistryPda,
+      {
+        before,
+        limit: Math.min(1000, remaining),
+      },
+      signatureCommitment
+    );
     if (batch.length === 0) break;
     remaining -= batch.length;
     before = batch[batch.length - 1]?.signature;
@@ -204,11 +208,14 @@ export async function rescanIdentityRegistry(params: {
   before = undefined;
   remaining = maxSignatures ?? Number.POSITIVE_INFINITY;
   while (remaining > 0) {
-    const batch = await connection.getSignaturesForAddress(program.programId, {
-      before,
-      limit: Math.min(1000, remaining),
-      commitment: signatureCommitment,
-    });
+    const batch = await connection.getSignaturesForAddress(
+      program.programId,
+      {
+        before,
+        limit: Math.min(1000, remaining),
+      },
+      signatureCommitment
+    );
     if (batch.length === 0) break;
     remaining -= batch.length;
     before = batch[batch.length - 1]?.signature;
@@ -218,11 +225,14 @@ export async function rescanIdentityRegistry(params: {
     before = undefined;
     remaining = maxSignatures ?? Number.POSITIVE_INFINITY;
     while (remaining > 0) {
-      const batch = await connection.getSignaturesForAddress(owner, {
-        before,
-        limit: Math.min(1000, remaining),
-        commitment: signatureCommitment,
-      });
+      const batch = await connection.getSignaturesForAddress(
+        owner,
+        {
+          before,
+          limit: Math.min(1000, remaining),
+        },
+        signatureCommitment
+      );
       if (batch.length === 0) break;
       remaining -= batch.length;
       before = batch[batch.length - 1]?.signature;

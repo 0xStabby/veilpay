@@ -1,8 +1,9 @@
 import { buildBabyjub } from "circomlibjs";
-import { Buffer } from "buffer";
 import { PublicKey } from "@solana/web3.js";
 import { bytesToBigIntBE, concatBytes, modField, randomBytes, sha256, toHex } from "./crypto";
 import { bigIntToBytes32, computeCommitment, poseidonHash } from "./prover";
+
+const Buffer = globalThis.Buffer as unknown as typeof import("buffer").Buffer;
 
 export type NoteRecord = {
   id: string;

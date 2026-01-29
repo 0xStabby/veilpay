@@ -1,6 +1,5 @@
 import { Program } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
-import { Buffer } from "buffer";
 import { decode as bs58Decode } from "@coral-xyz/anchor/dist/esm/utils/bytes/bs58.js";
 import { bytesToBigIntBE, modField } from "./crypto";
 import { computeCommitment, computeNullifier, bigIntToBytes32 } from "./prover";
@@ -15,6 +14,8 @@ import {
   replaceNotes,
   saveCommitments,
 } from "./noteStore";
+
+const Buffer = globalThis.Buffer as unknown as typeof import("buffer").Buffer;
 
 const NOTE_CIPHERTEXT_BYTES = 128;
 const NULLIFIER_BITS = 8192;
@@ -127,7 +128,7 @@ const extractByteCandidates = (data: unknown): Uint8Array[] => {
 const decodeInstructionName = (program: Program, data: unknown) => {
   try {
     for (const candidate of extractByteCandidates(data)) {
-      const decoded = program.coder.instruction.decode(Buffer.from(candidate));
+      const decoded = (program.coder.instruction as any).decode(Buffer.from(candidate));
       if (decoded?.name) {
         return decoded.name;
       }
@@ -245,7 +246,7 @@ const isNullifierSpent = async (
   const { chunkIndex, bitIndex } = nullifierPosition(nullifier);
   let bitset = cache.get(chunkIndex);
   if (!bitset) {
-    const account = await program.account.nullifierSet
+    const account = await (program.account as any).nullifierSet
       .fetch(deriveNullifierSet(program.programId, mint, chunkIndex))
       .catch(() => null);
     if (!account) {
@@ -311,7 +312,6 @@ export async function rescanNotesForOwner(params: {
   let txsWithLogs = 0;
   let programDataLines = 0;
   let firstProgramDataHex: string | null = null;
-  let firstProgramDataBase64: string | null = null;
   let expectedEventHex: string | null = null;
   const commitmentsByIndex = new Map<number, bigint>();
   const seenLeafIndices = new Set<number>();
@@ -373,7 +373,6 @@ export async function rescanNotesForOwner(params: {
           const parsed = parseProgramData(line);
           if (parsed) {
             firstProgramDataHex = toHex(parsed.bytes, 8);
-            firstProgramDataBase64 = parsed.data;
           }
         }
         if (!expectedEventHex) {
@@ -430,7 +429,7 @@ export async function rescanNotesForOwner(params: {
         const parsed = parseProgramData(line);
         if (!parsed) continue;
         try {
-          const decoded = program.coder.events.decode(parsed.bytes);
+          const decoded = (program.coder.events as any).decode(parsed.bytes);
           if (decoded && (decoded.name === "NoteOutputEvent" || decoded.name === "noteOutputEvent")) {
             const added = handleNoteEvent(decoded.data as any);
             if (added) {

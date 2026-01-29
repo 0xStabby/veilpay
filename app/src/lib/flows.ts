@@ -511,8 +511,7 @@ async function buildSpendProofInput(params: {
     commitments: bigint[];
     signMessage?: (message: Uint8Array) => Promise<Uint8Array>;
 }) {
-    const { program, mint, owner, inputNotes, outputNotes, outputEnabled, amountOut, feeAmount, commitments, signMessage } =
-        params;
+    const { program, owner, inputNotes, outputNotes, outputEnabled, amountOut, feeAmount, commitments, signMessage } = params;
     const { root: derivedRoot } = await buildMerkleTree(commitments);
     const derivedRootBytes = bigIntToBytes32(derivedRoot);
 
@@ -1220,7 +1219,7 @@ export async function runExternalTransferFlow(params: {
             ? await getAssociatedTokenAddress(mint, recipient)
             : await ensureAta(provider, mint, recipient);
     const verifierKey = deriveVerifierKey(VERIFIER_PROGRAM_ID, 0);
-    const vaultAccount = await program.account.vaultPool.fetch(vault);
+    const vaultAccount = await (program.account as any).vaultPool.fetch(vault);
     const vaultNonce = new BN(
         vaultAccount.nonce?.toString?.() ?? vaultAccount.nonce ?? '0'
     );

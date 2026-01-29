@@ -121,7 +121,7 @@ export async function getIdentityMerklePath(
   programId: PublicKey,
   signMessage?: (message: Uint8Array) => Promise<Uint8Array>
 ): Promise<{ root: bigint; pathElements: bigint[]; pathIndices: number[]; leafIndex: number }> {
-  const { commitment, index } = await ensureIdentityCommitment(owner, programId, signMessage);
+  const { index } = await ensureIdentityCommitment(owner, programId, signMessage);
   const commitments = loadIdentityCommitments(programId);
   const { root, pathElements, pathIndices } = await getMerklePath(commitments, index);
   return { root, pathElements, pathIndices, leafIndex: index };
