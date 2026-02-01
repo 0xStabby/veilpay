@@ -22,6 +22,6 @@ circuits/powersOfTau*.ptau
 .vercel
 .env*.local
 *.sym
-terraform.tfstate
+**/terraform.tfstate*
 
 **/*keypair.json
