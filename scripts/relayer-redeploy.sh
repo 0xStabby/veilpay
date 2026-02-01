@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RELAYER_DIR="${ROOT_DIR}/relayer"
 TF_DIR="${ROOT_DIR}/infra/relayer"
+ROOT_ENV_FILE="${ROOT_DIR}/.env.devnet"
+RELAYER_ENV_FILE="${RELAYER_DIR}/.env.devnet"
 
 SSH_USER="${SSH_USER:-root}"
 SERVER_IP="${1:-}"
@@ -15,6 +17,29 @@ SSH_OPTS=(
 
 if [[ -z "${SERVER_IP}" ]]; then
   SERVER_IP="$(terraform -chdir="${TF_DIR}" output -raw relayer_ip)"
+fi
+
+upsert_env() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  if [[ -z "${value}" ]]; then
+    return 0
+  fi
+  if rg -q "^${key}=" "$file"; then
+    perl -pi -e "s|^${key}=.*|${key}=${value}|" "$file"
+  else
+    echo "${key}=${value}" >> "$file"
+  fi
+}
+
+if [[ -f "${ROOT_ENV_FILE}" && -f "${RELAYER_ENV_FILE}" ]]; then
+  VEILPAY_ID="$(rg -n "^VITE_VEILPAY_PROGRAM_ID=" "${ROOT_ENV_FILE}" | head -n1 | cut -d= -f2-)"
+  VERIFIER_ID="$(rg -n "^VITE_VERIFIER_PROGRAM_ID=" "${ROOT_ENV_FILE}" | head -n1 | cut -d= -f2-)"
+  if [[ -n "${VEILPAY_ID}" && -n "${VERIFIER_ID}" ]]; then
+    upsert_env "${RELAYER_ENV_FILE}" "RELAYER_ALLOWED_PROGRAMS" "${VEILPAY_ID},${VERIFIER_ID}"
+  fi
+  upsert_env "${RELAYER_ENV_FILE}" "RELAYER_KEYPAIR" "/opt/veilpay-relayer/relayer-keypair.json"
 fi
 
 wait_for_ssh() {
@@ -55,6 +80,12 @@ if [[ -f "${RELAYER_DIR}/.env.devnet" ]]; then
     -e "ssh ${SSH_OPTS[*]}" \
     "${RELAYER_DIR}/.env.devnet" \
     "${SSH_USER}@${SERVER_IP}:/opt/veilpay-relayer/.env"
+fi
+if [[ -f "${RELAYER_DIR}/relayer-keypair.json" ]]; then
+  rsync -az \
+    -e "ssh ${SSH_OPTS[*]}" \
+    "${RELAYER_DIR}/relayer-keypair.json" \
+    "${SSH_USER}@${SERVER_IP}:/opt/veilpay-relayer/relayer-keypair.json"
 fi
 
 ssh "${SSH_OPTS[@]}" "${SSH_USER}@${SERVER_IP}" \
