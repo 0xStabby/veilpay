@@ -13,7 +13,6 @@ circuits
 migrations
 programs
 relayer
-sdk
 tests
 tools
 target

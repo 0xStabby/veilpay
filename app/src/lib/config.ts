@@ -5,7 +5,6 @@ const runtimeEnv = (viteEnv ?? (process.env as Record<string, string | undefined
     string,
     string | undefined
 >;
-const strictEnv = true;
 
 const envString = (key: string) => {
     const value = runtimeEnv[key]?.trim();
@@ -26,6 +25,15 @@ const envNumber = (key: string) => {
     }
     return value;
 };
+
+const envFlag = (key: string) => {
+    const raw = runtimeEnv[key]?.trim().toLowerCase();
+    if (!raw) return false;
+    return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+};
+
+export const DEBUG = envFlag('DEBUG');
+export const STATUS_LOG = envFlag('STATUS_LOG');
 
 export const LOCALNET_RPC = envString('VITE_RPC_ENDPOINT');
 export const RELAYER_URL = envString('VITE_RELAYER_URL');
