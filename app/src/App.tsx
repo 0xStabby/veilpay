@@ -16,7 +16,7 @@ import { useShieldedBalance } from './hooks/useShieldedBalance';
 import { randomBytes } from './lib/crypto';
 import type { TransactionRecord } from './lib/transactions';
 import { buildAddressLabels } from './lib/addressLabels';
-import { DEBUG, WSOL_MINT } from './lib/config';
+import { DEBUG, STATUS_LOG, WSOL_MINT } from './lib/config';
 import { rescanNotesForOwner } from './lib/noteScanner';
 import { deriveViewKeypair } from './lib/notes';
 import { rescanIdentityRegistry } from './lib/identityScanner';
@@ -42,6 +42,7 @@ const App = () => {
     const [multiWalletLabels, setMultiWalletLabels] = useState<Record<string, string>>({});
     const showAdmin = false;
     const showDebug = DEBUG;
+    const showStatusLog = STATUS_LOG;
     const { next } = useNullifierCounter(1);
     const { decimals, loading: mintLoading } = useMintInfo(connection ?? null, mintAddress);
     const walletPubkey = wallet?.publicKey ?? null;
@@ -216,7 +217,7 @@ const App = () => {
                         </button>
                     </div>
                 )}
-                {showDebug && <StatusBanner lines={statusLines} />}
+                {showStatusLog && <StatusBanner lines={statusLines} />}
                 {view === 'admin' ? (
                     <section className={styles.grid}>
                         {connection && (
