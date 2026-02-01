@@ -161,8 +161,10 @@ export async function rescanIdentityRegistry(params: {
   owner?: PublicKey;
   connectionOverride?: Connection;
   signMessage?: (message: Uint8Array) => Promise<Uint8Array>;
+  scanAll?: boolean;
 }) {
   const { program, onStatus, maxSignatures, owner, connectionOverride, signMessage } = params;
+  const scanAll = params.scanAll ?? true;
   const connection = connectionOverride ?? program.provider.connection;
   const identityRegistryPda = PublicKey.findProgramAddressSync(
     [Buffer.from("identity_registry")],
@@ -205,28 +207,12 @@ export async function rescanIdentityRegistry(params: {
     before = batch[batch.length - 1]?.signature;
     batch.forEach((entry) => signatures.set(entry.signature, entry.slot ?? 0));
   }
-  before = undefined;
-  remaining = maxSignatures ?? Number.POSITIVE_INFINITY;
-  while (remaining > 0) {
-    const batch = await connection.getSignaturesForAddress(
-      program.programId,
-      {
-        before,
-        limit: Math.min(1000, remaining),
-      },
-      signatureCommitment
-    );
-    if (batch.length === 0) break;
-    remaining -= batch.length;
-    before = batch[batch.length - 1]?.signature;
-    batch.forEach((entry) => signatures.set(entry.signature, entry.slot ?? 0));
-  }
-  if (owner) {
+  if (scanAll) {
     before = undefined;
     remaining = maxSignatures ?? Number.POSITIVE_INFINITY;
     while (remaining > 0) {
       const batch = await connection.getSignaturesForAddress(
-        owner,
+        program.programId,
         {
           before,
           limit: Math.min(1000, remaining),
@@ -237,6 +223,24 @@ export async function rescanIdentityRegistry(params: {
       remaining -= batch.length;
       before = batch[batch.length - 1]?.signature;
       batch.forEach((entry) => signatures.set(entry.signature, entry.slot ?? 0));
+    }
+    if (owner) {
+      before = undefined;
+      remaining = maxSignatures ?? Number.POSITIVE_INFINITY;
+      while (remaining > 0) {
+        const batch = await connection.getSignaturesForAddress(
+          owner,
+          {
+            before,
+            limit: Math.min(1000, remaining),
+          },
+          signatureCommitment
+        );
+        if (batch.length === 0) break;
+        remaining -= batch.length;
+        before = batch[batch.length - 1]?.signature;
+        batch.forEach((entry) => signatures.set(entry.signature, entry.slot ?? 0));
+      }
     }
   }
   const orderedSignatures = Array.from(signatures.entries())

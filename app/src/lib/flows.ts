@@ -408,7 +408,7 @@ async function ensureIdentityRegistered(
     const { identityRegistry, rootBytes, commitmentCount } = await fetchIdentityRegistry(program);
     let localCommitments = loadIdentityCommitments(program.programId);
     if (localCommitments.length !== Number(commitmentCount)) {
-        await rescanIdentityRegistry({ program, onStatus, owner, signMessage });
+        await rescanIdentityRegistry({ program, onStatus, owner, signMessage, scanAll: false });
         localCommitments = loadIdentityCommitments(program.programId);
     }
     if (localCommitments.length !== Number(commitmentCount)) {
