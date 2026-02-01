@@ -42,9 +42,9 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
     embedded = false,
 }) => {
     const [internalRecipient, setInternalRecipient] = useState('');
-    const [internalAmount, setInternalAmount] = useState('250000');
+    const [internalAmount, setInternalAmount] = useState('');
     const [externalRecipient, setExternalRecipient] = useState('');
-    const [externalAmount, setExternalAmount] = useState('250000');
+    const [externalAmount, setExternalAmount] = useState('');
     const [busy, setBusy] = useState(false);
     const { signMessage } = useWallet();
 
@@ -191,7 +191,11 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
                 <h3>Internal</h3>
                 <label className={styles.label}>
                     Amount (tokens)
-                    <input value={internalAmount} onChange={(event) => setInternalAmount(event.target.value)} />
+                    <input
+                        value={internalAmount}
+                        onChange={(event) => setInternalAmount(event.target.value)}
+                        placeholder="0.00"
+                    />
                 </label>
                 {mintDecimals !== null && (
                     <button
@@ -219,7 +223,11 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
                 <h3>External</h3>
                 <label className={styles.label}>
                     Amount (tokens)
-                    <input value={externalAmount} onChange={(event) => setExternalAmount(event.target.value)} />
+                    <input
+                        value={externalAmount}
+                        onChange={(event) => setExternalAmount(event.target.value)}
+                        placeholder="0.00"
+                    />
                 </label>
                 {mintDecimals !== null && (
                     <button

@@ -3,7 +3,7 @@ use anchor_spl::associated_token::{self, AssociatedToken};
 use anchor_spl::token::{self, CloseAccount, Mint, Token, TokenAccount, Transfer};
 use verifier::cpi::accounts::VerifyGroth16 as VerifyGroth16Cpi;
 
-declare_id!("4C6H1aqxks1AgjtsLPbNrDXFsb6DwQ6c1Jhw2ZugTLv2");
+declare_id!("6f4VN8NcbHQarNoimUSkxYpJTiP6BcZ3u2rBsSv4j5jk");
 
 const MAX_ALLOWLIST: usize = 32;
 const MAX_CIRCUITS: usize = 8;

@@ -35,7 +35,7 @@ export const SetupCard: FC<SetupCardProps> = ({
 }) => {
     const { publicKey, sendTransaction } = useWallet();
     const [busy, setBusy] = useState(false);
-    const [wrapAmount, setWrapAmount] = useState('1');
+    const [wrapAmount, setWrapAmount] = useState('');
 
     const parsedMint = useMemo(() => {
         if (!mintAddress) return null;
@@ -174,6 +174,7 @@ export const SetupCard: FC<SetupCardProps> = ({
                         <input
                             value={wrapAmount}
                             onChange={(event) => setWrapAmount(event.target.value)}
+                            placeholder="0.00"
                         />
                     </label>
                     <button className={styles.button} onClick={handleWrapSol} disabled={!publicKey || busy}>

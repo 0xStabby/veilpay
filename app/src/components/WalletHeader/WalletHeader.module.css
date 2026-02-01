@@ -41,4 +41,31 @@
 .primaryButton {
     border-radius: var(--radius-tight) !important;
     font-weight: 600 !important;
+    padding: 0.6rem 1.35rem !important;
+    height: auto !important;
+    background: linear-gradient(135deg, rgba(0, 255, 140, 0.22), rgba(0, 255, 140, 0.08)) !important;
+    color: var(--text) !important;
+    border: 1px solid var(--border-strong) !important;
+    box-shadow: 0 12px 24px rgba(0, 255, 140, 0.12);
+    font-size: 0.9rem !important;
+    letter-spacing: 0.02em;
+    text-transform: none;
+    transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.primaryButton:not(:disabled):hover {
+    transform: translateY(-1px);
+    background: linear-gradient(135deg, rgba(0, 255, 140, 0.3), rgba(0, 255, 140, 0.1)) !important;
+    box-shadow: 0 16px 30px rgba(0, 255, 140, 0.18);
+}
+
+.primaryButton:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.primaryButton :global(.wallet-adapter-button-start-icon),
+.primaryButton :global(.wallet-adapter-button-end-icon) {
+    filter: drop-shadow(0 0 6px rgba(0, 255, 140, 0.35));
 }

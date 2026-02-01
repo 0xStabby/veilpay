@@ -8,7 +8,6 @@ export const WalletHeader: FC = () => {
             <div>
                 <p className={styles.kicker}>VeilPay</p>
                 <h1 className={styles.title}>Private Payments Console</h1>
-                <p className={styles.subtitle}>VeilPay operator console</p>
             </div>
             <div className={styles.actions}>
                 <WalletMultiButton className={styles.primaryButton} />

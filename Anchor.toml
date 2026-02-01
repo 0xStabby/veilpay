@@ -6,8 +6,8 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-veilpay = "4C6H1aqxks1AgjtsLPbNrDXFsb6DwQ6c1Jhw2ZugTLv2"
-verifier = "CKzPKEVD9Bq5Q4iJzALC1Zuk66wwGwK52XsKmFDELYZe"
+veilpay = "6f4VN8NcbHQarNoimUSkxYpJTiP6BcZ3u2rBsSv4j5jk"
+verifier = "2ST31vJyrHVjR3jzMdQLHyVJDapphp2bU55VQjb6L5m6"
 
 [registry]
 url = "https://api.apr.dev"
@@ -19,4 +19,3 @@ wallet = "~/.config/solana/id.json"
 [scripts]
 admin-bootstrap = "pnpm exec ts-node --transpile-only --project ./tsconfig.json scripts/admin-bootstrap.ts"
 test = "pnpm exec ts-mocha --exit -p ./tsconfig.json -t 1000000 \"tests/**/*.ts\""
-#test = "pnpm exec ts-mocha --exit -p ./tsconfig.json -t 1000000 \"tests/veilpay_e2e.ts\""

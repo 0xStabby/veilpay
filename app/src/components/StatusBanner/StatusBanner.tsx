@@ -10,6 +10,7 @@ export const StatusBanner: FC<StatusBannerProps> = ({ lines }) => {
     if (!lines.length) return null;
     const logRef = useRef<HTMLDivElement | null>(null);
     const [copied, setCopied] = useState(false);
+    const [collapsed, setCollapsed] = useState(true);
     const copyResetRef = useRef<number | null>(null);
 
     const handleCopy = async () => {
@@ -56,20 +57,47 @@ export const StatusBanner: FC<StatusBannerProps> = ({ lines }) => {
     }, []);
 
     return (
-        <div className={styles.banner}>
-            <div className={styles.header}>
-                <span className={styles.title}>Log</span>
-                <button className={styles.copyButton} onClick={handleCopy} type="button">
-                    {copied ? 'Copied' : 'Copy'}
-                </button>
-            </div>
-            <div ref={logRef} className={styles.log}>
-                {lines.map((line, index) => (
-                    <div key={`${index}-${line}`} className={styles.logLine}>
-                        {line}
+        <>
+            {collapsed ? (
+                <div className={styles.collapsedDock}>
+                    <button
+                        className={styles.collapsedButton}
+                        onClick={() => setCollapsed(false)}
+                        type="button"
+                    >
+                        Show log
+                    </button>
+                </div>
+            ) : (
+                <>
+                    <div className={styles.banner} data-collapsed="false">
+                        <div className={styles.header}>
+                            <span className={styles.title}>Log</span>
+                            <div className={styles.actions}>
+                                <button className={styles.copyButton} onClick={handleCopy} type="button">
+                                    {copied ? 'Copied' : 'Copy'}
+                                </button>
+                            </div>
+                        </div>
+                        <div ref={logRef} className={styles.log}>
+                            {lines.map((line, index) => (
+                                <div key={`${index}-${line}`} className={styles.logLine}>
+                                    {line}
+                                </div>
+                            ))}
+                        </div>
                     </div>
-                ))}
-            </div>
-        </div>
+                    <div className={styles.collapsedDock}>
+                        <button
+                            className={styles.collapsedButton}
+                            onClick={() => setCollapsed(true)}
+                            type="button"
+                        >
+                            Hide log
+                        </button>
+                    </div>
+                </>
+            )}
+        </>
     );
 };

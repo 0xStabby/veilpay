@@ -1,4 +1,9 @@
 .banner {
+    position: fixed;
+    left: 50%;
+    bottom: 1rem;
+    transform: translateX(-50%);
+    width: min(860px, calc(100% - 2rem));
     padding: 0.75rem 1.25rem;
     border-radius: var(--radius);
     background: var(--bg-panel);
@@ -6,6 +11,34 @@
     border: 1px solid var(--border);
     font-size: 0.95rem;
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+    z-index: 1000;
+}
+
+.collapsedDock {
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 1000;
+}
+
+.collapsedButton {
+    border: 1px solid var(--border);
+    background: var(--bg-panel);
+    color: var(--text);
+    padding: 0.5rem 0.85rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    cursor: pointer;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4);
+    transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+
+.collapsedButton:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(255, 255, 255, 0.06);
 }
 
 .header {
@@ -21,6 +54,31 @@
 
 .title {
     font-weight: 600;
+}
+
+.actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.toggleButton {
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text);
+    padding: 0.3rem 0.7rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+
+.toggleButton:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(255, 255, 255, 0.06);
 }
 
 .copyButton {
@@ -42,13 +100,19 @@
     background: rgba(255, 255, 255, 0.04);
 }
 
+.copyButton:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
 .log {
-    max-height: 160px;
+    max-height: 200px;
     overflow: auto;
     font-family: 'IBM Plex Mono', 'Fira Code', 'SFMono-Regular', Menlo, Monaco, Consolas, monospace;
     font-size: 0.85rem;
     line-height: 1.4;
     white-space: pre-wrap;
+    transition: max-height 0.25s ease, opacity 0.2s ease;
 }
 
 .logLine {

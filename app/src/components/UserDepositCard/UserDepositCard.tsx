@@ -11,8 +11,6 @@ import { deriveViewKeypair } from '../../lib/notes';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WSOL_MINT } from '../../lib/config';
 
-const DEFAULT_AMOUNT = '50000';
-
 type UserDepositCardProps = {
     veilpayProgram: Program | null;
     mintAddress: string;
@@ -40,7 +38,7 @@ export const UserDepositCard: FC<UserDepositCardProps> = ({
     onRecordUpdate,
     embedded = false,
 }) => {
-    const [amount, setAmount] = useState(DEFAULT_AMOUNT);
+    const [amount, setAmount] = useState('');
     const [depositAsset, setDepositAsset] = useState<'sol' | 'wsol'>('sol');
     const [busy, setBusy] = useState(false);
     const { publicKey, signMessage } = useWallet();
@@ -156,7 +154,11 @@ export const UserDepositCard: FC<UserDepositCardProps> = ({
             <div className={styles.labelRow}>
                 <label className={styles.label}>
                     Amount (tokens)
-                    <input value={amount} onChange={(event) => setAmount(event.target.value)} />
+                    <input
+                        value={amount}
+                        onChange={(event) => setAmount(event.target.value)}
+                        placeholder="0.00"
+                    />
                 </label>
                 {walletBalance !== null &&
                     mintDecimals !== null &&

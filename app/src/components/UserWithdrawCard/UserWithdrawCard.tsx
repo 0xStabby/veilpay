@@ -8,8 +8,6 @@ import { formatTokenAmount } from '../../lib/amount';
 import { runExternalTransferFlow } from '../../lib/flows';
 import { WSOL_MINT } from '../../lib/config';
 
-const DEFAULT_AMOUNT = '100000';
-
 type UserWithdrawCardProps = {
     veilpayProgram: Program | null;
     mintAddress: string;
@@ -41,7 +39,7 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
     onRecordUpdate,
     embedded = false,
 }) => {
-    const [amount, setAmount] = useState(DEFAULT_AMOUNT);
+    const [amount, setAmount] = useState('');
     const [withdrawAsset, setWithdrawAsset] = useState<'sol' | 'wsol'>('sol');
     const [busy, setBusy] = useState(false);
     const { signMessage, publicKey } = useWallet();
@@ -146,7 +144,11 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
             <div className={styles.labelRow}>
                 <label className={styles.label}>
                     Amount (tokens)
-                    <input value={amount} onChange={(event) => setAmount(event.target.value)} />
+                    <input
+                        value={amount}
+                        onChange={(event) => setAmount(event.target.value)}
+                        placeholder="0.00"
+                    />
                 </label>
                 {mintDecimals !== null && (
                     <button
