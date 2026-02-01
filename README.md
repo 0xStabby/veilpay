@@ -1,6 +1,13 @@
 # VeilPay
 
-VeilPay is a Solana privacy-preserving payments protocol that uses escrow vaults, nullifiers, and Groth16 proofs to enable unlinkable transfers. This repo contains the on-chain programs, relayer, SDK, circuits, and a web app for testing flows.
+VeilPay is an escrow‑based privacy pool on Solana.
+
+Users deposit SPL tokens into a per‑mint vault PDA and receive encrypted note outputs. Each note is committed into a global per‑mint shielded Merkle tree. Spends prove membership and prevent double‑spend via nullifiers stored on‑chain in chunked bitsets. Correctness and amount privacy use Groth16 proofs with ElGamal‑encrypted amounts.
+
+Internal transfers create new encrypted notes without moving tokens, enabling unlinkable transfers similar to Monero’s view‑key model. View keys are used to derive recipient tags and decrypt note ciphertexts. External withdrawals reveal the destination ATA on‑chain but keep the source note private.
+
+The system includes an on‑chain verifier key registry, a relayer for gasless submissions, a TypeScript SDK for key management/proof generation/transaction assembly, and a web app for end‑to‑end testing. No sponsor technologies were used.
+
 
 ## What this repo includes
 
