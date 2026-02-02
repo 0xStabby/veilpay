@@ -19,7 +19,6 @@ import { buildAddressLabels } from './lib/addressLabels';
 import { DEBUG, STATUS_LOG, WSOL_MINT } from './lib/config';
 import { rescanNotesForOwner } from './lib/noteScanner';
 import { deriveViewKeypair } from './lib/notes';
-import { rescanIdentityRegistry } from './lib/identityScanner';
 import styles from './App.module.css';
 import { useWallet } from '@solana/wallet-adapter-react';
 
@@ -50,15 +49,10 @@ const App = () => {
     const { balance: solBalance } = useSolBalance(connection ?? null, walletPubkey);
     const { balance: shieldedBalance, credit, debit, setBalance } = useShieldedBalance(mintAddress, walletPubkey);
     const [rescanBusy, setRescanBusy] = useState(false);
-    const [rescanIdentityBusy, setRescanIdentityBusy] = useState(false);
     const [rescanProgress, setRescanProgress] = useState<{
         phase: 'scan' | 'decrypt' | 'nullifier' | 'finalize';
         percentTx?: number;
         scannedTxs: number;
-    } | null>(null);
-    const [rescanIdentityProgress, setRescanIdentityProgress] = useState<{
-        processed: number;
-        total: number;
     } | null>(null);
     const [viewKeyIndices, setViewKeyIndices] = useState<number[]>([0]);
     const addressLabels = buildAddressLabels({
@@ -180,32 +174,6 @@ const App = () => {
         }
     };
 
-    const handleRescanIdentity = async () => {
-        if (!connection || !veilpayProgram) {
-            handleStatus('Connect a wallet and program before rescanning identity.');
-            return;
-        }
-        setRescanIdentityBusy(true);
-        setRescanIdentityProgress({ processed: 0, total: 0 });
-        try {
-            await rescanIdentityRegistry({
-                program: veilpayProgram,
-                onStatus: handleStatus,
-                onProgress: (progress) => {
-                    setRescanIdentityProgress({ processed: progress.processed, total: progress.total });
-                },
-                owner: walletPubkey ?? undefined,
-                signMessage: signMessage ?? undefined,
-            });
-        } catch (error) {
-            handleStatus(
-                `Identity rescan failed: ${error instanceof Error ? error.message : 'unknown error'}`
-            );
-        } finally {
-            setRescanIdentityBusy(false);
-            setRescanIdentityProgress(null);
-        }
-    };
 
     return (
         <div className={styles.app}>
@@ -311,9 +279,6 @@ const App = () => {
                             onRescanNotes={handleRescan}
                             rescanning={rescanBusy}
                             rescanNotesProgress={rescanProgress}
-                            onRescanIdentity={handleRescanIdentity}
-                            rescanningIdentity={rescanIdentityBusy}
-                            rescanIdentityProgress={rescanIdentityProgress}
                             viewKeyIndices={viewKeyIndices}
                             onViewKeyIndicesChange={setViewKeyIndices}
                         />

@@ -38,12 +38,6 @@ type UserFlowCardProps = {
         percentTx?: number;
         scannedTxs: number;
     } | null;
-    onRescanIdentity?: () => void;
-    rescanningIdentity?: boolean;
-    rescanIdentityProgress?: {
-        processed: number;
-        total: number;
-    } | null;
     viewKeyIndices?: number[];
     onViewKeyIndicesChange?: (indices: number[]) => void;
 };
@@ -69,9 +63,6 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
     onRescanNotes,
     rescanning = false,
     rescanNotesProgress = null,
-    onRescanIdentity,
-    rescanningIdentity = false,
-    rescanIdentityProgress = null,
     viewKeyIndices,
     onViewKeyIndicesChange,
 }) => {
@@ -269,123 +260,62 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
                         </button>
                     ))}
                 </div>
-                {(onRescanNotes || onRescanIdentity) && (
-                    <div className={styles.actions}>
-                        {onRescanNotes && (
-                            <button
-                                className={styles.actionButton}
-                                onClick={onRescanNotes}
-                                type="button"
-                                disabled={rescanning}
-                            >
-                                {rescanning ? (
-                                    <span className={styles.actionLabel}>
-                                        Rescanning
-                                        <span className={styles.loadingDots} aria-hidden />
-                                    </span>
-                                ) : (
-                                    'Rescan notes'
-                                )}
-                            </button>
-                        )}
-                        {onRescanIdentity && (
-                            <button
-                                className={styles.actionButton}
-                                onClick={onRescanIdentity}
-                                type="button"
-                                disabled={rescanningIdentity}
-                            >
-                                {rescanningIdentity ? (
-                                    <span className={styles.actionLabel}>
-                                        Rescanning
-                                        <span className={styles.loadingDots} aria-hidden />
-                                    </span>
-                                ) : (
-                                    'Rescan identity'
-                                )}
-                            </button>
-                        )}
-                    </div>
-                )}
-                {flowLockedForSpend && flowLockedForSpendReason && (
-                    <div className={styles.syncWarning}>{flowLockedForSpendReason}</div>
-                )}
-                {rescanning && (
-                    <div className={styles.scanProgress} role="status" aria-live="polite">
-                        <div className={styles.scanHeader}>
-                            <span>Scanning notes</span>
-                            <span className={styles.scanMeta}>
-                                {rescanNotesProgress?.percentTx !== undefined
-                                    ? `${Math.round(rescanNotesProgress.percentTx * 100)}%`
-                                    : '--%'}
-                                {' • '}
-                                {rescanNotesProgress?.scannedTxs ?? 0} txs
-                            </span>
-                        </div>
-                        <div className={styles.scanBar}>
-                            <div
-                                className={styles.scanFill}
-                                style={{
-                                    width: (() => {
-                                        const tx = rescanNotesProgress?.percentTx;
-                                        const hasTx = tx !== undefined;
-                                        return hasTx
-                                            ? `${Math.min(100, Math.max(2, tx * 100))}%`
-                                            : '35%';
-                                    })(),
-                                }}
-                                data-indeterminate={
-                                    rescanNotesProgress?.percentTx === undefined
-                                        ? 'true'
-                                        : 'false'
-                                }
-                            />
-                        </div>
-                        <div className={styles.scanPhase}>
-                            {rescanNotesProgress?.phase ? `Phase: ${rescanNotesProgress.phase}` : 'Phase: scan'}
-                        </div>
-                    </div>
-                )}
-                {rescanningIdentity && (
-                    <div className={styles.scanProgress} role="status" aria-live="polite">
-                        <div className={styles.scanHeader}>
-                            <span>Rescanning identity</span>
-                            <span className={styles.scanMeta}>
-                                {rescanIdentityProgress && rescanIdentityProgress.total > 0
-                                    ? `${Math.round(
-                                          (rescanIdentityProgress.processed / rescanIdentityProgress.total) * 100
-                                      )}%`
-                                    : 'Working'}
-                            </span>
-                        </div>
-                        <div className={styles.scanBar}>
-                            <div
-                                className={styles.scanFill}
-                                style={{
-                                    width:
-                                        rescanIdentityProgress && rescanIdentityProgress.total > 0
-                                            ? `${Math.min(
-                                                  100,
-                                                  Math.max(
-                                                      2,
-                                                      (rescanIdentityProgress.processed / rescanIdentityProgress.total) * 100
-                                                  )
-                                              )}%`
-                                            : '35%',
-                                }}
-                                data-indeterminate={
-                                    rescanIdentityProgress && rescanIdentityProgress.total > 0 ? 'false' : 'true'
-                                }
-                            />
-                        </div>
-                        <div className={styles.scanPhase}>
-                            {rescanIdentityProgress && rescanIdentityProgress.total > 0
-                                ? `${rescanIdentityProgress.processed} / ${rescanIdentityProgress.total} txs`
-                                : 'Phase: decode'}
-                        </div>
-                    </div>
-                )}
             </header>
+            {onRescanNotes && (
+                <div className={styles.rescanRow}>
+                    <button
+                        className={styles.rescanButton}
+                        onClick={onRescanNotes}
+                        type="button"
+                        disabled={rescanning}
+                    >
+                        {rescanning ? (
+                            <span className={styles.actionLabel}>
+                                Rescanning
+                                <span className={styles.loadingDots} aria-hidden />
+                            </span>
+                        ) : (
+                            'Rescan notes'
+                        )}
+                    </button>
+                </div>
+            )}
+            {rescanning && (
+                <div className={styles.scanProgress} role="status" aria-live="polite">
+                    <div className={styles.scanHeader}>
+                        <span>Scanning notes</span>
+                        <span className={styles.scanMeta}>
+                            {rescanNotesProgress?.percentTx !== undefined
+                                ? `${Math.round(rescanNotesProgress.percentTx * 100)}%`
+                                : '--%'}
+                            {' • '}
+                            {rescanNotesProgress?.scannedTxs ?? 0} txs
+                        </span>
+                    </div>
+                    <div className={styles.scanBar}>
+                        <div
+                            className={styles.scanFill}
+                            style={{
+                                width: (() => {
+                                    const tx = rescanNotesProgress?.percentTx;
+                                    const hasTx = tx !== undefined;
+                                    return hasTx
+                                        ? `${Math.min(100, Math.max(2, tx * 100))}%`
+                                        : '35%';
+                                })(),
+                            }}
+                            data-indeterminate={
+                                rescanNotesProgress?.percentTx === undefined
+                                    ? 'true'
+                                    : 'false'
+                            }
+                        />
+                    </div>
+                    <div className={styles.scanPhase}>
+                        {rescanNotesProgress?.phase ? `Phase: ${rescanNotesProgress.phase}` : 'Phase: scan'}
+                    </div>
+                </div>
+            )}
 
             <div className={styles.content}>
                 {activeTab === 'deposit' && (

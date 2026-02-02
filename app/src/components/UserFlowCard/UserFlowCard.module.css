@@ -21,27 +21,6 @@
     grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.5rem;
-    padding: 0.5rem 0.75rem 0.75rem;
-}
-
-.actionButton {
-    border: 1px solid var(--border-strong);
-    background: rgba(0, 0, 0, 0.2);
-    color: var(--text);
-    padding: 0.3rem 0.6rem;
-    font-size: 0.75rem;
-    cursor: pointer;
-}
-
-.actionButton:disabled {
-    opacity: 0.6;
-    cursor: default;
-}
-
 .actionLabel {
     display: inline-flex;
     align-items: center;
@@ -81,17 +60,31 @@
     }
 }
 
+.rescanRow {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.rescanButton {
+    border: 1px solid var(--border-strong);
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--text);
+    padding: 0.3rem 0.6rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.rescanButton:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
 .scanProgress {
-    padding: 0 0.9rem 0.9rem;
+    padding: 0;
     display: grid;
     gap: 0.35rem;
 }
 
-.syncWarning {
-    padding: 0 0.9rem 0.6rem;
-    color: var(--danger);
-    font-size: 0.75rem;
-}
 
 .scanHeader {
     display: flex;
