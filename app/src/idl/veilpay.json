@@ -1330,11 +1330,6 @@
           }
         },
         {
-          "name": "payer",
-          "writable": true,
-          "signer": true
-        },
-        {
           "name": "shielded_state",
           "writable": true,
           "pda": {
