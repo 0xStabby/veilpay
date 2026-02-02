@@ -1,14 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import type { FC } from 'react';
 import styles from './UserFlowCard.module.css';
 import type { Program } from '@coral-xyz/anchor';
+import { PublicKey } from '@solana/web3.js';
 import { UserDepositCard } from '../UserDepositCard';
 import { UserReceiveCard } from '../UserReceiveCard';
 import { UserWithdrawCard } from '../UserWithdrawCard';
 import { UserTransferCard } from '../UserTransferCard';
-import { deriveIdentityMember } from '../../lib/pda';
+import { deriveIdentityMember, deriveShielded } from '../../lib/pda';
 import { registerIdentityFlow } from '../../lib/flows';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { FlowStepsModal } from '../FlowSteps';
+import type { FlowStepStatus } from '../../lib/flowSteps';
+import { initStepStatus } from '../../lib/flowSteps';
+import { loadCommitments } from '../../lib/notes';
 
 type UserFlowCardProps = {
     veilpayProgram: Program | null;
@@ -28,8 +33,11 @@ type UserFlowCardProps = {
     onRecordUpdate?: (id: string, patch: import('../../lib/transactions').TransactionRecordPatch) => void;
     onRescanNotes?: () => void;
     rescanning?: boolean;
-    onRescanIdentity?: () => void;
-    rescanningIdentity?: boolean;
+    rescanNotesProgress?: {
+        phase: 'scan' | 'decrypt' | 'nullifier' | 'finalize';
+        percentTx?: number;
+        scannedTxs: number;
+    } | null;
     viewKeyIndices?: number[];
     onViewKeyIndicesChange?: (indices: number[]) => void;
 };
@@ -54,8 +62,7 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
     onRecordUpdate,
     onRescanNotes,
     rescanning = false,
-    onRescanIdentity,
-    rescanningIdentity = false,
+    rescanNotesProgress = null,
     viewKeyIndices,
     onViewKeyIndicesChange,
 }) => {
@@ -64,7 +71,21 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
         'loading'
     );
     const [registerBusy, setRegisterBusy] = useState(false);
+    const [registerModalOpen, setRegisterModalOpen] = useState(false);
+    const [notesSyncStatus, setNotesSyncStatus] = useState<'unknown' | 'loading' | 'ok' | 'stale'>('unknown');
+    const [notesSyncMessage, setNotesSyncMessage] = useState<string | null>(null);
     const { publicKey, signMessage } = useWallet();
+    const registerSteps = useMemo(
+        () => [
+            { id: 'sync', label: 'Sync identity registry' },
+            { id: 'sign', label: 'Sign message to create identity', requiresSignature: true },
+            { id: 'submit', label: 'Sign & confirm registration', requiresSignature: true },
+        ],
+        []
+    );
+    const [registerStatus, setRegisterStatus] = useState<Record<string, FlowStepStatus>>(() =>
+        initStepStatus(registerSteps)
+    );
 
     useEffect(() => {
         let alive = true;
@@ -90,6 +111,78 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
         };
     }, [veilpayProgram, publicKey]);
 
+    useEffect(() => {
+        let alive = true;
+        const checkNotesSync = async () => {
+            if (!veilpayProgram || !publicKey || !mintAddress) {
+                if (alive) {
+                    setNotesSyncStatus('unknown');
+                    setNotesSyncMessage(null);
+                }
+                return;
+            }
+            let mint: PublicKey;
+            try {
+                mint = new PublicKey(mintAddress);
+            } catch {
+                if (alive) {
+                    setNotesSyncStatus('unknown');
+                    setNotesSyncMessage('Invalid mint address.');
+                }
+                return;
+            }
+            setNotesSyncStatus('loading');
+            setNotesSyncMessage(null);
+            try {
+                const shieldedState = deriveShielded(veilpayProgram.programId, mint);
+                const account = await (veilpayProgram.account as any).shieldedState.fetch(shieldedState, 'confirmed');
+                const commitmentCount = Number(
+                    account.commitmentCount?.toString?.() ?? account.commitment_count?.toString?.() ?? 0
+                );
+                const local = loadCommitments(mint, publicKey);
+                if (!alive) return;
+                if (commitmentCount === 0 && local.commitments.length === 0) {
+                    setNotesSyncStatus('ok');
+                    setNotesSyncMessage(null);
+                    return;
+                }
+                if (!local.complete) {
+                    setNotesSyncStatus('stale');
+                    setNotesSyncMessage('Notes cache incomplete. Rescan required.');
+                    return;
+                }
+                if (local.commitments.length !== commitmentCount) {
+                    setNotesSyncStatus('stale');
+                    setNotesSyncMessage('Notes are out of date. Rescan required.');
+                    return;
+                }
+                setNotesSyncStatus('ok');
+                setNotesSyncMessage(null);
+            } catch (error) {
+                if (!alive) return;
+                setNotesSyncStatus('unknown');
+                setNotesSyncMessage(
+                    error instanceof Error ? `Unable to check notes sync: ${error.message}` : 'Unable to check notes sync.'
+                );
+            }
+        };
+        void checkNotesSync();
+        return () => {
+            alive = false;
+        };
+    }, [veilpayProgram, publicKey, mintAddress, rescanning]);
+
+    const flowLockedForSpend = notesSyncStatus !== 'ok' || rescanning;
+    const flowLockedForSpendReason =
+        (rescanning ? 'Rescanning notes. Please wait.' : null) ??
+        (notesSyncStatus === 'loading' ? 'Checking notes sync...' : null) ??
+        (notesSyncStatus === 'stale'
+            ? 'Notes are out of date. Rescan required to use transfers and withdrawals.'
+            : null) ??
+        notesSyncMessage;
+    const flowLockedForDeposit = notesSyncStatus === 'stale';
+    const flowLockedForDepositReason = notesSyncMessage;
+
     const handleRegister = async () => {
         if (!veilpayProgram || !publicKey) {
             onStatus('Connect a wallet before registering.');
@@ -100,12 +193,15 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
             return;
         }
         setRegisterBusy(true);
+        setRegisterModalOpen(true);
+        setRegisterStatus(initStepStatus(registerSteps));
         try {
             await registerIdentityFlow({
                 program: veilpayProgram,
                 owner: publicKey,
                 onStatus,
                 signMessage,
+                onStep: (stepId, status) => setRegisterStatus((prev) => ({ ...prev, [stepId]: status })),
             });
             setRegistrationState('registered');
             onStatus('Registration complete.');
@@ -113,6 +209,7 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
             onStatus(`Registration failed: ${error instanceof Error ? error.message : 'unknown error'}`);
         } finally {
             setRegisterBusy(false);
+            setRegisterModalOpen(false);
         }
     };
 
@@ -123,6 +220,14 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
                     <h3 className={styles.title}>Register</h3>
                     <p className={styles.subtitle}>Create your identity before using VeilPay flows.</p>
                 </header>
+                <FlowStepsModal
+                    open={registerModalOpen}
+                    title="Registration in progress"
+                    steps={registerSteps}
+                    status={registerStatus}
+                    allowClose={!registerBusy}
+                    onClose={() => setRegisterModalOpen(false)}
+                />
                 <button
                     className={styles.registerButton}
                     type="button"
@@ -155,31 +260,62 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
                         </button>
                     ))}
                 </div>
-                {(onRescanNotes || onRescanIdentity) && (
-                    <div className={styles.actions}>
-                        {onRescanNotes && (
-                            <button
-                                className={styles.actionButton}
-                                onClick={onRescanNotes}
-                                type="button"
-                                disabled={rescanning}
-                            >
-                                {rescanning ? 'Rescanning...' : 'Rescan notes'}
-                            </button>
-                        )}
-                        {onRescanIdentity && (
-                            <button
-                                className={styles.actionButton}
-                                onClick={onRescanIdentity}
-                                type="button"
-                                disabled={rescanningIdentity}
-                            >
-                                {rescanningIdentity ? 'Rescanning...' : 'Rescan identity'}
-                            </button>
-                        )}
-                    </div>
-                )}
             </header>
+            {onRescanNotes && (
+                <div className={styles.rescanRow}>
+                    <button
+                        className={styles.rescanButton}
+                        onClick={onRescanNotes}
+                        type="button"
+                        disabled={rescanning}
+                    >
+                        {rescanning ? (
+                            <span className={styles.actionLabel}>
+                                Rescanning
+                                <span className={styles.loadingDots} aria-hidden />
+                            </span>
+                        ) : (
+                            'Rescan notes'
+                        )}
+                    </button>
+                </div>
+            )}
+            {rescanning && (
+                <div className={styles.scanProgress} role="status" aria-live="polite">
+                    <div className={styles.scanHeader}>
+                        <span>Scanning notes</span>
+                        <span className={styles.scanMeta}>
+                            {rescanNotesProgress?.percentTx !== undefined
+                                ? `${Math.round(rescanNotesProgress.percentTx * 100)}%`
+                                : '--%'}
+                            {' • '}
+                            {rescanNotesProgress?.scannedTxs ?? 0} txs
+                        </span>
+                    </div>
+                    <div className={styles.scanBar}>
+                        <div
+                            className={styles.scanFill}
+                            style={{
+                                width: (() => {
+                                    const tx = rescanNotesProgress?.percentTx;
+                                    const hasTx = tx !== undefined;
+                                    return hasTx
+                                        ? `${Math.min(100, Math.max(2, tx * 100))}%`
+                                        : '35%';
+                                })(),
+                            }}
+                            data-indeterminate={
+                                rescanNotesProgress?.percentTx === undefined
+                                    ? 'true'
+                                    : 'false'
+                            }
+                        />
+                    </div>
+                    <div className={styles.scanPhase}>
+                        {rescanNotesProgress?.phase ? `Phase: ${rescanNotesProgress.phase}` : 'Phase: scan'}
+                    </div>
+                </div>
+            )}
 
             <div className={styles.content}>
                 {activeTab === 'deposit' && (
@@ -195,6 +331,8 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
                         onCredit={onCredit}
                         onRecord={onRecord}
                         onRecordUpdate={onRecordUpdate}
+                        flowLocked={flowLockedForDeposit}
+                        flowLockedReason={flowLockedForDepositReason}
                     />
                 )}
                 {activeTab === 'receive' && (
@@ -220,6 +358,8 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
                         onRootChange={onRootChange}
                         onRecord={onRecord}
                         onRecordUpdate={onRecordUpdate}
+                        flowLocked={flowLockedForSpend}
+                        flowLockedReason={flowLockedForSpendReason}
                     />
                 )}
                 {activeTab === 'transfer' && (
@@ -237,6 +377,8 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
                         onDebit={onDebit}
                         onRecord={onRecord}
                         onRecordUpdate={onRecordUpdate}
+                        flowLocked={flowLockedForSpend}
+                        flowLockedReason={flowLockedForSpendReason}
                     />
                 )}
             </div>

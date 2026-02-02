@@ -5,11 +5,13 @@ import { PublicKey } from '@solana/web3.js';
 import styles from './UserDepositCard.module.css';
 import { formatTokenAmount } from '../../lib/amount';
 import { runDepositFlow } from '../../lib/flows';
-import { rescanNotesForOwner } from '../../lib/noteScanner';
 import { fetchTransactionDetails } from '../../lib/transactions';
 import { deriveViewKeypair } from '../../lib/notes';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WSOL_MINT } from '../../lib/config';
+import { FlowStepsModal } from '../FlowSteps';
+import type { FlowStepHandler, FlowStepStatus } from '../../lib/flowSteps';
+import { initStepStatus } from '../../lib/flowSteps';
 
 type UserDepositCardProps = {
     veilpayProgram: Program | null;
@@ -23,6 +25,8 @@ type UserDepositCardProps = {
     onRecord?: (record: import('../../lib/transactions').TransactionRecord) => string;
     onRecordUpdate?: (id: string, patch: import('../../lib/transactions').TransactionRecordPatch) => void;
     embedded?: boolean;
+    flowLocked?: boolean;
+    flowLockedReason?: string | null;
 };
 
 export const UserDepositCard: FC<UserDepositCardProps> = ({
@@ -37,11 +41,24 @@ export const UserDepositCard: FC<UserDepositCardProps> = ({
     onRecord,
     onRecordUpdate,
     embedded = false,
+    flowLocked = false,
+    flowLockedReason = null,
 }) => {
     const [amount, setAmount] = useState('');
     const [depositAsset, setDepositAsset] = useState<'sol' | 'wsol'>('sol');
     const [busy, setBusy] = useState(false);
+    const [modalOpen, setModalOpen] = useState(false);
     const { publicKey, signMessage } = useWallet();
+    const steps = useMemo(
+        () => [
+            { id: 'sync', label: 'Sync identity + notes' },
+            { id: 'keys', label: 'Sign message to derive view key', requiresSignature: true },
+            { id: 'submit', label: 'Sign & confirm deposit', requiresSignature: true },
+            { id: 'confirm', label: 'Update shielded balance' },
+        ],
+        []
+    );
+    const [stepStatus, setStepStatus] = useState<Record<string, FlowStepStatus>>(() => initStepStatus(steps));
 
     const parsedMint = useMemo(() => {
         if (!mintAddress) return null;
@@ -60,10 +77,16 @@ export const UserDepositCard: FC<UserDepositCardProps> = ({
         }
     }, [supportsSol, depositAsset]);
 
+    const handleStep: FlowStepHandler = (stepId, status) => {
+        setStepStatus((prev) => ({ ...prev, [stepId]: status }));
+    };
+
     const handleDeposit = async () => {
         if (!veilpayProgram || !parsedMint || mintDecimals === null) return;
         const asset = supportsSol ? depositAsset : 'wsol';
         setBusy(true);
+        setModalOpen(true);
+        setStepStatus(initStepStatus(steps));
         try {
             const result = await runDepositFlow({
                 program: veilpayProgram,
@@ -75,18 +98,7 @@ export const UserDepositCard: FC<UserDepositCardProps> = ({
                 onRootChange,
                 onCredit,
                 signMessage: signMessage ?? undefined,
-                rescanNotes: async () => {
-                    if (!publicKey || !signMessage) {
-                        throw new Error('Connect a wallet that can sign a message to rescan notes.');
-                    }
-                    await rescanNotesForOwner({
-                        program: veilpayProgram,
-                        mint: parsedMint,
-                        owner: publicKey,
-                        onStatus,
-                        signMessage,
-                    });
-                },
+                onStep: handleStep,
                 ensureRecipientSecret: async () => {
                     if (!publicKey || !signMessage) {
                         throw new Error('Connect a wallet that can sign a message to derive view keys.');
@@ -122,6 +134,7 @@ export const UserDepositCard: FC<UserDepositCardProps> = ({
             onStatus(`Deposit failed: ${error instanceof Error ? error.message : 'unknown error'}`);
         } finally {
             setBusy(false);
+            setModalOpen(false);
         }
     };
 
@@ -131,6 +144,15 @@ export const UserDepositCard: FC<UserDepositCardProps> = ({
                 {embedded ? <h3>Deposit</h3> : <h2>Deposit</h2>}
                 <p>Move funds into your private balance.</p>
             </header>
+            {flowLocked && flowLockedReason && <p className={styles.locked}>{flowLockedReason}</p>}
+            <FlowStepsModal
+                open={modalOpen}
+                title="Deposit in progress"
+                steps={steps}
+                status={stepStatus}
+                allowClose={!busy}
+                onClose={() => setModalOpen(false)}
+            />
             {supportsSol && (
                 <div className={styles.assetToggle}>
                     <button
@@ -181,7 +203,11 @@ export const UserDepositCard: FC<UserDepositCardProps> = ({
                     </button>
                 )}
             </div>
-            <button className={styles.button} disabled={!parsedMint || mintDecimals === null || busy} onClick={handleDeposit}>
+            <button
+                className={styles.button}
+                disabled={!parsedMint || mintDecimals === null || busy || flowLocked}
+                onClick={handleDeposit}
+            >
                 Deposit
             </button>
         </section>

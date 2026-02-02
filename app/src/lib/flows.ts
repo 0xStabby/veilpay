@@ -77,8 +77,13 @@ import {
     setIdentityLeafIndex,
 } from './identity';
 import { rescanIdentityRegistry } from './identityScanner';
+import type { FlowStepHandler } from './flowSteps';
 
 type StatusHandler = (message: string) => void;
+
+const setStep = (onStep: FlowStepHandler | undefined, stepId: string, status: 'idle' | 'running' | 'success' | 'error') => {
+    onStep?.(stepId, status);
+};
 
 const MAX_INPUTS = 4;
 const MAX_OUTPUTS = 2;
@@ -302,33 +307,6 @@ const getCommitmentsWithSync = (
     return commitments;
 };
 
-const rescanNotesWithFallback = async (params: {
-    program: Program;
-    mint: PublicKey;
-    owner: PublicKey;
-    commitmentCount: bigint;
-    onStatus: StatusHandler;
-    signMessage?: (message: Uint8Array) => Promise<Uint8Array>;
-    rescanNotes?: () => Promise<void>;
-}): Promise<bigint[]> => {
-    const { program, mint, owner, commitmentCount, onStatus, signMessage, rescanNotes } = params;
-    onStatus('Local note store out of sync. Attempting rescan...');
-    if (rescanNotes) {
-        await rescanNotes();
-    } else if (signMessage) {
-        await rescanNotesForOwner({
-            program,
-            mint,
-            owner,
-            onStatus,
-            signMessage,
-        });
-    } else {
-        throw new Error('Unable to rescan notes without a message signature.');
-    }
-    return getCommitmentsWithSync(mint, owner, commitmentCount, onStatus);
-};
-
 const getProvider = (program: Program): AnchorProvider => {
     const provider = program.provider as AnchorProvider;
     if (!provider.wallet) {
@@ -402,16 +380,20 @@ async function ensureIdentityRegistered(
     program: Program,
     owner: PublicKey,
     onStatus?: StatusHandler,
-    signMessage?: (message: Uint8Array) => Promise<Uint8Array>
+    signMessage?: (message: Uint8Array) => Promise<Uint8Array>,
+    onStep?: FlowStepHandler
 ) {
+    setStep(onStep, 'sync', 'running');
     const provider = getProvider(program);
     const { identityRegistry, rootBytes, commitmentCount } = await fetchIdentityRegistry(program);
     let localCommitments = loadIdentityCommitments(program.programId);
     if (localCommitments.length !== Number(commitmentCount)) {
+        setStep(onStep, 'sync', 'running');
         await rescanIdentityRegistry({ program, onStatus, owner, signMessage, scanAll: false });
         localCommitments = loadIdentityCommitments(program.programId);
     }
     if (localCommitments.length !== Number(commitmentCount)) {
+        setStep(onStep, 'sync', 'error');
         throw new Error('Local identity registry is out of sync with on-chain root.');
     }
     if (localCommitments.length > 0) {
@@ -419,10 +401,13 @@ async function ensureIdentityRegistered(
         const localRootBytes = bigIntToBytes32(localRoot);
         if (!bytesEqual(rootBytes, localRootBytes)) {
             if (!signMessage) {
+                setStep(onStep, 'sync', 'error');
                 throw new Error('Local identity registry root does not match on-chain root.');
             }
             onStatus?.('Identity registry mismatch. Registering fresh identity.');
+            setStep(onStep, 'sign', 'running');
             const commitment = await getIdentityCommitment(owner, program.programId, signMessage);
+            setStep(onStep, 'sign', 'success');
             const { root } = await buildMerkleTree([commitment]);
             const newRoot = bigIntToBytes32(root);
             const ix = await program.methods
@@ -438,24 +423,31 @@ async function ensureIdentityRegistered(
                     systemProgram: SystemProgram.programId,
                 })
                 .instruction();
+            setStep(onStep, 'submit', 'running');
             await sendLutVersionedTransaction({
                 connection: provider.connection,
                 payer: owner,
                 instructions: [ix],
                 signTransaction: provider.wallet.signTransaction.bind(provider.wallet),
             });
+            setStep(onStep, 'submit', 'success');
             saveIdentityCommitments(program.programId, [commitment]);
             setIdentityLeafIndex(owner, program.programId, 0);
+            setStep(onStep, 'sync', 'success');
             return { identityRegistry, rootBytes: newRoot };
         }
     }
+    setStep(onStep, 'sync', 'success');
+    setStep(onStep, 'sign', 'running');
     const commitment = await getIdentityCommitment(owner, program.programId, signMessage);
+    setStep(onStep, 'sign', 'success');
     let index = localCommitments.findIndex((entry) => entry === commitment);
     if (index === -1) {
         const newCommitments = [...localCommitments, commitment];
         const { root } = await buildMerkleTree(newCommitments);
         const newRoot = bigIntToBytes32(root);
         onStatus?.('Registering identity...');
+        setStep(onStep, 'submit', 'running');
         const ix = await program.methods
             .registerIdentity({
                 commitment: Buffer.from(bigIntToBytes32(commitment)),
@@ -475,12 +467,15 @@ async function ensureIdentityRegistered(
             instructions: [ix],
             signTransaction: provider.wallet.signTransaction.bind(provider.wallet),
         });
+        setStep(onStep, 'submit', 'success');
         saveIdentityCommitments(program.programId, newCommitments);
         index = newCommitments.length - 1;
         setIdentityLeafIndex(owner, program.programId, index);
         return { identityRegistry, rootBytes: newRoot };
     }
     setIdentityLeafIndex(owner, program.programId, index);
+    setStep(onStep, 'sign', 'success');
+    setStep(onStep, 'submit', 'success');
     return { identityRegistry, rootBytes };
 }
 
@@ -489,14 +484,15 @@ export async function registerIdentityFlow(params: {
     owner?: PublicKey;
     onStatus?: StatusHandler;
     signMessage?: (message: Uint8Array) => Promise<Uint8Array>;
+    onStep?: FlowStepHandler;
 }): Promise<void> {
-    const { program, owner, onStatus, signMessage } = params;
+    const { program, owner, onStatus, signMessage, onStep } = params;
     const provider = getProvider(program);
     const actualOwner = owner ?? provider.wallet.publicKey;
     if (!signMessage) {
         throw new Error('Wallet must support message signing to register identity.');
     }
-    await ensureIdentityRegistered(program, actualOwner, onStatus, signMessage);
+    await ensureIdentityRegistered(program, actualOwner, onStatus, signMessage, onStep);
 }
 
 async function buildSpendProofInput(params: {
@@ -689,9 +685,9 @@ export async function runDepositFlow(params: {
     onStatus: StatusHandler;
     onRootChange: (next: Uint8Array) => void;
     onCredit: (amount: bigint) => void;
-    rescanNotes?: () => Promise<void>;
     ensureRecipientSecret?: () => Promise<void>;
     signMessage?: (message: Uint8Array) => Promise<Uint8Array>;
+    onStep?: FlowStepHandler;
 }): Promise<{ signature: string; amountBaseUnits: bigint; newRoot: Uint8Array }> {
     const {
         program,
@@ -702,9 +698,9 @@ export async function runDepositFlow(params: {
         onStatus,
         onRootChange,
         onCredit,
-        rescanNotes,
         ensureRecipientSecret,
         signMessage,
+        onStep,
     } = params;
     const provider = getProvider(program);
     const owner = provider.wallet.publicKey;
@@ -716,6 +712,7 @@ export async function runDepositFlow(params: {
     onStatus(
         `Depositing into VeilPay vault (amount=${formatTokenAmount(baseUnits, mintDecimals)} mint=${mint.toBase58()})...`
     );
+    setStep(onStep, 'sync', 'running');
     const config = deriveConfig(program.programId);
     const vault = deriveVault(program.programId, mint);
     const { shieldedState, rootBytes, commitmentCount } = await fetchShieldedState(program, mint);
@@ -739,13 +736,10 @@ export async function runDepositFlow(params: {
     try {
         commitments = getCommitmentsWithSync(mint, owner, commitmentCount, onStatus);
     } catch (error) {
-        if (isNoteStoreOutOfSyncError(error) && rescanNotes) {
-            onStatus('Local note store missing notes. Attempting rescan before deposit...');
-            await rescanNotes();
-            commitments = getCommitmentsWithSync(mint, owner, commitmentCount, onStatus);
-        } else {
-            throw error;
+        if (isNoteStoreOutOfSyncError(error)) {
+            throw new Error('Notes are out of sync. Rescan notes before depositing.');
         }
+        throw error;
     }
     const leafIndex = Number(commitmentCount);
     const { root: currentRoot } = await buildMerkleTree(commitments);
@@ -753,9 +747,11 @@ export async function runDepositFlow(params: {
     if (!bytesEqual(rootBytes, currentRootBytes)) {
         throw new Error('On-chain root does not match local note store.');
     }
+    setStep(onStep, 'sync', 'success');
     if (!signMessage) {
         throw new Error('Wallet must support message signing to derive view keys.');
     }
+    setStep(onStep, 'keys', 'running');
     if (ensureRecipientSecret) {
         await ensureRecipientSecret();
     }
@@ -764,6 +760,7 @@ export async function runDepositFlow(params: {
         signMessage,
         index: 0,
     });
+    setStep(onStep, 'keys', 'success');
     const { note, plaintext: ciphertext } = await createNote({
         mint,
         amount: baseUnits,
@@ -813,13 +810,16 @@ export async function runDepositFlow(params: {
         })
         .instruction();
     instructions.push(ix);
+    setStep(onStep, 'submit', 'running');
     const signature = await sendLutVersionedTransaction({
         connection: provider.connection,
         payer: owner,
         instructions,
         signTransaction: provider.wallet.signTransaction.bind(provider.wallet),
     });
+    setStep(onStep, 'submit', 'success');
 
+    setStep(onStep, 'confirm', 'running');
     addNote(mint, owner, note);
     saveCommitments(mint, owner, commitments, true);
     onRootChange(newRoot);
@@ -827,6 +827,7 @@ export async function runDepositFlow(params: {
     onStatus(
         `Deposit complete (amount=${formatTokenAmount(baseUnits, mintDecimals)} leafIndex=${leafIndex} commitments=${commitments.length} newRoot=${Buffer.from(newRoot).toString('hex').slice(0, 16)}...)`
     );
+    setStep(onStep, 'confirm', 'success');
     return { signature, amountBaseUnits: baseUnits, newRoot };
 }
 
@@ -843,7 +844,7 @@ export async function runInternalTransferFlow(params: {
     onRootChange: (next: Uint8Array) => void;
     ensureRecipientSecret?: () => Promise<void>;
     signMessage?: (message: Uint8Array) => Promise<Uint8Array>;
-    rescanNotes?: () => Promise<void>;
+    onStep?: FlowStepHandler;
 }): Promise<{ signature: string; nullifier: bigint; newRoot: Uint8Array }> {
     const {
         program,
@@ -858,11 +859,12 @@ export async function runInternalTransferFlow(params: {
         onRootChange,
         ensureRecipientSecret,
         signMessage,
-        rescanNotes,
+        onStep,
     } = params;
     const provider = getProvider(program);
     const owner = provider.wallet.publicKey;
     const parsedRecipientViewKey = parseViewKey(recipientViewKey);
+    setStep(onStep, 'sync', 'running');
     onStatus('Generating proof...');
     const config = deriveConfig(program.programId);
     const { shieldedState, rootBytes, commitmentCount } = await fetchShieldedState(program, mint);
@@ -873,24 +875,9 @@ export async function runInternalTransferFlow(params: {
         commitments = getCommitmentsWithSync(mint, owner, commitmentCount, onStatus);
     } catch (error) {
         if (isNoteStoreOutOfSyncError(error)) {
-            onStatus('Local note store missing notes. Attempting rescan before transfer...');
-            if (rescanNotes) {
-                await rescanNotes();
-            } else if (signMessage) {
-                await rescanNotesForOwner({
-                    program,
-                    mint,
-                    owner,
-                    onStatus,
-                    signMessage,
-                });
-            } else {
-                throw error;
-            }
-            commitments = getCommitmentsWithSync(mint, owner, commitmentCount, onStatus);
-        } else {
-            throw error;
+            throw new Error('Notes are out of sync. Rescan notes before transferring.');
         }
+        throw error;
     }
     let { root: derivedRoot } = await buildMerkleTree(commitments);
     let derivedRootBytes = bigIntToBytes32(derivedRoot);
@@ -899,25 +886,9 @@ export async function runInternalTransferFlow(params: {
         onRootChange?.(derivedRootBytes);
     }
     if (!bytesEqual(rootBytes, derivedRootBytes)) {
-        commitments = await rescanNotesWithFallback({
-            program,
-            mint,
-            owner,
-            commitmentCount,
-            onStatus,
-            signMessage,
-            rescanNotes,
-        });
-        ({ root: derivedRoot } = await buildMerkleTree(commitments));
-        derivedRootBytes = bigIntToBytes32(derivedRoot);
-        if (!bytesEqual(root, derivedRootBytes)) {
-            onStatus('Provided root does not match local notes; using on-chain root.');
-            onRootChange?.(derivedRootBytes);
-        }
-        if (!bytesEqual(rootBytes, derivedRootBytes)) {
-            throw new Error('On-chain root does not match local note store.');
-        }
+        throw new Error('On-chain root does not match local note store. Rescan notes before transferring.');
     }
+    setStep(onStep, 'sync', 'success');
 
     const availableNotes = listSpendableNotes(mint, owner);
     const targetAmount =
@@ -1003,7 +974,9 @@ export async function runInternalTransferFlow(params: {
         commitments,
         signMessage,
     });
+    setStep(onStep, 'proof', 'running');
     const { proofBytes, publicInputsBytes, publicSignals, proof } = await generateProof(built.input);
+    setStep(onStep, 'proof', 'success');
     onStatus(`Public signals: ${formatPublicSignals(publicSignals)}`);
     onStatus(
         `Output commitments: [${built.outputCommitments
@@ -1046,12 +1019,14 @@ export async function runInternalTransferFlow(params: {
         await provider.connection.getLatestBlockhash();
     storeTx.feePayer = owner;
     storeTx.recentBlockhash = storeBlockhash;
+    setStep(onStep, 'upload', 'running');
     const signedStoreTx = await provider.wallet.signTransaction(storeTx);
     const storeSig = await provider.connection.sendRawTransaction(signedStoreTx.serialize());
     await provider.connection.confirmTransaction(
         { signature: storeSig, blockhash: storeBlockhash, lastValidBlockHeight: storeLastValid },
         'confirmed'
     );
+    setStep(onStep, 'upload', 'success');
     onStatus('Proof uploaded. Preparing transaction...');
 
     if (verifierProgram) {
@@ -1118,6 +1093,7 @@ export async function runInternalTransferFlow(params: {
     }
 
     let signature: string;
+    setStep(onStep, 'submit', 'running');
     if (RELAYER_PUBKEY) {
         onStatus('Preparing relayer transaction...');
         const relayerPubkey = RELAYER_PUBKEY;
@@ -1158,7 +1134,9 @@ export async function runInternalTransferFlow(params: {
         signature = await provider.connection.sendRawTransaction(signed.serialize());
         await provider.connection.confirmTransaction(signature, 'confirmed');
     }
- 
+    setStep(onStep, 'submit', 'success');
+
+    setStep(onStep, 'confirm', 'running');
     inputNotes.forEach((note) => markNoteSpent(mint, owner, note.id));
     outputNotes.forEach((note, index) => {
         if (note && outputEnabled[index]) {
@@ -1168,6 +1146,7 @@ export async function runInternalTransferFlow(params: {
     saveCommitments(mint, owner, updatedCommitments, true);
     onRootChange(newRoot);
     onStatus('Internal transfer complete.');
+    setStep(onStep, 'confirm', 'success');
     return { signature, nullifier: built.nullifierValues[0] ?? 0n, newRoot };
 }
 
@@ -1186,7 +1165,7 @@ export async function runExternalTransferFlow(params: {
     onRootChange?: (next: Uint8Array) => void;
     ensureRecipientSecret?: () => Promise<void>;
     signMessage?: (message: Uint8Array) => Promise<Uint8Array>;
-    rescanNotes?: () => Promise<void>;
+    onStep?: FlowStepHandler;
 }): Promise<{ signature: string; amountBaseUnits: bigint; nullifier: bigint }> {
     const {
         program,
@@ -1203,7 +1182,7 @@ export async function runExternalTransferFlow(params: {
         onRootChange,
         ensureRecipientSecret,
         signMessage,
-        rescanNotes,
+        onStep,
     } = params;
     const provider = getProvider(program);
     const owner = provider.wallet.publicKey;
@@ -1244,24 +1223,9 @@ export async function runExternalTransferFlow(params: {
         commitments = getCommitmentsWithSync(mint, owner, commitmentCount, onStatus);
     } catch (error) {
         if (isNoteStoreOutOfSyncError(error)) {
-            onStatus('Local note store missing notes. Attempting rescan before transfer...');
-            if (rescanNotes) {
-                await rescanNotes();
-            } else if (signMessage) {
-                await rescanNotesForOwner({
-                    program,
-                    mint,
-                    owner,
-                    onStatus,
-                    signMessage,
-                });
-            } else {
-                throw error;
-            }
-            commitments = getCommitmentsWithSync(mint, owner, commitmentCount, onStatus);
-        } else {
-            throw error;
+            throw new Error('Notes are out of sync. Rescan notes before transferring.');
         }
+        throw error;
     }
     let { root: derivedRoot } = await buildMerkleTree(commitments);
     let derivedRootBytes = bigIntToBytes32(derivedRoot);
@@ -1270,24 +1234,7 @@ export async function runExternalTransferFlow(params: {
         onRootChange?.(derivedRootBytes);
     }
     if (!bytesEqual(rootBytes, derivedRootBytes)) {
-        commitments = await rescanNotesWithFallback({
-            program,
-            mint,
-            owner,
-            commitmentCount,
-            onStatus,
-            signMessage,
-            rescanNotes,
-        });
-        ({ root: derivedRoot } = await buildMerkleTree(commitments));
-        derivedRootBytes = bigIntToBytes32(derivedRoot);
-        if (!bytesEqual(root, derivedRootBytes)) {
-            onStatus('Provided root does not match local notes; using on-chain root.');
-            onRootChange?.(derivedRootBytes);
-        }
-        if (!bytesEqual(rootBytes, derivedRootBytes)) {
-            throw new Error('On-chain root does not match local note store.');
-        }
+        throw new Error('On-chain root does not match local note store. Rescan notes before transferring.');
     }
 
     const spendableNotes = listSpendableNotes(mint, owner);
@@ -1396,7 +1343,9 @@ export async function runExternalTransferFlow(params: {
         commitments,
         signMessage,
     });
+    setStep(onStep, 'proof', 'running');
     const { proofBytes, publicInputsBytes, publicSignals, proof } = await generateProof(built.input);
+    setStep(onStep, 'proof', 'success');
     onStatus(`Public signals: ${formatPublicSignals(publicSignals)}`);
     onStatus(
         `Output commitments: [${built.outputCommitments
@@ -1439,12 +1388,14 @@ export async function runExternalTransferFlow(params: {
         await provider.connection.getLatestBlockhash();
     storeTx.feePayer = owner;
     storeTx.recentBlockhash = storeBlockhash;
+    setStep(onStep, 'upload', 'running');
     const signedStoreTx = await provider.wallet.signTransaction(storeTx);
     const storeSig = await provider.connection.sendRawTransaction(signedStoreTx.serialize());
     await provider.connection.confirmTransaction(
         { signature: storeSig, blockhash: storeBlockhash, lastValidBlockHeight: storeLastValid },
         'confirmed'
     );
+    setStep(onStep, 'upload', 'success');
     onStatus('Proof uploaded. Preparing relayer transaction...');
 
     if (verifierProgram) {
@@ -1464,6 +1415,7 @@ export async function runExternalTransferFlow(params: {
         }
     }
 
+    setStep(onStep, 'submit', 'running');
     const ix = await program.methods
         .externalTransferWithProof({
             amount: new BN(baseUnits.toString()),
@@ -1648,68 +1600,71 @@ export async function runExternalTransferFlow(params: {
         signMessage,
         lookupTableAddressList
     );
-        onStatus(`Relayer submitted tx: ${relayerResult.signature}`);
-        await logNoteOutputsForSignature(program, relayerResult.signature, onStatus);
-        let didRescan = false;
-        const relayerTx = await program.provider.connection.getTransaction(relayerResult.signature, {
-            maxSupportedTransactionVersion: 0,
-            commitment: 'confirmed',
-        });
-        const minContextSlot = relayerTx?.slot;
-        const expectedCommitments = commitmentCount + BigInt(outputEnabled[0] + outputEnabled[1]);
-        const expectedRoot = outputEnabled[1] ? newRootBytes : undefined;
-        const synced = await waitForShieldedStateUpdate({
-            program,
-            mint,
-            expectedCommitments,
-            expectedRoot,
-            onStatus,
-            minContextSlot,
-        });
-        if (!synced) {
-            onStatus('Relayed transfer not yet reflected on current RPC. Rescanning notes...');
-            if (signMessage) {
-                await rescanNotesForOwner({
-                    program,
-                    mint,
-                    owner: provider.wallet.publicKey,
-                    onStatus,
-                    signMessage,
-                });
-                didRescan = true;
-                const verified = await waitForShieldedStateUpdate({
-                    program,
-                    mint,
-                    expectedCommitments,
-                    expectedRoot,
-                    onStatus,
-                    minContextSlot,
-                });
-                if (!verified) {
-                    throw new Error('Relayed transfer not reflected on chain after rescan.');
-                }
-            } else {
-                throw new Error('Relayed transfer not yet reflected on current RPC. Connect a wallet to rescan.');
+    onStatus(`Relayer submitted tx: ${relayerResult.signature}`);
+    await logNoteOutputsForSignature(program, relayerResult.signature, onStatus);
+    setStep(onStep, 'submit', 'success');
+    let didRescan = false;
+    const relayerTx = await program.provider.connection.getTransaction(relayerResult.signature, {
+        maxSupportedTransactionVersion: 0,
+        commitment: 'confirmed',
+    });
+    const minContextSlot = relayerTx?.slot;
+    const expectedCommitments = commitmentCount + BigInt(outputEnabled[0] + outputEnabled[1]);
+    const expectedRoot = outputEnabled[1] ? newRootBytes : undefined;
+    setStep(onStep, 'confirm', 'running');
+    const synced = await waitForShieldedStateUpdate({
+        program,
+        mint,
+        expectedCommitments,
+        expectedRoot,
+        onStatus,
+        minContextSlot,
+    });
+    if (!synced) {
+        onStatus('Relayed transfer not yet reflected on current RPC. Rescanning notes...');
+        if (signMessage) {
+            await rescanNotesForOwner({
+                program,
+                mint,
+                owner: provider.wallet.publicKey,
+                onStatus,
+                signMessage,
+            });
+            didRescan = true;
+            const verified = await waitForShieldedStateUpdate({
+                program,
+                mint,
+                expectedCommitments,
+                expectedRoot,
+                onStatus,
+                minContextSlot,
+            });
+            if (!verified) {
+                throw new Error('Relayed transfer not reflected on chain after rescan.');
             }
         } else {
-            onStatus(
-                `Shielded state synced: commitments=${synced.commitmentCount.toString()} root=${Buffer.from(synced.rootBytes)
-                    .toString('hex')
-                    .slice(0, 16)}...`
-            );
+            throw new Error('Relayed transfer not yet reflected on current RPC. Connect a wallet to rescan.');
         }
-        if (!didRescan) {
-            inputNotes.forEach((note) => markNoteSpent(mint, owner, note.id));
-            outputNotes.forEach((note, index) => {
-                if (note && outputEnabled[index]) {
-                    addNote(mint, owner, note);
-                }
-            });
-            saveCommitments(mint, owner, updatedCommitments, true);
-        }
-        if (outputEnabled.some((flag) => flag === 1)) {
-            onRootChange?.(newRootBytes);
-        }
+    } else {
+        onStatus(
+            `Shielded state synced: commitments=${synced.commitmentCount.toString()} root=${Buffer.from(synced.rootBytes)
+                .toString('hex')
+                .slice(0, 16)}...`
+        );
+    }
+    if (!didRescan) {
+        inputNotes.forEach((note) => markNoteSpent(mint, owner, note.id));
+        outputNotes.forEach((note, index) => {
+            if (note && outputEnabled[index]) {
+                addNote(mint, owner, note);
+            }
+        });
+        saveCommitments(mint, owner, updatedCommitments, true);
+    }
+    if (outputEnabled.some((flag) => flag === 1)) {
+        onRootChange?.(newRootBytes);
+    }
+    setStep(onStep, 'confirm', 'success');
     onDebit(baseUnits);
     onStatus('External transfer complete.');
     return {

@@ -19,7 +19,6 @@ import { buildAddressLabels } from './lib/addressLabels';
 import { DEBUG, STATUS_LOG, WSOL_MINT } from './lib/config';
 import { rescanNotesForOwner } from './lib/noteScanner';
 import { deriveViewKeypair } from './lib/notes';
-import { rescanIdentityRegistry } from './lib/identityScanner';
 import styles from './App.module.css';
 import { useWallet } from '@solana/wallet-adapter-react';
 
@@ -50,7 +49,11 @@ const App = () => {
     const { balance: solBalance } = useSolBalance(connection ?? null, walletPubkey);
     const { balance: shieldedBalance, credit, debit, setBalance } = useShieldedBalance(mintAddress, walletPubkey);
     const [rescanBusy, setRescanBusy] = useState(false);
-    const [rescanIdentityBusy, setRescanIdentityBusy] = useState(false);
+    const [rescanProgress, setRescanProgress] = useState<{
+        phase: 'scan' | 'decrypt' | 'nullifier' | 'finalize';
+        percentTx?: number;
+        scannedTxs: number;
+    } | null>(null);
     const [viewKeyIndices, setViewKeyIndices] = useState<number[]>([0]);
     const addressLabels = buildAddressLabels({
         mintAddress,
@@ -142,6 +145,7 @@ const App = () => {
             return;
         }
         setRescanBusy(true);
+        setRescanProgress({ phase: 'scan', scannedTxs: 0 });
         try {
             const mint = new PublicKey(mintAddress);
             const { balance } = await rescanNotesForOwner({
@@ -149,6 +153,13 @@ const App = () => {
                 mint,
                 owner: walletPubkey,
                 onStatus: handleStatus,
+                onProgress: (progress) => {
+                    setRescanProgress({
+                        phase: progress.phase,
+                        percentTx: progress.percentTx,
+                        scannedTxs: progress.scannedTxs,
+                    });
+                },
                 signMessage: signMessage ?? undefined,
                 viewKeyIndices,
             });
@@ -157,30 +168,12 @@ const App = () => {
             handleStatus(`Rescan failed: ${error instanceof Error ? error.message : 'unknown error'}`);
         } finally {
             setRescanBusy(false);
+            window.setTimeout(() => {
+                setRescanProgress(null);
+            }, 400);
         }
     };
 
-    const handleRescanIdentity = async () => {
-        if (!connection || !veilpayProgram) {
-            handleStatus('Connect a wallet and program before rescanning identity.');
-            return;
-        }
-        setRescanIdentityBusy(true);
-        try {
-            await rescanIdentityRegistry({
-                program: veilpayProgram,
-                onStatus: handleStatus,
-                owner: walletPubkey ?? undefined,
-                signMessage: signMessage ?? undefined,
-            });
-        } catch (error) {
-            handleStatus(
-                `Identity rescan failed: ${error instanceof Error ? error.message : 'unknown error'}`
-            );
-        } finally {
-            setRescanIdentityBusy(false);
-        }
-    };
 
     return (
         <div className={styles.app}>
@@ -285,8 +278,7 @@ const App = () => {
                             onRecordUpdate={handleRecordUpdate}
                             onRescanNotes={handleRescan}
                             rescanning={rescanBusy}
-                            onRescanIdentity={handleRescanIdentity}
-                            rescanningIdentity={rescanIdentityBusy}
+                            rescanNotesProgress={rescanProgress}
                             viewKeyIndices={viewKeyIndices}
                             onViewKeyIndicesChange={setViewKeyIndices}
                         />

@@ -9,6 +9,9 @@ import { formatTokenAmount } from '../../lib/amount';
 import { runExternalTransferFlow, runInternalTransferFlow } from '../../lib/flows';
 import { parseViewKey } from '../../lib/notes';
 import { WSOL_MINT } from '../../lib/config';
+import { FlowStepsModal } from '../FlowSteps';
+import type { FlowStepStatus } from '../../lib/flowSteps';
+import { initStepStatus } from '../../lib/flowSteps';
 
 export type UserTransferCardProps = {
     veilpayProgram: Program | null;
@@ -24,6 +27,8 @@ export type UserTransferCardProps = {
     onRecord?: (record: import('../../lib/transactions').TransactionRecord) => string;
     onRecordUpdate?: (id: string, patch: import('../../lib/transactions').TransactionRecordPatch) => void;
     embedded?: boolean;
+    flowLocked?: boolean;
+    flowLockedReason?: string | null;
 };
 
 export const UserTransferCard: FC<UserTransferCardProps> = ({
@@ -40,13 +45,43 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
     onRecord,
     onRecordUpdate,
     embedded = false,
+    flowLocked = false,
+    flowLockedReason = null,
 }) => {
     const [internalRecipient, setInternalRecipient] = useState('');
     const [internalAmount, setInternalAmount] = useState('');
     const [externalRecipient, setExternalRecipient] = useState('');
     const [externalAmount, setExternalAmount] = useState('');
     const [busy, setBusy] = useState(false);
+    const [internalModalOpen, setInternalModalOpen] = useState(false);
+    const [externalModalOpen, setExternalModalOpen] = useState(false);
     const { signMessage } = useWallet();
+    const internalSteps = useMemo(
+        () => [
+            { id: 'sync', label: 'Sync identity + notes' },
+            { id: 'proof', label: 'Generate transfer proof' },
+            { id: 'upload', label: 'Sign proof upload', requiresSignature: true },
+            { id: 'submit', label: 'Authorize transfer', requiresSignature: true },
+            { id: 'confirm', label: 'Update notes + root' },
+        ],
+        []
+    );
+    const externalSteps = useMemo(
+        () => [
+            { id: 'sync', label: 'Sync identity + notes' },
+            { id: 'proof', label: 'Generate transfer proof' },
+            { id: 'upload', label: 'Sign proof upload', requiresSignature: true },
+            { id: 'submit', label: 'Authorize relayer transfer', requiresSignature: true },
+            { id: 'confirm', label: 'Confirm + sync shielded state' },
+        ],
+        []
+    );
+    const [internalStatus, setInternalStatus] = useState<Record<string, FlowStepStatus>>(() =>
+        initStepStatus(internalSteps)
+    );
+    const [externalStatus, setExternalStatus] = useState<Record<string, FlowStepStatus>>(() =>
+        initStepStatus(externalSteps)
+    );
 
     const parsedMint = useMemo(() => {
         if (!mintAddress) return null;
@@ -78,6 +113,8 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
     const handleInternal = async () => {
         if (!veilpayProgram || !parsedMint || !parsedInternalRecipient || mintDecimals === null) return;
         setBusy(true);
+        setInternalModalOpen(true);
+        setInternalStatus(initStepStatus(internalSteps));
         try {
             const result = await runInternalTransferFlow({
                 program: veilpayProgram,
@@ -91,6 +128,8 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
                 onStatus,
                 onRootChange,
                 signMessage: signMessage ?? undefined,
+                onStep: (stepId, status) =>
+                    setInternalStatus((prev) => ({ ...prev, [stepId]: status })),
             });
             if (onRecord) {
                 const { createTransactionRecord } = await import('../../lib/transactions');
@@ -122,6 +161,7 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
             onStatus(`Internal transfer failed: ${error instanceof Error ? error.message : 'unknown error'}`);
         } finally {
             setBusy(false);
+            setInternalModalOpen(false);
         }
     };
 
@@ -130,6 +170,8 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
         if (!veilpayProgram || !parsedMint || !parsedExternalRecipient || mintDecimals === null) return;
         onStatus(`External transfer starting. mint=${parsedMint.toBase58()} recipient=${parsedExternalRecipient.toBase58()}`);
         setBusy(true);
+        setExternalModalOpen(true);
+        setExternalStatus(initStepStatus(externalSteps));
         try {
             const deliverAsset = parsedMint.equals(WSOL_MINT) ? 'sol' : 'wsol';
             const result = await runExternalTransferFlow({
@@ -146,6 +188,8 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
                 onDebit,
                 onRootChange,
                 signMessage: signMessage ?? undefined,
+                onStep: (stepId, status) =>
+                    setExternalStatus((prev) => ({ ...prev, [stepId]: status })),
             });
             if (onRecord) {
                 const { createTransactionRecord } = await import('../../lib/transactions');
@@ -178,6 +222,7 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
             onStatus(`External transfer failed: ${error instanceof Error ? error.message : 'unknown error'}`);
         } finally {
             setBusy(false);
+            setExternalModalOpen(false);
         }
     };
 
@@ -187,8 +232,17 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
                 {embedded ? <h3>Transfers</h3> : <h2>Transfers</h2>}
                 <p>Send privately inside VeilPay or externally.</p>
             </header>
+            {flowLocked && flowLockedReason && <p className={styles.locked}>{flowLockedReason}</p>}
             <div className={styles.column}>
                 <h3>Internal</h3>
+                <FlowStepsModal
+                    open={internalModalOpen}
+                    title="Internal transfer in progress"
+                    steps={internalSteps}
+                    status={internalStatus}
+                    allowClose={!busy}
+                    onClose={() => setInternalModalOpen(false)}
+                />
                 <label className={styles.label}>
                     Amount (tokens)
                     <input
@@ -214,13 +268,25 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
                         placeholder="recipient view key (x:y hex)"
                     />
                 </label>
-                <button className={styles.button} disabled={!parsedInternalRecipient || !parsedMint || busy} onClick={handleInternal}>
+                <button
+                    className={styles.button}
+                    disabled={!parsedInternalRecipient || !parsedMint || busy || flowLocked}
+                    onClick={handleInternal}
+                >
                     Send internally
                 </button>
             </div>
             <div className={styles.divider} />
             <div className={styles.column}>
                 <h3>External</h3>
+                <FlowStepsModal
+                    open={externalModalOpen}
+                    title="External transfer in progress"
+                    steps={externalSteps}
+                    status={externalStatus}
+                    allowClose={!busy}
+                    onClose={() => setExternalModalOpen(false)}
+                />
                 <label className={styles.label}>
                     Amount (tokens)
                     <input
@@ -244,7 +310,7 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
                 </label>
                 <button
                     className={styles.button}
-                    disabled={!parsedExternalRecipient || !parsedMint || mintDecimals === null || busy}
+                    disabled={!parsedExternalRecipient || !parsedMint || mintDecimals === null || busy || flowLocked}
                     onClick={handleExternal}
                 >
                     Send externally

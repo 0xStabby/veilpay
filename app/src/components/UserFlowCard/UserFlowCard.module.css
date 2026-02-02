@@ -21,14 +21,51 @@
     grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.5rem;
-    padding: 0.5rem 0.75rem 0.75rem;
+.actionLabel {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
 }
 
-.actionButton {
+.loadingDots {
+    display: inline-flex;
+    width: 1.1rem;
+    justify-content: space-between;
+}
+
+.loadingDots::before,
+.loadingDots::after {
+    content: '';
+    width: 0.25rem;
+    height: 0.25rem;
+    border-radius: 999px;
+    background: var(--accent);
+    display: inline-block;
+    animation: dotPulse 1s ease-in-out infinite;
+}
+
+.loadingDots::after {
+    animation-delay: 0.2s;
+}
+
+@keyframes dotPulse {
+    0%,
+    100% {
+        opacity: 0.3;
+        transform: translateY(0);
+    }
+    50% {
+        opacity: 1;
+        transform: translateY(-2px);
+    }
+}
+
+.rescanRow {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.rescanButton {
     border: 1px solid var(--border-strong);
     background: rgba(0, 0, 0, 0.2);
     color: var(--text);
@@ -37,9 +74,76 @@
     cursor: pointer;
 }
 
-.actionButton:disabled {
+.rescanButton:disabled {
     opacity: 0.6;
     cursor: default;
+}
+
+.scanProgress {
+    padding: 0;
+    display: grid;
+    gap: 0.35rem;
+}
+
+
+.scanHeader {
+    display: flex;
+    justify-content: space-between;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
+.scanMeta {
+    color: var(--text);
+}
+
+.scanBar {
+    width: 100%;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.scanFill {
+    height: 100%;
+    background: linear-gradient(90deg, rgba(106, 227, 255, 0.3), var(--accent));
+    border-radius: 999px;
+    transition: width 0.25s ease;
+    animation: scanPulse 1.6s ease-in-out infinite;
+}
+
+.scanFill[data-indeterminate='true'] {
+    width: 35%;
+    animation: scanSweep 1.6s ease-in-out infinite;
+}
+
+.scanPhase {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+}
+
+
+@keyframes scanPulse {
+    0%,
+    100% {
+        opacity: 0.6;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+
+@keyframes scanSweep {
+    0% {
+        transform: translateX(-30%);
+    }
+    50% {
+        transform: translateX(60%);
+    }
+    100% {
+        transform: translateX(-30%);
+    }
 }
 
 .tab {

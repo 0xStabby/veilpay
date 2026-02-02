@@ -273,6 +273,13 @@ export async function rescanNotesForOwner(params: {
   mint: PublicKey;
   owner: PublicKey;
   onStatus?: (message: string) => void;
+  onProgress?: (progress: {
+    phase: "scan" | "decrypt" | "nullifier" | "finalize";
+    scannedTxs: number;
+    percentTx?: number;
+    currentSlot?: number | null;
+    minSlot?: number | null;
+  }) => void;
   maxSignatures?: number;
   startSlot?: number;
   signMessage?: (message: Uint8Array) => Promise<Uint8Array>;
@@ -284,6 +291,7 @@ export async function rescanNotesForOwner(params: {
     mint,
     owner,
     onStatus,
+    onProgress,
     maxSignatures,
     startSlot,
     signMessage,
@@ -333,6 +341,7 @@ export async function rescanNotesForOwner(params: {
     `View key scan indices: ${indices.join(", ")} (${viewKeys.length} key${viewKeys.length === 1 ? "" : "s"})`
   );
 
+  const signatureEntries: Array<{ signature: string; slot?: number; err?: any }> = [];
   let remaining = maxSignatures ?? Number.POSITIVE_INFINITY;
   while (remaining > 0) {
     const batch = await connection.getSignaturesForAddress(
@@ -346,105 +355,129 @@ export async function rescanNotesForOwner(params: {
     if (batch.length === 0) break;
     remaining -= batch.length;
     before = batch[batch.length - 1]?.signature;
+    signatureEntries.push(...batch);
+  }
 
-    for (const sig of batch) {
-      if (sig.err) {
-        continue;
-      }
-      const tx = await connection.getTransaction(sig.signature, {
-        maxSupportedTransactionVersion: 0,
-        commitment: "confirmed",
-      });
-      if (tx?.meta?.err) {
-        continue;
-      }
-      const logs = tx?.meta?.logMessages;
-      scannedTxs += 1;
-      if (!logs) {
-        continue;
-      }
-      const txSlot = typeof sig.slot === "number" ? sig.slot : tx?.slot;
-      const shouldAttemptDecrypt = !minSlot || (typeof txSlot === "number" && txSlot >= minSlot);
-      txsWithLogs += 1;
-      for (const line of logs) {
-        if (!line.startsWith("Program data:")) continue;
-        programDataLines += 1;
-        if (!firstProgramDataHex) {
-          const parsed = parseProgramData(line);
-          if (parsed) {
-            firstProgramDataHex = toHex(parsed.bytes, 8);
-          }
-        }
-        if (!expectedEventHex) {
-          try {
-            const discriminator = (program.coder as any)?.events?.discriminator?.("NoteOutputEvent");
-            if (discriminator) {
-              expectedEventHex = toHex(discriminator, 8);
-            }
-          } catch {
-            // ignore
-          }
-        }
-      }
-      const handleNoteEvent = (data: any) => {
-        const eventMint = new PublicKey(data.mint);
-        if (!eventMint.equals(mint)) return;
-        const leafIndex = Number(data.leafIndex ?? data.leaf_index ?? 0);
-        if (seenLeafIndices.has(leafIndex)) return;
-        const commitmentBytes = toUint8Array(data.commitment);
-        const ciphertextBytes = toUint8Array(data.ciphertext);
-        if (!commitmentBytes || !ciphertextBytes) return;
-        if (commitmentBytes.length !== 32 || ciphertextBytes.length !== NOTE_CIPHERTEXT_BYTES) return;
-        const commitment = bytesToBigIntBE(commitmentBytes);
-        const { c1x, c1y, c2Amount, c2Randomness } = parseCiphertext(ciphertextBytes);
-        commitmentsByIndex.set(leafIndex, commitment);
-        seenLeafIndices.add(leafIndex);
-        if (!shouldAttemptDecrypt) {
-          return true;
-        }
+  const totalSignatures = signatureEntries.length;
+  let lastSlot: number | null = null;
 
-        collected.push({
-          id: `${mint.toBase58()}:${leafIndex}`,
-          mint: mint.toBase58(),
-          amount: "0",
-          randomness: "0",
-          recipientTagHash: "0",
-          commitment: commitment.toString(),
-          senderSecret: "0",
-          c1x: c1x.toString(),
-          c1y: c1y.toString(),
-          c2Amount: c2Amount.toString(),
-          c2Randomness: c2Randomness.toString(),
-          encRandomness: "0",
-          recipientPubkeyX: "0",
-          recipientPubkeyY: "0",
-          leafIndex,
-          spent: false,
-        });
-        return true;
-      };
-
-      for (const line of logs) {
-        if (!line.startsWith("Program data:")) continue;
+  let processedSignatures = 0;
+  for (const sig of signatureEntries) {
+    if (sig.err) {
+      processedSignatures += 1;
+      continue;
+    }
+    const tx = await connection.getTransaction(sig.signature, {
+      maxSupportedTransactionVersion: 0,
+      commitment: "confirmed",
+    });
+    if (tx?.meta?.err) {
+      processedSignatures += 1;
+      continue;
+    }
+    const logs = tx?.meta?.logMessages;
+    scannedTxs += 1;
+    if (!logs) {
+      processedSignatures += 1;
+      continue;
+    }
+    const txSlot = typeof sig.slot === "number" ? sig.slot : tx?.slot;
+    if (typeof txSlot === "number") {
+      lastSlot = txSlot;
+    }
+    const shouldAttemptDecrypt = !minSlot || (typeof txSlot === "number" && txSlot >= minSlot);
+    txsWithLogs += 1;
+    for (const line of logs) {
+      if (!line.startsWith("Program data:")) continue;
+      programDataLines += 1;
+      if (!firstProgramDataHex) {
         const parsed = parseProgramData(line);
-        if (!parsed) continue;
+        if (parsed) {
+          firstProgramDataHex = toHex(parsed.bytes, 8);
+        }
+      }
+      if (!expectedEventHex) {
         try {
-          const decoded = (program.coder.events as any).decode(parsed.bytes);
-          if (decoded && (decoded.name === "NoteOutputEvent" || decoded.name === "noteOutputEvent")) {
-            const added = handleNoteEvent(decoded.data as any);
-            if (added) {
-              matchedEvents += 1;
-              parsedEvents += 1;
-            }
+          const discriminator = (program.coder as any)?.events?.discriminator?.("NoteOutputEvent");
+          if (discriminator) {
+            expectedEventHex = toHex(discriminator, 8);
           }
         } catch {
-          // ignore decode errors for unrelated program data
+          // ignore
         }
       }
+    }
+    const handleNoteEvent = (data: any) => {
+      const eventMint = new PublicKey(data.mint);
+      if (!eventMint.equals(mint)) return;
+      const leafIndex = Number(data.leafIndex ?? data.leaf_index ?? 0);
+      if (seenLeafIndices.has(leafIndex)) return;
+      const commitmentBytes = toUint8Array(data.commitment);
+      const ciphertextBytes = toUint8Array(data.ciphertext);
+      if (!commitmentBytes || !ciphertextBytes) return;
+      if (commitmentBytes.length !== 32 || ciphertextBytes.length !== NOTE_CIPHERTEXT_BYTES) return;
+      const commitment = bytesToBigIntBE(commitmentBytes);
+      const { c1x, c1y, c2Amount, c2Randomness } = parseCiphertext(ciphertextBytes);
+      commitmentsByIndex.set(leafIndex, commitment);
+      seenLeafIndices.add(leafIndex);
+      if (!shouldAttemptDecrypt) {
+        return true;
+      }
+
+      collected.push({
+        id: `${mint.toBase58()}:${leafIndex}`,
+        mint: mint.toBase58(),
+        amount: "0",
+        randomness: "0",
+        recipientTagHash: "0",
+        commitment: commitment.toString(),
+        senderSecret: "0",
+        c1x: c1x.toString(),
+        c1y: c1y.toString(),
+        c2Amount: c2Amount.toString(),
+        c2Randomness: c2Randomness.toString(),
+        encRandomness: "0",
+        recipientPubkeyX: "0",
+        recipientPubkeyY: "0",
+        leafIndex,
+        spent: false,
+      });
+      return true;
+    };
+
+    for (const line of logs) {
+      if (!line.startsWith("Program data:")) continue;
+      const parsed = parseProgramData(line);
+      if (!parsed) continue;
+      try {
+        const decoded = (program.coder.events as any).decode(parsed.bytes);
+        if (decoded && (decoded.name === "NoteOutputEvent" || decoded.name === "noteOutputEvent")) {
+          const added = handleNoteEvent(decoded.data as any);
+          if (added) {
+            matchedEvents += 1;
+            parsedEvents += 1;
+          }
+        }
+      } catch {
+        // ignore decode errors for unrelated program data
+      }
+    }
+    processedSignatures += 1;
+    if (onProgress) {
+      const percentTx = totalSignatures > 0 ? processedSignatures / totalSignatures : undefined;
+      onProgress({
+        phase: "scan",
+        scannedTxs,
+        percentTx,
+        currentSlot: lastSlot,
+        minSlot,
+      });
     }
   }
 
   const matched: NoteRecord[] = [];
+  let decryptProcessed = 0;
+  const decryptTotal = collected.length;
   for (const note of collected) {
     let matchedNote: NoteRecord | null = null;
     for (let i = 0; i < viewKeys.length; i += 1) {
@@ -480,6 +513,16 @@ export async function rescanNotesForOwner(params: {
     if (matchedNote) {
       matched.push(matchedNote);
     }
+    decryptProcessed += 1;
+    if (onProgress) {
+      onProgress({
+        phase: "decrypt",
+        scannedTxs,
+        percentTx: decryptTotal > 0 ? decryptProcessed / decryptTotal : 1,
+        currentSlot: lastSlot,
+        minSlot,
+      });
+    }
   }
 
   const existing = loadNotes(mint, owner);
@@ -498,6 +541,8 @@ export async function rescanNotesForOwner(params: {
   }
 
   const nullifierCache = new Map<number, Uint8Array>();
+  let nullifierProcessed = 0;
+  const nullifierTotal = merged.size;
   for (const note of merged.values()) {
     if (note.senderSecret === "0" || note.amount === "0") {
       continue;
@@ -505,6 +550,16 @@ export async function rescanNotesForOwner(params: {
     const nullifier = await computeNullifier(BigInt(note.senderSecret), BigInt(note.leafIndex));
     const spent = await isNullifierSpent(program, mint, nullifier, nullifierCache);
     note.spent = spent;
+    nullifierProcessed += 1;
+    if (onProgress) {
+      onProgress({
+        phase: "nullifier",
+        scannedTxs,
+        percentTx: nullifierTotal > 0 ? nullifierProcessed / nullifierTotal : 1,
+        currentSlot: lastSlot,
+        minSlot,
+      });
+    }
   }
 
   const mergedNotes = Array.from(merged.values()).sort((a, b) => a.leafIndex - b.leafIndex);
@@ -528,6 +583,13 @@ export async function rescanNotesForOwner(params: {
       onStatus?.("Commitment cache incomplete. Try rescanning full history.");
     }
   }
+  onProgress?.({
+    phase: "finalize",
+    scannedTxs,
+    percentTx: 1,
+    currentSlot: lastSlot,
+    minSlot,
+  });
   onStatus?.(
     `Rescan complete. Found ${matched.length} notes. Scanned ${scannedTxs} txs (${txsWithLogs} with logs, ${programDataLines} program data lines). Parsed ${parsedEvents} events, matched ${matchedEvents} note events.`
   );

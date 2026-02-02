@@ -7,6 +7,9 @@ import styles from './UserWithdrawCard.module.css';
 import { formatTokenAmount } from '../../lib/amount';
 import { runExternalTransferFlow } from '../../lib/flows';
 import { WSOL_MINT } from '../../lib/config';
+import { FlowStepsModal } from '../FlowSteps';
+import type { FlowStepHandler, FlowStepStatus } from '../../lib/flowSteps';
+import { initStepStatus } from '../../lib/flowSteps';
 
 type UserWithdrawCardProps = {
     veilpayProgram: Program | null;
@@ -22,6 +25,8 @@ type UserWithdrawCardProps = {
     onRecord?: (record: import('../../lib/transactions').TransactionRecord) => string;
     onRecordUpdate?: (id: string, patch: import('../../lib/transactions').TransactionRecordPatch) => void;
     embedded?: boolean;
+    flowLocked?: boolean;
+    flowLockedReason?: string | null;
 };
 
 export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
@@ -38,11 +43,25 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
     onRecord,
     onRecordUpdate,
     embedded = false,
+    flowLocked = false,
+    flowLockedReason = null,
 }) => {
     const [amount, setAmount] = useState('');
     const [withdrawAsset, setWithdrawAsset] = useState<'sol' | 'wsol'>('sol');
     const [busy, setBusy] = useState(false);
+    const [modalOpen, setModalOpen] = useState(false);
     const { signMessage, publicKey } = useWallet();
+    const steps = useMemo(
+        () => [
+            { id: 'sync', label: 'Sync identity + notes' },
+            { id: 'proof', label: 'Generate withdrawal proof' },
+            { id: 'upload', label: 'Sign proof upload', requiresSignature: true },
+            { id: 'submit', label: 'Authorize relayer transfer', requiresSignature: true },
+            { id: 'confirm', label: 'Confirm + sync shielded state' },
+        ],
+        []
+    );
+    const [stepStatus, setStepStatus] = useState<Record<string, FlowStepStatus>>(() => initStepStatus(steps));
 
     const parsedMint = useMemo(() => {
         if (!mintAddress) return null;
@@ -61,10 +80,16 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
         }
     }, [withdrawAsset, supportsSol]);
 
+    const handleStep: FlowStepHandler = (stepId, status) => {
+        setStepStatus((prev) => ({ ...prev, [stepId]: status }));
+    };
+
     const handleWithdraw = async () => {
         if (!veilpayProgram || !parsedMint || !publicKey || mintDecimals === null) return;
         const asset = supportsSol ? withdrawAsset : 'wsol';
         setBusy(true);
+        setModalOpen(true);
+        setStepStatus(initStepStatus(steps));
         try {
             const result = await runExternalTransferFlow({
                 program: veilpayProgram,
@@ -80,6 +105,7 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
                 onDebit,
                 onRootChange,
                 signMessage: signMessage ?? undefined,
+                onStep: handleStep,
             });
             if (onRecord) {
                 const { createTransactionRecord } = await import('../../lib/transactions');
@@ -112,6 +138,7 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
             onStatus(`Withdraw failed: ${error instanceof Error ? error.message : 'unknown error'}`);
         } finally {
             setBusy(false);
+            setModalOpen(false);
         }
     };
 
@@ -121,6 +148,15 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
                 {embedded ? <h3>Withdraw</h3> : <h2>Withdraw</h2>}
                 <p>Move funds out to your wallet.</p>
             </header>
+            {flowLocked && flowLockedReason && <p className={styles.locked}>{flowLockedReason}</p>}
+            <FlowStepsModal
+                open={modalOpen}
+                title="Withdraw in progress"
+                steps={steps}
+                status={stepStatus}
+                allowClose={!busy}
+                onClose={() => setModalOpen(false)}
+            />
             {supportsSol && (
                 <div className={styles.assetToggle}>
                     <button
@@ -162,7 +198,7 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
             </div>
             <button
                 className={styles.button}
-                disabled={!publicKey || !parsedMint || mintDecimals === null || busy}
+                disabled={!publicKey || !parsedMint || mintDecimals === null || busy || flowLocked}
                 onClick={handleWithdraw}
             >
                 Withdraw

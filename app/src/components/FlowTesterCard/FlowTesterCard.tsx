@@ -8,7 +8,6 @@ import { formatTokenAmount, parseTokenAmount } from '../../lib/amount';
 import { Buffer } from 'buffer';
 import { runDepositFlow, runExternalTransferFlow, runInternalTransferFlow } from '../../lib/flows';
 import { WSOL_MINT } from '../../lib/config';
-import { rescanNotesForOwner } from '../../lib/noteScanner';
 import { deriveViewKeypair, parseViewKey, serializeViewKey } from '../../lib/notes';
 
 type FlowStatus = 'idle' | 'running' | 'success' | 'error';
@@ -191,18 +190,6 @@ export const FlowTesterCard: FC<FlowTesterCardProps> = ({
                         onRootChange: handleRootUpdate,
                         onCredit,
                         signMessage: signMessage ?? undefined,
-                        rescanNotes: async () => {
-                            if (!publicKey || !signMessage) {
-                                throw new Error('Connect a wallet that can sign a message to rescan notes.');
-                            }
-                            await rescanNotesForOwner({
-                                program: veilpayProgram,
-                                mint: parsedMint,
-                                owner: publicKey,
-                                onStatus,
-                                signMessage,
-                            });
-                        },
                         ensureRecipientSecret,
                     });
                     runningBalance += requestedAmount;
