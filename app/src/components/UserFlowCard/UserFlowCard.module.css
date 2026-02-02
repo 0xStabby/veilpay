@@ -42,6 +42,45 @@
     cursor: default;
 }
 
+.actionLabel {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.loadingDots {
+    display: inline-flex;
+    width: 1.1rem;
+    justify-content: space-between;
+}
+
+.loadingDots::before,
+.loadingDots::after {
+    content: '';
+    width: 0.25rem;
+    height: 0.25rem;
+    border-radius: 999px;
+    background: var(--accent);
+    display: inline-block;
+    animation: dotPulse 1s ease-in-out infinite;
+}
+
+.loadingDots::after {
+    animation-delay: 0.2s;
+}
+
+@keyframes dotPulse {
+    0%,
+    100% {
+        opacity: 0.3;
+        transform: translateY(0);
+    }
+    50% {
+        opacity: 1;
+        transform: translateY(-2px);
+    }
+}
+
 .tab {
     border: 1px solid var(--border-strong);
     padding: 0.45rem 0.5rem;

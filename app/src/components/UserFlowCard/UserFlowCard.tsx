@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import type { FC } from 'react';
 import styles from './UserFlowCard.module.css';
 import type { Program } from '@coral-xyz/anchor';
@@ -9,6 +9,9 @@ import { UserTransferCard } from '../UserTransferCard';
 import { deriveIdentityMember } from '../../lib/pda';
 import { registerIdentityFlow } from '../../lib/flows';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { FlowStepsModal } from '../FlowSteps';
+import type { FlowStepStatus } from '../../lib/flowSteps';
+import { initStepStatus } from '../../lib/flowSteps';
 
 type UserFlowCardProps = {
     veilpayProgram: Program | null;
@@ -64,7 +67,19 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
         'loading'
     );
     const [registerBusy, setRegisterBusy] = useState(false);
+    const [registerModalOpen, setRegisterModalOpen] = useState(false);
     const { publicKey, signMessage } = useWallet();
+    const registerSteps = useMemo(
+        () => [
+            { id: 'sync', label: 'Sync identity registry' },
+            { id: 'sign', label: 'Sign message to create identity', requiresSignature: true },
+            { id: 'submit', label: 'Sign & confirm registration', requiresSignature: true },
+        ],
+        []
+    );
+    const [registerStatus, setRegisterStatus] = useState<Record<string, FlowStepStatus>>(() =>
+        initStepStatus(registerSteps)
+    );
 
     useEffect(() => {
         let alive = true;
@@ -100,12 +115,15 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
             return;
         }
         setRegisterBusy(true);
+        setRegisterModalOpen(true);
+        setRegisterStatus(initStepStatus(registerSteps));
         try {
             await registerIdentityFlow({
                 program: veilpayProgram,
                 owner: publicKey,
                 onStatus,
                 signMessage,
+                onStep: (stepId, status) => setRegisterStatus((prev) => ({ ...prev, [stepId]: status })),
             });
             setRegistrationState('registered');
             onStatus('Registration complete.');
@@ -113,6 +131,7 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
             onStatus(`Registration failed: ${error instanceof Error ? error.message : 'unknown error'}`);
         } finally {
             setRegisterBusy(false);
+            setRegisterModalOpen(false);
         }
     };
 
@@ -123,6 +142,14 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
                     <h3 className={styles.title}>Register</h3>
                     <p className={styles.subtitle}>Create your identity before using VeilPay flows.</p>
                 </header>
+                <FlowStepsModal
+                    open={registerModalOpen}
+                    title="Registration in progress"
+                    steps={registerSteps}
+                    status={registerStatus}
+                    allowClose={!registerBusy}
+                    onClose={() => setRegisterModalOpen(false)}
+                />
                 <button
                     className={styles.registerButton}
                     type="button"
@@ -164,7 +191,14 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
                                 type="button"
                                 disabled={rescanning}
                             >
-                                {rescanning ? 'Rescanning...' : 'Rescan notes'}
+                                {rescanning ? (
+                                    <span className={styles.actionLabel}>
+                                        Rescanning
+                                        <span className={styles.loadingDots} aria-hidden />
+                                    </span>
+                                ) : (
+                                    'Rescan notes'
+                                )}
                             </button>
                         )}
                         {onRescanIdentity && (
@@ -174,7 +208,14 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
                                 type="button"
                                 disabled={rescanningIdentity}
                             >
-                                {rescanningIdentity ? 'Rescanning...' : 'Rescan identity'}
+                                {rescanningIdentity ? (
+                                    <span className={styles.actionLabel}>
+                                        Rescanning
+                                        <span className={styles.loadingDots} aria-hidden />
+                                    </span>
+                                ) : (
+                                    'Rescan identity'
+                                )}
                             </button>
                         )}
                     </div>
