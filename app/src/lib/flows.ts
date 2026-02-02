@@ -1063,6 +1063,7 @@ export async function runInternalTransferFlow(params: {
     }
     onStatus('Verifier key matches. Submitting transaction...');
 
+    const relayerPayer = RELAYER_PUBKEY ?? owner;
     const ix = await program.methods
         .internalTransferWithProof({
             newRoot: Buffer.from(newRoot),
@@ -1070,7 +1071,7 @@ export async function runInternalTransferFlow(params: {
         })
         .accounts({
             config,
-            payer: owner,
+            payer: relayerPayer,
             shieldedState,
             identityRegistry: deriveIdentityRegistry(program.programId),
             nullifierSet: nullifierSets[0],
@@ -1119,13 +1120,14 @@ export async function runInternalTransferFlow(params: {
     let signature: string;
     if (RELAYER_PUBKEY) {
         onStatus('Preparing relayer transaction...');
+        const relayerPubkey = RELAYER_PUBKEY;
         const { blockhash } = await provider.connection.getLatestBlockhash();
         const computeIxs = [
             ComputeBudgetProgram.setComputeUnitLimit({ units: 250_000 }),
             ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1_000 }),
         ];
         const message = new TransactionMessage({
-            payerKey: RELAYER_PUBKEY,
+            payerKey: relayerPubkey,
             recentBlockhash: blockhash,
             instructions: [...computeIxs, ix],
         }).compileToV0Message([lookupTable]);
