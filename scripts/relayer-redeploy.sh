@@ -89,7 +89,15 @@ if [[ -f "${RELAYER_DIR}/relayer-keypair.json" ]]; then
 fi
 
 ssh "${SSH_OPTS[@]}" "${SSH_USER}@${SERVER_IP}" \
-  "cd /opt/veilpay-relayer && pnpm install --prod && systemctl restart veilpay-relayer && \
+  "if [[ -d /opt/veilpay-relayer ]]; then \
+    chown -R relayer:relayer /opt/veilpay-relayer; \
+    if [[ -f /opt/veilpay-relayer/relayer-keypair.json ]]; then \
+      chmod 600 /opt/veilpay-relayer/relayer-keypair.json; \
+    fi; \
+  fi; \
+  cd /opt/veilpay-relayer && pnpm install --prod && \
+  systemctl restart veilpay-relayer && systemctl is-active --quiet veilpay-relayer && \
+  echo \"[relayer] restart ok\" && \
   if command -v ufw >/dev/null 2>&1; then \
     sudo ufw allow 80/tcp; \
     sudo ufw allow 443/tcp; \
@@ -100,10 +108,16 @@ ssh "${SSH_OPTS[@]}" "${SSH_USER}@${SERVER_IP}" \
     EMAIL=\$(grep -E '^RELAYER_CERT_EMAIL=' /opt/veilpay-relayer/.env | head -n1 | cut -d= -f2-); \
     if [[ -n \"\$DOMAIN\" && -n \"\$EMAIL\" ]]; then \
       sudo sed -i \"s/^\\s*server_name .*/    server_name \${DOMAIN};/\" /etc/nginx/sites-enabled/veilpay-relayer || true; \
-      sudo nginx -t && sudo systemctl reload nginx || true; \
+      if systemctl is-active --quiet nginx; then \
+        sudo nginx -t && sudo systemctl reload nginx && echo \"[nginx] reloaded\" || echo \"[nginx] reload failed\"; \
+      else \
+        sudo nginx -t && sudo systemctl start nginx && echo \"[nginx] started\" || echo \"[nginx] start failed\"; \
+      fi; \
       if [[ ! -f \"/etc/letsencrypt/live/\${DOMAIN}/fullchain.pem\" ]]; then \
         certbot --nginx -d \"\$DOMAIN\" --non-interactive --agree-tos -m \"\$EMAIL\" || true; \
-        systemctl reload nginx || true; \
+        if systemctl is-active --quiet nginx; then \
+          systemctl reload nginx && echo \"[nginx] reloaded\" || echo \"[nginx] reload failed\"; \
+        fi; \
       fi; \
     fi; \
   else \
@@ -112,8 +126,14 @@ ssh "${SSH_OPTS[@]}" "${SSH_USER}@${SERVER_IP}" \
     if [[ -n \"\$DOMAIN\" && -n \"\$EMAIL\" ]]; then \
       sudo apt-get update && sudo apt-get install -y certbot python3-certbot-nginx; \
       sudo sed -i \"s/^\\s*server_name .*/    server_name \${DOMAIN};/\" /etc/nginx/sites-enabled/veilpay-relayer || true; \
-      sudo nginx -t && sudo systemctl reload nginx || true; \
+      if systemctl is-active --quiet nginx; then \
+        sudo nginx -t && sudo systemctl reload nginx && echo \"[nginx] reloaded\" || echo \"[nginx] reload failed\"; \
+      else \
+        sudo nginx -t && sudo systemctl start nginx && echo \"[nginx] started\" || echo \"[nginx] start failed\"; \
+      fi; \
       certbot --nginx -d \"\$DOMAIN\" --non-interactive --agree-tos -m \"\$EMAIL\" || true; \
-      systemctl reload nginx || true; \
+      if systemctl is-active --quiet nginx; then \
+        systemctl reload nginx && echo \"[nginx] reloaded\" || echo \"[nginx] reload failed\"; \
+      fi; \
     fi; \
   fi"
