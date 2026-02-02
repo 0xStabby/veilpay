@@ -177,18 +177,19 @@ All account metas specify signer/writable. PDA derivations are checked in-progra
 
 7) store_proof(nonce, recipient, destination_ata, mint, proof, public_inputs)
 - Accounts:
-  - proof_account_pda (init, writable; seeds: ["proof", proof_owner, nonce])
-  - proof_owner (signer, writable)
+  - proof_account_pda (init, writable; seeds: ["proof", mint, nonce])
+  - payer (signer, writable)
+  - mint (read)
   - system_program
 - Behavior: stores proof + public inputs for two‑tx flows (internal or external).
 
 8) internal_transfer_with_proof(new_root, output_ciphertexts)
 - Accounts:
   - config_pda (read)
+  - payer (signer, writable)
   - shielded_state_pda (writable)
   - nullifier_set_pda (writable)
-  - proof_account_pda (writable, closed to proof_owner)
-  - proof_owner (read, writable)
+  - proof_account_pda (writable, closed to payer)
   - verifier_program (read)
   - verifier_key_pda (read)
   - mint (read)
@@ -197,12 +198,12 @@ All account metas specify signer/writable. PDA derivations are checked in-progra
 9) external_transfer_with_proof(amount, relayer_fee_bps, new_root, output_ciphertexts, deliver_sol)
 - Accounts:
   - config_pda (read)
+  - payer (signer, writable)
   - vault_pda (writable)
   - vault_ata (writable)
   - shielded_state_pda (read)
   - nullifier_set_pda (writable)
-  - proof_account_pda (writable, closed to proof_owner)
-  - proof_owner (read, writable)
+  - proof_account_pda (writable, closed to payer)
   - destination_ata (writable)
   - recipient (writable)
   - relayer_fee_ata (writable, optional)

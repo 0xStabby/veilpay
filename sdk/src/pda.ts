@@ -16,10 +16,10 @@ export const seeds = {
     Buffer.from("verifier_key"),
     Buffer.from(new Uint8Array(new Uint32Array([keyId]).buffer)),
   ],
-  proofAccount: (owner: PublicKey, nonce: bigint) => {
+  proofAccount: (mint: PublicKey, nonce: bigint) => {
     const nonceBytes = Buffer.alloc(8);
     nonceBytes.writeBigUInt64LE(nonce);
-    return [Buffer.from("proof"), owner.toBuffer(), nonceBytes];
+    return [Buffer.from("proof"), mint.toBuffer(), nonceBytes];
   },
 };
 
@@ -57,8 +57,8 @@ export function deriveVerifierKey(verifierProgramId: PublicKey, keyId: number): 
 
 export function deriveProofAccount(
   programId: PublicKey,
-  owner: PublicKey,
+  mint: PublicKey,
   nonce: bigint
 ): PublicKey {
-  return PublicKey.findProgramAddressSync(seeds.proofAccount(owner, nonce), programId)[0];
+  return PublicKey.findProgramAddressSync(seeds.proofAccount(mint, nonce), programId)[0];
 }

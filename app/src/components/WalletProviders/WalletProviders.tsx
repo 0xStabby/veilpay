@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
 import type { FC, ReactNode } from 'react';
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
-import { UnsafeBurnerWalletAdapter } from '@solana/wallet-adapter-wallets';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
 import { LOCALNET_RPC } from '../../lib/config';
 
@@ -13,7 +12,7 @@ type WalletProvidersProps = {
 
 export const WalletProviders: FC<WalletProvidersProps> = ({ children }) => {
     const endpoint = useMemo(() => LOCALNET_RPC, []);
-    const wallets = useMemo(() => [new UnsafeBurnerWalletAdapter()], []);
+    const wallets = useMemo(() => [], []);
 
     return (
         <ConnectionProvider endpoint={endpoint}>

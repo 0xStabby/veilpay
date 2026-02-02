@@ -1024,7 +1024,7 @@ export async function runInternalTransferFlow(params: {
     }
     onStatus('Preflight verified. Uploading proof to chain...');
     const proofNonce = generateProofNonce();
-    const proofAccount = deriveProofAccount(program.programId, owner, proofNonce);
+    const proofAccount = deriveProofAccount(program.programId, mint, proofNonce);
     const storeIx = await program.methods
         .storeProof({
             nonce: new BN(proofNonce.toString()),
@@ -1036,7 +1036,8 @@ export async function runInternalTransferFlow(params: {
         })
         .accounts({
             proofAccount,
-            proofOwner: owner,
+            payer: owner,
+            mint,
             systemProgram: SystemProgram.programId,
         })
         .instruction();
@@ -1069,11 +1070,11 @@ export async function runInternalTransferFlow(params: {
         })
         .accounts({
             config,
+            payer: owner,
             shieldedState,
             identityRegistry: deriveIdentityRegistry(program.programId),
             nullifierSet: nullifierSets[0],
             proofAccount,
-            proofOwner: owner,
             verifierProgram: VERIFIER_PROGRAM_ID,
             verifierKey,
             mint,
@@ -1414,7 +1415,7 @@ export async function runExternalTransferFlow(params: {
     }
     onStatus('Preflight verified. Uploading proof to chain...');
     const proofNonce = generateProofNonce();
-    const proofAccount = deriveProofAccount(program.programId, owner, proofNonce);
+    const proofAccount = deriveProofAccount(program.programId, mint, proofNonce);
     const storeIx = await program.methods
         .storeProof({
             nonce: new BN(proofNonce.toString()),
@@ -1426,7 +1427,8 @@ export async function runExternalTransferFlow(params: {
         })
         .accounts({
             proofAccount,
-            proofOwner: owner,
+            payer: owner,
+            mint,
             systemProgram: SystemProgram.programId,
         })
         .instruction();
@@ -1477,7 +1479,6 @@ export async function runExternalTransferFlow(params: {
             identityRegistry: deriveIdentityRegistry(program.programId),
             nullifierSet: nullifierSets[0],
             proofAccount,
-            proofOwner: owner,
             destinationAta,
             recipient,
             tempAuthority,

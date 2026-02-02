@@ -562,11 +562,7 @@ describe("veilpay", () => {
 
     const proofOwner = provider.wallet.publicKey;
     const proofNonce = nextProofNonce();
-    const proofAccount = deriveProofAccount(
-      program.programId,
-      proofOwner,
-      proofNonce
-    );
+    const proofAccount = deriveProofAccount(program.programId, mint, proofNonce);
     await program.methods
       .storeProof({
         nonce: new anchor.BN(proofNonce.toString()),
@@ -578,7 +574,8 @@ describe("veilpay", () => {
       })
       .accounts({
         proofAccount,
-        proofOwner,
+        payer: proofOwner,
+        mint,
         systemProgram: SystemProgram.programId,
       })
       .rpc();
@@ -600,7 +597,6 @@ describe("veilpay", () => {
         identityRegistry: identityRegistryPda,
         nullifierSet: nullifierPda,
         proofAccount,
-        proofOwner,
         destinationAta: recipientAta,
         recipient: recipient.publicKey,
         tempAuthority,
@@ -661,11 +657,7 @@ describe("veilpay", () => {
 
     const feeProofOwner = provider.wallet.publicKey;
     const feeProofNonce = nextProofNonce();
-    const feeProofAccount = deriveProofAccount(
-      program.programId,
-      feeProofOwner,
-      feeProofNonce
-    );
+    const feeProofAccount = deriveProofAccount(program.programId, mint, feeProofNonce);
     await program.methods
       .storeProof({
         nonce: new anchor.BN(feeProofNonce.toString()),
@@ -677,7 +669,8 @@ describe("veilpay", () => {
       })
       .accounts({
         proofAccount: feeProofAccount,
-        proofOwner: feeProofOwner,
+        payer: feeProofOwner,
+        mint,
         systemProgram: SystemProgram.programId,
       })
       .rpc();
@@ -699,7 +692,6 @@ describe("veilpay", () => {
         identityRegistry: identityRegistryPda,
         nullifierSet: nullifierPda,
         proofAccount: feeProofAccount,
-        proofOwner: feeProofOwner,
         destinationAta: recipientAta,
         recipient: recipient.publicKey,
         tempAuthority,
@@ -765,11 +757,7 @@ describe("veilpay", () => {
       });
       const dsProofOwner = provider.wallet.publicKey;
       const dsProofNonce = nextProofNonce();
-      const dsProofAccount = deriveProofAccount(
-        program.programId,
-        dsProofOwner,
-        dsProofNonce
-      );
+      const dsProofAccount = deriveProofAccount(program.programId, mint, dsProofNonce);
       await program.methods
         .storeProof({
           nonce: new anchor.BN(dsProofNonce.toString()),
@@ -781,7 +769,8 @@ describe("veilpay", () => {
         })
         .accounts({
           proofAccount: dsProofAccount,
-          proofOwner: dsProofOwner,
+          payer: dsProofOwner,
+          mint,
           systemProgram: SystemProgram.programId,
         })
         .rpc();
@@ -802,7 +791,6 @@ describe("veilpay", () => {
           identityRegistry: identityRegistryPda,
           nullifierSet: nullifierPda,
           proofAccount: dsProofAccount,
-          proofOwner: dsProofOwner,
           destinationAta: recipientAta,
           recipient: recipient.publicKey,
           tempAuthority,
@@ -857,11 +845,7 @@ describe("veilpay", () => {
       });
       const urProofOwner = provider.wallet.publicKey;
       const urProofNonce = nextProofNonce();
-      const urProofAccount = deriveProofAccount(
-        program.programId,
-        urProofOwner,
-        urProofNonce
-      );
+      const urProofAccount = deriveProofAccount(program.programId, mint, urProofNonce);
       await program.methods
         .storeProof({
           nonce: new anchor.BN(urProofNonce.toString()),
@@ -873,7 +857,8 @@ describe("veilpay", () => {
         })
         .accounts({
           proofAccount: urProofAccount,
-          proofOwner: urProofOwner,
+          payer: urProofOwner,
+          mint,
           systemProgram: SystemProgram.programId,
         })
         .rpc();
@@ -894,7 +879,6 @@ describe("veilpay", () => {
           identityRegistry: identityRegistryPda,
           nullifierSet: nullifierPda,
           proofAccount: urProofAccount,
-          proofOwner: urProofOwner,
           destinationAta: recipientAta,
           recipient: recipient.publicKey,
           tempAuthority,
@@ -940,11 +924,7 @@ describe("veilpay", () => {
 
     const internalProofOwner = provider.wallet.publicKey;
     const internalProofNonce = nextProofNonce();
-    const internalProofAccount = deriveProofAccount(
-      program.programId,
-      internalProofOwner,
-      internalProofNonce
-    );
+    const internalProofAccount = deriveProofAccount(program.programId, mint, internalProofNonce);
     await program.methods
       .storeProof({
         nonce: new anchor.BN(internalProofNonce.toString()),
@@ -956,7 +936,8 @@ describe("veilpay", () => {
       })
       .accounts({
         proofAccount: internalProofAccount,
-        proofOwner: internalProofOwner,
+        payer: internalProofOwner,
+        mint,
         systemProgram: SystemProgram.programId,
       })
       .rpc();
@@ -967,11 +948,11 @@ describe("veilpay", () => {
       })
       .accounts({
         config: configPda,
+        payer: provider.wallet.publicKey,
         shieldedState: shieldedPda,
         identityRegistry: identityRegistryPda,
         nullifierSet: nullifierPda,
         proofAccount: internalProofAccount,
-        proofOwner: internalProofOwner,
         verifierProgram: verifierProgram.programId,
         verifierKey: verifierKeyPda,
         mint,
@@ -1009,11 +990,7 @@ describe("veilpay", () => {
 
     const extProofOwner = provider.wallet.publicKey;
     const extProofNonce = nextProofNonce();
-    const extProofAccount = deriveProofAccount(
-      program.programId,
-      extProofOwner,
-      extProofNonce
-    );
+    const extProofAccount = deriveProofAccount(program.programId, mint, extProofNonce);
     await program.methods
       .storeProof({
         nonce: new anchor.BN(extProofNonce.toString()),
@@ -1025,7 +1002,8 @@ describe("veilpay", () => {
       })
       .accounts({
         proofAccount: extProofAccount,
-        proofOwner: extProofOwner,
+        payer: extProofOwner,
+        mint,
         systemProgram: SystemProgram.programId,
       })
       .rpc();
@@ -1046,7 +1024,6 @@ describe("veilpay", () => {
         identityRegistry: identityRegistryPda,
         nullifierSet: nullifierPda,
         proofAccount: extProofAccount,
-        proofOwner: extProofOwner,
         destinationAta: recipientAta,
         recipient: recipient.publicKey,
         tempAuthority,
@@ -1171,7 +1148,7 @@ describe("veilpay", () => {
     const wsolInternalProofNonce = nextProofNonce();
     const wsolInternalProofAccount = deriveProofAccount(
       program.programId,
-      wsolInternalProofOwner,
+      wsolMint,
       wsolInternalProofNonce
     );
     await program.methods
@@ -1185,7 +1162,8 @@ describe("veilpay", () => {
       })
       .accounts({
         proofAccount: wsolInternalProofAccount,
-        proofOwner: wsolInternalProofOwner,
+        payer: wsolInternalProofOwner,
+        mint: wsolMint,
         systemProgram: SystemProgram.programId,
       })
       .rpc();
@@ -1196,11 +1174,11 @@ describe("veilpay", () => {
       })
       .accounts({
         config: configPda,
+        payer: provider.wallet.publicKey,
         shieldedState: wsolShieldedPda,
         identityRegistry: identityRegistryPda,
         nullifierSet: wsolNullifierPda,
         proofAccount: wsolInternalProofAccount,
-        proofOwner: wsolInternalProofOwner,
         verifierProgram: verifierProgram.programId,
         verifierKey: verifierKeyPda,
         mint: wsolMint,
@@ -1236,11 +1214,7 @@ describe("veilpay", () => {
     const beforeBalance = await provider.connection.getBalance(recipient.publicKey);
     const wsolExtProofOwner = provider.wallet.publicKey;
     const wsolExtProofNonce = nextProofNonce();
-    const wsolExtProofAccount = deriveProofAccount(
-      program.programId,
-      wsolExtProofOwner,
-      wsolExtProofNonce
-    );
+    const wsolExtProofAccount = deriveProofAccount(program.programId, wsolMint, wsolExtProofNonce);
     await program.methods
       .storeProof({
         nonce: new anchor.BN(wsolExtProofNonce.toString()),
@@ -1252,7 +1226,8 @@ describe("veilpay", () => {
       })
       .accounts({
         proofAccount: wsolExtProofAccount,
-        proofOwner: wsolExtProofOwner,
+        payer: wsolExtProofOwner,
+        mint: wsolMint,
         systemProgram: SystemProgram.programId,
       })
       .rpc();
@@ -1273,7 +1248,6 @@ describe("veilpay", () => {
         identityRegistry: identityRegistryPda,
         nullifierSet: wsolNullifierPda,
         proofAccount: wsolExtProofAccount,
-        proofOwner: wsolExtProofOwner,
         destinationAta: recipientAta,
         recipient: recipient.publicKey,
         tempAuthority,

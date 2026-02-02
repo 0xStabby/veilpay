@@ -60,9 +60,9 @@ const ix = await client.buildDepositIx({
 Real Groth16 proofs are large; the app uses a two‑tx flow:
 
 1) `store_proof` — upload proof + public inputs to a PDA.
-2) `internal_transfer_with_proof` / `external_transfer_with_proof` — consume the PDA (closed to owner).
+2) `internal_transfer_with_proof` / `external_transfer_with_proof` — consume the PDA (closed to payer).
 
-Use `deriveProofAccount(programId, owner, nonce)` to compute the PDA. The SDK does not currently expose a high‑level helper for this, but the PDA helper is available.
+Use `deriveProofAccount(programId, mint, nonce)` to compute the PDA. The SDK does not currently expose a high‑level helper for this, but the PDA helper is available.
 
 ## Withdraw vs external transfer
 

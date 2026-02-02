@@ -286,10 +286,6 @@ pub mod veilpay {
             VeilpayError::MintNotAllowed
         );
         require!(
-            ctx.accounts.proof_account.owner == ctx.accounts.proof_owner.key(),
-            VeilpayError::InvalidProofAccountOwner
-        );
-        require!(
             ctx.accounts.proof_account.mint == ctx.accounts.mint.key(),
             VeilpayError::InvalidProofAccountMint
         );
@@ -359,7 +355,7 @@ pub mod veilpay {
             VeilpayError::InvalidPublicInputsLength
         );
         let proof_account = &mut ctx.accounts.proof_account;
-        proof_account.owner = ctx.accounts.proof_owner.key();
+        proof_account.owner = ctx.accounts.payer.key();
         proof_account.recipient = args.recipient;
         proof_account.destination_ata = args.destination_ata;
         proof_account.mint = args.mint;
@@ -585,10 +581,6 @@ pub mod veilpay {
         require!(
             ctx.accounts.vault_ata.owner == ctx.accounts.vault.key(),
             VeilpayError::InvalidVaultAuthority
-        );
-        require!(
-            ctx.accounts.proof_account.owner == ctx.accounts.proof_owner.key(),
-            VeilpayError::InvalidProofAccountOwner
         );
         require!(
             ctx.accounts.proof_account.mint == ctx.accounts.mint.key(),
@@ -957,6 +949,8 @@ pub struct InternalTransfer<'info> {
 pub struct InternalTransferWithProof<'info> {
     #[account(seeds = [b"config", crate::ID.as_ref()], bump = config.bump)]
     pub config: Account<'info, Config>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
     #[account(mut, seeds = [b"shielded", mint.key().as_ref()], bump = shielded_state.bump)]
     pub shielded_state: Box<Account<'info, ShieldedState>>,
     #[account(seeds = [b"identity_registry"], bump = identity_registry.bump)]
@@ -965,13 +959,11 @@ pub struct InternalTransferWithProof<'info> {
     pub nullifier_set: Box<Account<'info, NullifierSet>>,
     #[account(
         mut,
-        close = proof_owner,
-        seeds = [b"proof", proof_owner.key().as_ref(), proof_account.nonce.to_le_bytes().as_ref()],
+        close = payer,
+        seeds = [b"proof", mint.key().as_ref(), proof_account.nonce.to_le_bytes().as_ref()],
         bump = proof_account.bump
     )]
     pub proof_account: Account<'info, ProofAccount>,
-    #[account(mut)]
-    pub proof_owner: SystemAccount<'info>,
     pub verifier_program: Program<'info, verifier::program::Verifier>,
     pub verifier_key: Account<'info, verifier::VerifierKey>,
     pub mint: Account<'info, Mint>,
@@ -982,14 +974,15 @@ pub struct InternalTransferWithProof<'info> {
 pub struct StoreProof<'info> {
     #[account(
         init,
-        payer = proof_owner,
+        payer = payer,
         space = 8 + ProofAccount::INIT_SPACE,
-        seeds = [b"proof", proof_owner.key().as_ref(), args.nonce.to_le_bytes().as_ref()],
+        seeds = [b"proof", mint.key().as_ref(), args.nonce.to_le_bytes().as_ref()],
         bump
     )]
     pub proof_account: Account<'info, ProofAccount>,
     #[account(mut)]
-    pub proof_owner: Signer<'info>,
+    pub payer: Signer<'info>,
+    pub mint: Account<'info, Mint>,
     pub system_program: Program<'info, System>,
 }
 
@@ -1055,13 +1048,11 @@ pub struct ExternalTransferWithProof<'info> {
     pub nullifier_set: Box<Account<'info, NullifierSet>>,
     #[account(
         mut,
-        close = proof_owner,
-        seeds = [b"proof", proof_owner.key().as_ref(), proof_account.nonce.to_le_bytes().as_ref()],
+        close = payer,
+        seeds = [b"proof", mint.key().as_ref(), proof_account.nonce.to_le_bytes().as_ref()],
         bump = proof_account.bump
     )]
     pub proof_account: Account<'info, ProofAccount>,
-    #[account(mut)]
-    pub proof_owner: SystemAccount<'info>,
     /// CHECK: Validated in instruction when needed.
     #[account(mut)]
     pub destination_ata: UncheckedAccount<'info>,

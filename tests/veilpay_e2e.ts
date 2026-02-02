@@ -875,7 +875,7 @@ describe("veilpay e2e (real groth16)", () => {
       .rpc();
 
     const proofNonce = randomNonce();
-    const proofAccount = deriveProofAccount(program.programId, recipient, proofNonce);
+    const proofAccount = deriveProofAccount(program.programId, mint, proofNonce);
     await program.methods
       .storeProof({
         nonce: new anchor.BN(proofNonce.toString()),
@@ -887,7 +887,8 @@ describe("veilpay e2e (real groth16)", () => {
       })
       .accounts({
         proofAccount,
-        proofOwner: recipient,
+        payer: recipient,
+        mint,
         systemProgram: SystemProgram.programId,
       })
       .rpc();
@@ -909,7 +910,6 @@ describe("veilpay e2e (real groth16)", () => {
         identityRegistry: identityRegistryPda,
         nullifierSet: nullifierPda,
         proofAccount,
-        proofOwner: recipient,
         destinationAta: recipientAta,
         recipient,
         tempAuthority,
@@ -1275,11 +1275,7 @@ describe("veilpay e2e (real groth16)", () => {
     });
     const internalPrimaryNullifier = internalNullifierSets[0];
     const internalProofNonce = randomNonce();
-    const internalProofAccount = deriveProofAccount(
-      program.programId,
-      provider.wallet.publicKey,
-      internalProofNonce
-    );
+    const internalProofAccount = deriveProofAccount(program.programId, splMint, internalProofNonce);
     const storeInternalIx = await program.methods
       .storeProof({
         nonce: new anchor.BN(internalProofNonce.toString()),
@@ -1291,7 +1287,8 @@ describe("veilpay e2e (real groth16)", () => {
       })
       .accounts({
         proofAccount: internalProofAccount,
-        proofOwner: provider.wallet.publicKey,
+        payer: provider.wallet.publicKey,
+        mint: splMint,
         systemProgram: SystemProgram.programId,
       })
       .instruction();
@@ -1303,11 +1300,11 @@ describe("veilpay e2e (real groth16)", () => {
       })
       .accounts({
         config: configPda,
+        payer: provider.wallet.publicKey,
         shieldedState: splShieldedPda,
         identityRegistry: identityRegistryPda,
         nullifierSet: internalPrimaryNullifier,
         proofAccount: internalProofAccount,
-        proofOwner: provider.wallet.publicKey,
         verifierProgram: verifierProgram.programId,
         verifierKey: realVerifierKeyPda,
         mint: splMint,
@@ -1374,11 +1371,7 @@ describe("veilpay e2e (real groth16)", () => {
     const tempAuthority = await deriveTempAuthority(program, splVaultPda, recipient.publicKey);
     const tempWsolAta = await getAssociatedTokenAddress(splMint, tempAuthority, true);
     const externalProofNonce = randomNonce();
-    const externalProofAccount = deriveProofAccount(
-      program.programId,
-      provider.wallet.publicKey,
-      externalProofNonce
-    );
+    const externalProofAccount = deriveProofAccount(program.programId, splMint, externalProofNonce);
     const storeExternalIx = await program.methods
       .storeProof({
         nonce: new anchor.BN(externalProofNonce.toString()),
@@ -1390,7 +1383,8 @@ describe("veilpay e2e (real groth16)", () => {
       })
       .accounts({
         proofAccount: externalProofAccount,
-        proofOwner: provider.wallet.publicKey,
+        payer: provider.wallet.publicKey,
+        mint: splMint,
         systemProgram: SystemProgram.programId,
       })
       .instruction();
@@ -1412,7 +1406,6 @@ describe("veilpay e2e (real groth16)", () => {
         identityRegistry: identityRegistryPda,
         nullifierSet: externalPrimaryNullifier,
         proofAccount: externalProofAccount,
-        proofOwner: provider.wallet.publicKey,
         destinationAta: recipientAta,
         recipient: recipient.publicKey,
         tempAuthority,
@@ -1584,11 +1577,7 @@ describe("veilpay e2e (real groth16)", () => {
     const wsolTempAuthority = await deriveTempAuthority(program, wsolVaultPda, wsolRecipient.publicKey);
     const wsolTempWsolAta = await getAssociatedTokenAddress(wsolMint, wsolTempAuthority, true);
     const wsolProofNonce = randomNonce();
-    const wsolProofAccount = deriveProofAccount(
-      program.programId,
-      provider.wallet.publicKey,
-      wsolProofNonce
-    );
+    const wsolProofAccount = deriveProofAccount(program.programId, wsolMint, wsolProofNonce);
     const storeWsolIx = await program.methods
       .storeProof({
         nonce: new anchor.BN(wsolProofNonce.toString()),
@@ -1600,7 +1589,8 @@ describe("veilpay e2e (real groth16)", () => {
       })
       .accounts({
         proofAccount: wsolProofAccount,
-        proofOwner: provider.wallet.publicKey,
+        payer: provider.wallet.publicKey,
+        mint: wsolMint,
         systemProgram: SystemProgram.programId,
       })
       .instruction();
@@ -1622,7 +1612,6 @@ describe("veilpay e2e (real groth16)", () => {
         identityRegistry: identityRegistryPda,
         nullifierSet: wsolPrimaryNullifier,
         proofAccount: wsolProofAccount,
-        proofOwner: provider.wallet.publicKey,
         destinationAta: wsolRecipientAta,
         recipient: wsolRecipient.publicKey,
         tempAuthority: wsolTempAuthority,

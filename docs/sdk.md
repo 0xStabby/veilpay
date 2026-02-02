@@ -76,7 +76,7 @@ Groth16 proofs are large; transfers use:
 1) `store_proof` — uploads proof + public inputs to a PDA.
 2) `*_transfer_with_proof` — consumes and closes the PDA.
 
-Use `deriveProofAccount(programId, owner, nonce)` to compute the PDA address.
+Use `deriveProofAccount(programId, mint, nonce)` to compute the PDA address.
 
 ## Primitive APIs
 
@@ -90,7 +90,7 @@ deriveIdentityRegistry(programId)
 deriveIdentityMember(programId, owner)
 deriveNullifierSet(programId, mint, chunkIndex)
 deriveVerifierKey(verifierProgramId, keyId)
-deriveProofAccount(programId, owner, nonce)
+deriveProofAccount(programId, mint, nonce)
 ```
 
 ### Notes (`notes.ts`)
@@ -179,16 +179,15 @@ Same as internal transfer, but:
 The proof PDA is derived as:
 
 ```
-["proof", proof_owner, nonce]
+["proof", mint, nonce]
 ```
 
 The program validates:
 
-- proof account owner
 - mint
 - (for external) recipient + destination ATA
 
-The proof account is closed after use to reclaim rent.
+The proof account is closed after use to reclaim rent (closed to the payer).
 
 ## Common pitfalls
 

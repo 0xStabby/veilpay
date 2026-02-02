@@ -681,7 +681,7 @@
               },
               {
                 "kind": "account",
-                "path": "proof_owner"
+                "path": "mint"
               },
               {
                 "kind": "account",
@@ -690,10 +690,6 @@
               }
             ]
           }
-        },
-        {
-          "name": "proof_owner",
-          "writable": true
         },
         {
           "name": "destination_ata",
@@ -1334,6 +1330,11 @@
           }
         },
         {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
           "name": "shielded_state",
           "writable": true,
           "pda": {
@@ -1482,6 +1483,11 @@
           }
         },
         {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
           "name": "shielded_state",
           "writable": true,
           "pda": {
@@ -1556,7 +1562,7 @@
               },
               {
                 "kind": "account",
-                "path": "proof_owner"
+                "path": "mint"
               },
               {
                 "kind": "account",
@@ -1565,10 +1571,6 @@
               }
             ]
           }
-        },
-        {
-          "name": "proof_owner",
-          "writable": true
         },
         {
           "name": "verifier_program",
@@ -1803,7 +1805,7 @@
               },
               {
                 "kind": "account",
-                "path": "proof_owner"
+                "path": "mint"
               },
               {
                 "kind": "arg",
@@ -1813,9 +1815,12 @@
           }
         },
         {
-          "name": "proof_owner",
+          "name": "payer",
           "writable": true,
           "signer": true
+        },
+        {
+          "name": "mint"
         },
         {
           "name": "system_program",
