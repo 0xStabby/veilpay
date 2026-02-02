@@ -307,33 +307,6 @@ const getCommitmentsWithSync = (
     return commitments;
 };
 
-const rescanNotesWithFallback = async (params: {
-    program: Program;
-    mint: PublicKey;
-    owner: PublicKey;
-    commitmentCount: bigint;
-    onStatus: StatusHandler;
-    signMessage?: (message: Uint8Array) => Promise<Uint8Array>;
-    rescanNotes?: () => Promise<void>;
-}): Promise<bigint[]> => {
-    const { program, mint, owner, commitmentCount, onStatus, signMessage, rescanNotes } = params;
-    onStatus('Local note store out of sync. Attempting rescan...');
-    if (rescanNotes) {
-        await rescanNotes();
-    } else if (signMessage) {
-        await rescanNotesForOwner({
-            program,
-            mint,
-            owner,
-            onStatus,
-            signMessage,
-        });
-    } else {
-        throw new Error('Unable to rescan notes without a message signature.');
-    }
-    return getCommitmentsWithSync(mint, owner, commitmentCount, onStatus);
-};
-
 const getProvider = (program: Program): AnchorProvider => {
     const provider = program.provider as AnchorProvider;
     if (!provider.wallet) {
@@ -712,7 +685,6 @@ export async function runDepositFlow(params: {
     onStatus: StatusHandler;
     onRootChange: (next: Uint8Array) => void;
     onCredit: (amount: bigint) => void;
-    rescanNotes?: () => Promise<void>;
     ensureRecipientSecret?: () => Promise<void>;
     signMessage?: (message: Uint8Array) => Promise<Uint8Array>;
     onStep?: FlowStepHandler;
@@ -726,7 +698,6 @@ export async function runDepositFlow(params: {
         onStatus,
         onRootChange,
         onCredit,
-        rescanNotes,
         ensureRecipientSecret,
         signMessage,
         onStep,
@@ -765,13 +736,10 @@ export async function runDepositFlow(params: {
     try {
         commitments = getCommitmentsWithSync(mint, owner, commitmentCount, onStatus);
     } catch (error) {
-        if (isNoteStoreOutOfSyncError(error) && rescanNotes) {
-            onStatus('Local note store missing notes. Attempting rescan before deposit...');
-            await rescanNotes();
-            commitments = getCommitmentsWithSync(mint, owner, commitmentCount, onStatus);
-        } else {
-            throw error;
+        if (isNoteStoreOutOfSyncError(error)) {
+            throw new Error('Notes are out of sync. Rescan notes before depositing.');
         }
+        throw error;
     }
     const leafIndex = Number(commitmentCount);
     const { root: currentRoot } = await buildMerkleTree(commitments);
@@ -876,7 +844,6 @@ export async function runInternalTransferFlow(params: {
     onRootChange: (next: Uint8Array) => void;
     ensureRecipientSecret?: () => Promise<void>;
     signMessage?: (message: Uint8Array) => Promise<Uint8Array>;
-    rescanNotes?: () => Promise<void>;
     onStep?: FlowStepHandler;
 }): Promise<{ signature: string; nullifier: bigint; newRoot: Uint8Array }> {
     const {
@@ -892,7 +859,6 @@ export async function runInternalTransferFlow(params: {
         onRootChange,
         ensureRecipientSecret,
         signMessage,
-        rescanNotes,
         onStep,
     } = params;
     const provider = getProvider(program);
@@ -909,24 +875,9 @@ export async function runInternalTransferFlow(params: {
         commitments = getCommitmentsWithSync(mint, owner, commitmentCount, onStatus);
     } catch (error) {
         if (isNoteStoreOutOfSyncError(error)) {
-            onStatus('Local note store missing notes. Attempting rescan before transfer...');
-            if (rescanNotes) {
-                await rescanNotes();
-            } else if (signMessage) {
-                await rescanNotesForOwner({
-                    program,
-                    mint,
-                    owner,
-                    onStatus,
-                    signMessage,
-                });
-            } else {
-                throw error;
-            }
-            commitments = getCommitmentsWithSync(mint, owner, commitmentCount, onStatus);
-        } else {
-            throw error;
+            throw new Error('Notes are out of sync. Rescan notes before transferring.');
         }
+        throw error;
     }
     let { root: derivedRoot } = await buildMerkleTree(commitments);
     let derivedRootBytes = bigIntToBytes32(derivedRoot);
@@ -935,24 +886,7 @@ export async function runInternalTransferFlow(params: {
         onRootChange?.(derivedRootBytes);
     }
     if (!bytesEqual(rootBytes, derivedRootBytes)) {
-        commitments = await rescanNotesWithFallback({
-            program,
-            mint,
-            owner,
-            commitmentCount,
-            onStatus,
-            signMessage,
-            rescanNotes,
-        });
-        ({ root: derivedRoot } = await buildMerkleTree(commitments));
-        derivedRootBytes = bigIntToBytes32(derivedRoot);
-        if (!bytesEqual(root, derivedRootBytes)) {
-            onStatus('Provided root does not match local notes; using on-chain root.');
-            onRootChange?.(derivedRootBytes);
-        }
-        if (!bytesEqual(rootBytes, derivedRootBytes)) {
-            throw new Error('On-chain root does not match local note store.');
-        }
+        throw new Error('On-chain root does not match local note store. Rescan notes before transferring.');
     }
     setStep(onStep, 'sync', 'success');
 
@@ -1231,7 +1165,6 @@ export async function runExternalTransferFlow(params: {
     onRootChange?: (next: Uint8Array) => void;
     ensureRecipientSecret?: () => Promise<void>;
     signMessage?: (message: Uint8Array) => Promise<Uint8Array>;
-    rescanNotes?: () => Promise<void>;
     onStep?: FlowStepHandler;
 }): Promise<{ signature: string; amountBaseUnits: bigint; nullifier: bigint }> {
     const {
@@ -1249,7 +1182,6 @@ export async function runExternalTransferFlow(params: {
         onRootChange,
         ensureRecipientSecret,
         signMessage,
-        rescanNotes,
         onStep,
     } = params;
     const provider = getProvider(program);
@@ -1291,24 +1223,9 @@ export async function runExternalTransferFlow(params: {
         commitments = getCommitmentsWithSync(mint, owner, commitmentCount, onStatus);
     } catch (error) {
         if (isNoteStoreOutOfSyncError(error)) {
-            onStatus('Local note store missing notes. Attempting rescan before transfer...');
-            if (rescanNotes) {
-                await rescanNotes();
-            } else if (signMessage) {
-                await rescanNotesForOwner({
-                    program,
-                    mint,
-                    owner,
-                    onStatus,
-                    signMessage,
-                });
-            } else {
-                throw error;
-            }
-            commitments = getCommitmentsWithSync(mint, owner, commitmentCount, onStatus);
-        } else {
-            throw error;
+            throw new Error('Notes are out of sync. Rescan notes before transferring.');
         }
+        throw error;
     }
     let { root: derivedRoot } = await buildMerkleTree(commitments);
     let derivedRootBytes = bigIntToBytes32(derivedRoot);
@@ -1317,24 +1234,7 @@ export async function runExternalTransferFlow(params: {
         onRootChange?.(derivedRootBytes);
     }
     if (!bytesEqual(rootBytes, derivedRootBytes)) {
-        commitments = await rescanNotesWithFallback({
-            program,
-            mint,
-            owner,
-            commitmentCount,
-            onStatus,
-            signMessage,
-            rescanNotes,
-        });
-        ({ root: derivedRoot } = await buildMerkleTree(commitments));
-        derivedRootBytes = bigIntToBytes32(derivedRoot);
-        if (!bytesEqual(root, derivedRootBytes)) {
-            onStatus('Provided root does not match local notes; using on-chain root.');
-            onRootChange?.(derivedRootBytes);
-        }
-        if (!bytesEqual(rootBytes, derivedRootBytes)) {
-            throw new Error('On-chain root does not match local note store.');
-        }
+        throw new Error('On-chain root does not match local note store. Rescan notes before transferring.');
     }
 
     const spendableNotes = listSpendableNotes(mint, owner);

@@ -51,6 +51,15 @@ const App = () => {
     const { balance: shieldedBalance, credit, debit, setBalance } = useShieldedBalance(mintAddress, walletPubkey);
     const [rescanBusy, setRescanBusy] = useState(false);
     const [rescanIdentityBusy, setRescanIdentityBusy] = useState(false);
+    const [rescanProgress, setRescanProgress] = useState<{
+        phase: 'scan' | 'decrypt' | 'nullifier' | 'finalize';
+        percentTx?: number;
+        scannedTxs: number;
+    } | null>(null);
+    const [rescanIdentityProgress, setRescanIdentityProgress] = useState<{
+        processed: number;
+        total: number;
+    } | null>(null);
     const [viewKeyIndices, setViewKeyIndices] = useState<number[]>([0]);
     const addressLabels = buildAddressLabels({
         mintAddress,
@@ -142,6 +151,7 @@ const App = () => {
             return;
         }
         setRescanBusy(true);
+        setRescanProgress({ phase: 'scan', scannedTxs: 0 });
         try {
             const mint = new PublicKey(mintAddress);
             const { balance } = await rescanNotesForOwner({
@@ -149,6 +159,13 @@ const App = () => {
                 mint,
                 owner: walletPubkey,
                 onStatus: handleStatus,
+                onProgress: (progress) => {
+                    setRescanProgress({
+                        phase: progress.phase,
+                        percentTx: progress.percentTx,
+                        scannedTxs: progress.scannedTxs,
+                    });
+                },
                 signMessage: signMessage ?? undefined,
                 viewKeyIndices,
             });
@@ -157,6 +174,9 @@ const App = () => {
             handleStatus(`Rescan failed: ${error instanceof Error ? error.message : 'unknown error'}`);
         } finally {
             setRescanBusy(false);
+            window.setTimeout(() => {
+                setRescanProgress(null);
+            }, 400);
         }
     };
 
@@ -166,10 +186,14 @@ const App = () => {
             return;
         }
         setRescanIdentityBusy(true);
+        setRescanIdentityProgress({ processed: 0, total: 0 });
         try {
             await rescanIdentityRegistry({
                 program: veilpayProgram,
                 onStatus: handleStatus,
+                onProgress: (progress) => {
+                    setRescanIdentityProgress({ processed: progress.processed, total: progress.total });
+                },
                 owner: walletPubkey ?? undefined,
                 signMessage: signMessage ?? undefined,
             });
@@ -179,6 +203,7 @@ const App = () => {
             );
         } finally {
             setRescanIdentityBusy(false);
+            setRescanIdentityProgress(null);
         }
     };
 
@@ -285,8 +310,10 @@ const App = () => {
                             onRecordUpdate={handleRecordUpdate}
                             onRescanNotes={handleRescan}
                             rescanning={rescanBusy}
+                            rescanNotesProgress={rescanProgress}
                             onRescanIdentity={handleRescanIdentity}
                             rescanningIdentity={rescanIdentityBusy}
+                            rescanIdentityProgress={rescanIdentityProgress}
                             viewKeyIndices={viewKeyIndices}
                             onViewKeyIndicesChange={setViewKeyIndices}
                         />

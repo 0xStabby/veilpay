@@ -5,7 +5,6 @@ import { PublicKey } from '@solana/web3.js';
 import styles from './UserDepositCard.module.css';
 import { formatTokenAmount } from '../../lib/amount';
 import { runDepositFlow } from '../../lib/flows';
-import { rescanNotesForOwner } from '../../lib/noteScanner';
 import { fetchTransactionDetails } from '../../lib/transactions';
 import { deriveViewKeypair } from '../../lib/notes';
 import { useWallet } from '@solana/wallet-adapter-react';
@@ -26,6 +25,8 @@ type UserDepositCardProps = {
     onRecord?: (record: import('../../lib/transactions').TransactionRecord) => string;
     onRecordUpdate?: (id: string, patch: import('../../lib/transactions').TransactionRecordPatch) => void;
     embedded?: boolean;
+    flowLocked?: boolean;
+    flowLockedReason?: string | null;
 };
 
 export const UserDepositCard: FC<UserDepositCardProps> = ({
@@ -40,6 +41,8 @@ export const UserDepositCard: FC<UserDepositCardProps> = ({
     onRecord,
     onRecordUpdate,
     embedded = false,
+    flowLocked = false,
+    flowLockedReason = null,
 }) => {
     const [amount, setAmount] = useState('');
     const [depositAsset, setDepositAsset] = useState<'sol' | 'wsol'>('sol');
@@ -96,18 +99,6 @@ export const UserDepositCard: FC<UserDepositCardProps> = ({
                 onCredit,
                 signMessage: signMessage ?? undefined,
                 onStep: handleStep,
-                rescanNotes: async () => {
-                    if (!publicKey || !signMessage) {
-                        throw new Error('Connect a wallet that can sign a message to rescan notes.');
-                    }
-                    await rescanNotesForOwner({
-                        program: veilpayProgram,
-                        mint: parsedMint,
-                        owner: publicKey,
-                        onStatus,
-                        signMessage,
-                    });
-                },
                 ensureRecipientSecret: async () => {
                     if (!publicKey || !signMessage) {
                         throw new Error('Connect a wallet that can sign a message to derive view keys.');
@@ -153,6 +144,7 @@ export const UserDepositCard: FC<UserDepositCardProps> = ({
                 {embedded ? <h3>Deposit</h3> : <h2>Deposit</h2>}
                 <p>Move funds into your private balance.</p>
             </header>
+            {flowLocked && flowLockedReason && <p className={styles.locked}>{flowLockedReason}</p>}
             <FlowStepsModal
                 open={modalOpen}
                 title="Deposit in progress"
@@ -211,7 +203,11 @@ export const UserDepositCard: FC<UserDepositCardProps> = ({
                     </button>
                 )}
             </div>
-            <button className={styles.button} disabled={!parsedMint || mintDecimals === null || busy} onClick={handleDeposit}>
+            <button
+                className={styles.button}
+                disabled={!parsedMint || mintDecimals === null || busy || flowLocked}
+                onClick={handleDeposit}
+            >
                 Deposit
             </button>
         </section>

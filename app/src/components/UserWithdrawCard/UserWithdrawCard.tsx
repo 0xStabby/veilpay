@@ -25,6 +25,8 @@ type UserWithdrawCardProps = {
     onRecord?: (record: import('../../lib/transactions').TransactionRecord) => string;
     onRecordUpdate?: (id: string, patch: import('../../lib/transactions').TransactionRecordPatch) => void;
     embedded?: boolean;
+    flowLocked?: boolean;
+    flowLockedReason?: string | null;
 };
 
 export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
@@ -41,6 +43,8 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
     onRecord,
     onRecordUpdate,
     embedded = false,
+    flowLocked = false,
+    flowLockedReason = null,
 }) => {
     const [amount, setAmount] = useState('');
     const [withdrawAsset, setWithdrawAsset] = useState<'sol' | 'wsol'>('sol');
@@ -144,6 +148,7 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
                 {embedded ? <h3>Withdraw</h3> : <h2>Withdraw</h2>}
                 <p>Move funds out to your wallet.</p>
             </header>
+            {flowLocked && flowLockedReason && <p className={styles.locked}>{flowLockedReason}</p>}
             <FlowStepsModal
                 open={modalOpen}
                 title="Withdraw in progress"
@@ -193,7 +198,7 @@ export const UserWithdrawCard: FC<UserWithdrawCardProps> = ({
             </div>
             <button
                 className={styles.button}
-                disabled={!publicKey || !parsedMint || mintDecimals === null || busy}
+                disabled={!publicKey || !parsedMint || mintDecimals === null || busy || flowLocked}
                 onClick={handleWithdraw}
             >
                 Withdraw

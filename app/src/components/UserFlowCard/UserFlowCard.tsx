@@ -2,16 +2,18 @@ import { useEffect, useState, useMemo } from 'react';
 import type { FC } from 'react';
 import styles from './UserFlowCard.module.css';
 import type { Program } from '@coral-xyz/anchor';
+import { PublicKey } from '@solana/web3.js';
 import { UserDepositCard } from '../UserDepositCard';
 import { UserReceiveCard } from '../UserReceiveCard';
 import { UserWithdrawCard } from '../UserWithdrawCard';
 import { UserTransferCard } from '../UserTransferCard';
-import { deriveIdentityMember } from '../../lib/pda';
+import { deriveIdentityMember, deriveShielded } from '../../lib/pda';
 import { registerIdentityFlow } from '../../lib/flows';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { FlowStepsModal } from '../FlowSteps';
 import type { FlowStepStatus } from '../../lib/flowSteps';
 import { initStepStatus } from '../../lib/flowSteps';
+import { loadCommitments } from '../../lib/notes';
 
 type UserFlowCardProps = {
     veilpayProgram: Program | null;
@@ -31,8 +33,17 @@ type UserFlowCardProps = {
     onRecordUpdate?: (id: string, patch: import('../../lib/transactions').TransactionRecordPatch) => void;
     onRescanNotes?: () => void;
     rescanning?: boolean;
+    rescanNotesProgress?: {
+        phase: 'scan' | 'decrypt' | 'nullifier' | 'finalize';
+        percentTx?: number;
+        scannedTxs: number;
+    } | null;
     onRescanIdentity?: () => void;
     rescanningIdentity?: boolean;
+    rescanIdentityProgress?: {
+        processed: number;
+        total: number;
+    } | null;
     viewKeyIndices?: number[];
     onViewKeyIndicesChange?: (indices: number[]) => void;
 };
@@ -57,8 +68,10 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
     onRecordUpdate,
     onRescanNotes,
     rescanning = false,
+    rescanNotesProgress = null,
     onRescanIdentity,
     rescanningIdentity = false,
+    rescanIdentityProgress = null,
     viewKeyIndices,
     onViewKeyIndicesChange,
 }) => {
@@ -68,6 +81,8 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
     );
     const [registerBusy, setRegisterBusy] = useState(false);
     const [registerModalOpen, setRegisterModalOpen] = useState(false);
+    const [notesSyncStatus, setNotesSyncStatus] = useState<'unknown' | 'loading' | 'ok' | 'stale'>('unknown');
+    const [notesSyncMessage, setNotesSyncMessage] = useState<string | null>(null);
     const { publicKey, signMessage } = useWallet();
     const registerSteps = useMemo(
         () => [
@@ -104,6 +119,78 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
             alive = false;
         };
     }, [veilpayProgram, publicKey]);
+
+    useEffect(() => {
+        let alive = true;
+        const checkNotesSync = async () => {
+            if (!veilpayProgram || !publicKey || !mintAddress) {
+                if (alive) {
+                    setNotesSyncStatus('unknown');
+                    setNotesSyncMessage(null);
+                }
+                return;
+            }
+            let mint: PublicKey;
+            try {
+                mint = new PublicKey(mintAddress);
+            } catch {
+                if (alive) {
+                    setNotesSyncStatus('unknown');
+                    setNotesSyncMessage('Invalid mint address.');
+                }
+                return;
+            }
+            setNotesSyncStatus('loading');
+            setNotesSyncMessage(null);
+            try {
+                const shieldedState = deriveShielded(veilpayProgram.programId, mint);
+                const account = await (veilpayProgram.account as any).shieldedState.fetch(shieldedState, 'confirmed');
+                const commitmentCount = Number(
+                    account.commitmentCount?.toString?.() ?? account.commitment_count?.toString?.() ?? 0
+                );
+                const local = loadCommitments(mint, publicKey);
+                if (!alive) return;
+                if (commitmentCount === 0 && local.commitments.length === 0) {
+                    setNotesSyncStatus('ok');
+                    setNotesSyncMessage(null);
+                    return;
+                }
+                if (!local.complete) {
+                    setNotesSyncStatus('stale');
+                    setNotesSyncMessage('Notes cache incomplete. Rescan required.');
+                    return;
+                }
+                if (local.commitments.length !== commitmentCount) {
+                    setNotesSyncStatus('stale');
+                    setNotesSyncMessage('Notes are out of date. Rescan required.');
+                    return;
+                }
+                setNotesSyncStatus('ok');
+                setNotesSyncMessage(null);
+            } catch (error) {
+                if (!alive) return;
+                setNotesSyncStatus('unknown');
+                setNotesSyncMessage(
+                    error instanceof Error ? `Unable to check notes sync: ${error.message}` : 'Unable to check notes sync.'
+                );
+            }
+        };
+        void checkNotesSync();
+        return () => {
+            alive = false;
+        };
+    }, [veilpayProgram, publicKey, mintAddress, rescanning]);
+
+    const flowLockedForSpend = notesSyncStatus !== 'ok' || rescanning;
+    const flowLockedForSpendReason =
+        (rescanning ? 'Rescanning notes. Please wait.' : null) ??
+        (notesSyncStatus === 'loading' ? 'Checking notes sync...' : null) ??
+        (notesSyncStatus === 'stale'
+            ? 'Notes are out of date. Rescan required to use transfers and withdrawals.'
+            : null) ??
+        notesSyncMessage;
+    const flowLockedForDeposit = notesSyncStatus === 'stale';
+    const flowLockedForDepositReason = notesSyncMessage;
 
     const handleRegister = async () => {
         if (!veilpayProgram || !publicKey) {
@@ -220,6 +307,84 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
                         )}
                     </div>
                 )}
+                {flowLockedForSpend && flowLockedForSpendReason && (
+                    <div className={styles.syncWarning}>{flowLockedForSpendReason}</div>
+                )}
+                {rescanning && (
+                    <div className={styles.scanProgress} role="status" aria-live="polite">
+                        <div className={styles.scanHeader}>
+                            <span>Scanning notes</span>
+                            <span className={styles.scanMeta}>
+                                {rescanNotesProgress?.percentTx !== undefined
+                                    ? `${Math.round(rescanNotesProgress.percentTx * 100)}%`
+                                    : '--%'}
+                                {' • '}
+                                {rescanNotesProgress?.scannedTxs ?? 0} txs
+                            </span>
+                        </div>
+                        <div className={styles.scanBar}>
+                            <div
+                                className={styles.scanFill}
+                                style={{
+                                    width: (() => {
+                                        const tx = rescanNotesProgress?.percentTx;
+                                        const hasTx = tx !== undefined;
+                                        return hasTx
+                                            ? `${Math.min(100, Math.max(2, tx * 100))}%`
+                                            : '35%';
+                                    })(),
+                                }}
+                                data-indeterminate={
+                                    rescanNotesProgress?.percentTx === undefined
+                                        ? 'true'
+                                        : 'false'
+                                }
+                            />
+                        </div>
+                        <div className={styles.scanPhase}>
+                            {rescanNotesProgress?.phase ? `Phase: ${rescanNotesProgress.phase}` : 'Phase: scan'}
+                        </div>
+                    </div>
+                )}
+                {rescanningIdentity && (
+                    <div className={styles.scanProgress} role="status" aria-live="polite">
+                        <div className={styles.scanHeader}>
+                            <span>Rescanning identity</span>
+                            <span className={styles.scanMeta}>
+                                {rescanIdentityProgress && rescanIdentityProgress.total > 0
+                                    ? `${Math.round(
+                                          (rescanIdentityProgress.processed / rescanIdentityProgress.total) * 100
+                                      )}%`
+                                    : 'Working'}
+                            </span>
+                        </div>
+                        <div className={styles.scanBar}>
+                            <div
+                                className={styles.scanFill}
+                                style={{
+                                    width:
+                                        rescanIdentityProgress && rescanIdentityProgress.total > 0
+                                            ? `${Math.min(
+                                                  100,
+                                                  Math.max(
+                                                      2,
+                                                      (rescanIdentityProgress.processed / rescanIdentityProgress.total) * 100
+                                                  )
+                                              )}%`
+                                            : '35%',
+                                }}
+                                data-indeterminate={
+                                    rescanIdentityProgress && rescanIdentityProgress.total > 0 ? 'false' : 'true'
+                                }
+                            />
+                        </div>
+                        <div className={styles.scanPhase}>
+                            {rescanIdentityProgress && rescanIdentityProgress.total > 0
+                                ? `${rescanIdentityProgress.processed} / ${rescanIdentityProgress.total} txs`
+                                : 'Phase: decode'}
+                        </div>
+                    </div>
+                )}
             </header>
 
             <div className={styles.content}>
@@ -236,6 +401,8 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
                         onCredit={onCredit}
                         onRecord={onRecord}
                         onRecordUpdate={onRecordUpdate}
+                        flowLocked={flowLockedForDeposit}
+                        flowLockedReason={flowLockedForDepositReason}
                     />
                 )}
                 {activeTab === 'receive' && (
@@ -261,6 +428,8 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
                         onRootChange={onRootChange}
                         onRecord={onRecord}
                         onRecordUpdate={onRecordUpdate}
+                        flowLocked={flowLockedForSpend}
+                        flowLockedReason={flowLockedForSpendReason}
                     />
                 )}
                 {activeTab === 'transfer' && (
@@ -278,6 +447,8 @@ export const UserFlowCard: FC<UserFlowCardProps> = ({
                         onDebit={onDebit}
                         onRecord={onRecord}
                         onRecordUpdate={onRecordUpdate}
+                        flowLocked={flowLockedForSpend}
+                        flowLockedReason={flowLockedForSpendReason}
                     />
                 )}
             </div>

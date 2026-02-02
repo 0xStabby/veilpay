@@ -81,6 +81,78 @@
     }
 }
 
+.scanProgress {
+    padding: 0 0.9rem 0.9rem;
+    display: grid;
+    gap: 0.35rem;
+}
+
+.syncWarning {
+    padding: 0 0.9rem 0.6rem;
+    color: var(--danger);
+    font-size: 0.75rem;
+}
+
+.scanHeader {
+    display: flex;
+    justify-content: space-between;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
+.scanMeta {
+    color: var(--text);
+}
+
+.scanBar {
+    width: 100%;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.scanFill {
+    height: 100%;
+    background: linear-gradient(90deg, rgba(106, 227, 255, 0.3), var(--accent));
+    border-radius: 999px;
+    transition: width 0.25s ease;
+    animation: scanPulse 1.6s ease-in-out infinite;
+}
+
+.scanFill[data-indeterminate='true'] {
+    width: 35%;
+    animation: scanSweep 1.6s ease-in-out infinite;
+}
+
+.scanPhase {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+}
+
+
+@keyframes scanPulse {
+    0%,
+    100% {
+        opacity: 0.6;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+
+@keyframes scanSweep {
+    0% {
+        transform: translateX(-30%);
+    }
+    50% {
+        transform: translateX(60%);
+    }
+    100% {
+        transform: translateX(-30%);
+    }
+}
+
 .tab {
     border: 1px solid var(--border-strong);
     padding: 0.45rem 0.5rem;

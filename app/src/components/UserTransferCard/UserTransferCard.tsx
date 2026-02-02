@@ -27,6 +27,8 @@ export type UserTransferCardProps = {
     onRecord?: (record: import('../../lib/transactions').TransactionRecord) => string;
     onRecordUpdate?: (id: string, patch: import('../../lib/transactions').TransactionRecordPatch) => void;
     embedded?: boolean;
+    flowLocked?: boolean;
+    flowLockedReason?: string | null;
 };
 
 export const UserTransferCard: FC<UserTransferCardProps> = ({
@@ -43,6 +45,8 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
     onRecord,
     onRecordUpdate,
     embedded = false,
+    flowLocked = false,
+    flowLockedReason = null,
 }) => {
     const [internalRecipient, setInternalRecipient] = useState('');
     const [internalAmount, setInternalAmount] = useState('');
@@ -228,6 +232,7 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
                 {embedded ? <h3>Transfers</h3> : <h2>Transfers</h2>}
                 <p>Send privately inside VeilPay or externally.</p>
             </header>
+            {flowLocked && flowLockedReason && <p className={styles.locked}>{flowLockedReason}</p>}
             <div className={styles.column}>
                 <h3>Internal</h3>
                 <FlowStepsModal
@@ -263,7 +268,11 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
                         placeholder="recipient view key (x:y hex)"
                     />
                 </label>
-                <button className={styles.button} disabled={!parsedInternalRecipient || !parsedMint || busy} onClick={handleInternal}>
+                <button
+                    className={styles.button}
+                    disabled={!parsedInternalRecipient || !parsedMint || busy || flowLocked}
+                    onClick={handleInternal}
+                >
                     Send internally
                 </button>
             </div>
@@ -301,7 +310,7 @@ export const UserTransferCard: FC<UserTransferCardProps> = ({
                 </label>
                 <button
                     className={styles.button}
-                    disabled={!parsedExternalRecipient || !parsedMint || mintDecimals === null || busy}
+                    disabled={!parsedExternalRecipient || !parsedMint || mintDecimals === null || busy || flowLocked}
                     onClick={handleExternal}
                 >
                     Send externally

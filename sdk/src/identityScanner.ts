@@ -157,13 +157,14 @@ const parseRegisterIdentityArgs = (
 export async function rescanIdentityRegistry(params: {
   program: Program;
   onStatus?: (message: string) => void;
+  onProgress?: (progress: { phase: "decode"; processed: number; total: number }) => void;
   maxSignatures?: number;
   owner?: PublicKey;
   connectionOverride?: Connection;
   signMessage?: (message: Uint8Array) => Promise<Uint8Array>;
   scanAll?: boolean;
 }) {
-  const { program, onStatus, maxSignatures, owner, connectionOverride, signMessage } = params;
+  const { program, onStatus, onProgress, maxSignatures, owner, connectionOverride, signMessage } = params;
   const scanAll = params.scanAll ?? true;
   const connection = connectionOverride ?? program.provider.connection;
   const identityRegistryPda = PublicKey.findProgramAddressSync(
@@ -247,6 +248,9 @@ export async function rescanIdentityRegistry(params: {
     .sort((a, b) => a[1] - b[1])
     .map(([sig]) => sig);
   onStatus?.(`Identity registry scan: signatures=${orderedSignatures.length}.`);
+  if (orderedSignatures.length > 0) {
+    onProgress?.({ phase: "decode", processed: 0, total: orderedSignatures.length });
+  }
 
   const commitments: bigint[] = [];
   let decodedCount = 0;
@@ -256,6 +260,7 @@ export async function rescanIdentityRegistry(params: {
   let matchedCommitment: bigint | null = null;
   let matchedCommitmentHex: string | null = null;
   let matchedNewRootHex: string | null = null;
+  let processed = 0;
   for (const sig of orderedSignatures) {
     if (count > 1 && commitments.length >= count) break;
     if (count === 1 && matchedCommitment !== null) break;
@@ -360,6 +365,10 @@ export async function rescanIdentityRegistry(params: {
       if (handled) {
         continue;
       }
+    }
+    processed += 1;
+    if (onProgress) {
+      onProgress({ phase: "decode", processed, total: orderedSignatures.length });
     }
   }
 

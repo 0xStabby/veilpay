@@ -29,7 +29,6 @@ import { buildLutVersionedTransaction } from '../../lib/lut';
 import { PubkeyBadge } from '../PubkeyBadge';
 import { wrapSolToWsol } from '../../lib/adminSetup';
 import { runDepositFlow, runExternalTransferFlow, runInternalTransferFlow } from '../../lib/flows';
-import { rescanNotesForOwner } from '../../lib/noteScanner';
 import { deriveViewKeypair, serializeViewKey } from '../../lib/notes';
 import type { TransactionRecord, TransactionRecordPatch } from '../../lib/transactions';
 import { createTransactionRecord, fetchTransactionDetails } from '../../lib/transactions';
@@ -689,15 +688,6 @@ export const MultiWalletTesterCard: FC<MultiWalletTesterCardProps> = ({
                     },
                     onCredit: () => undefined,
                     signMessage: signMessageFor(walletA),
-                    rescanNotes: async () => {
-                        await rescanNotesForOwner({
-                            program: programsA.veilpay,
-                            mint: parsedMint,
-                            owner: walletA.publicKey,
-                            onStatus: stepStatus('Rescan A'),
-                            signMessage: signMessageFor(walletA),
-                        });
-                    },
                     ensureRecipientSecret: async () => {
                         await ensureRecipientSecretFor(walletA);
                     },
