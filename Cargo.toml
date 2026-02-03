@@ -1,7 +1,10 @@
 [workspace]
 members = [
-    "programs/*"
-, "tools/ark-prover", "tools/groth16-fixture"]
+  "programs/*",
+# "tools/ark-prover",
+# "tools/groth16-fixture"
+]
+exclude = ["tools/*"]
 resolver = "2"
 
 [profile.release]
